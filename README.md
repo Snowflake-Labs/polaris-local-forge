@@ -1,13 +1,11 @@
 # Apache Polaris Starter Kit with LocalStack on k3s
 
-[![Build Polaris Admin Tool PostgreSQL](https://github.com/kameshsampath/polaris-local-forge/actions/workflows/polaris-admin-tool.yml/badge.svg)](https://github.com/kameshsampath/polaris-local-forge/actions/workflows/polaris-admin-tool.yml)
-[![Build PolarisServer with PostgreSQL](https://github.com/kameshsampath/polaris-local-forge/actions/workflows/polaris-server-image.yml/badge.svg)](https://github.com/kameshsampath/polaris-local-forge/actions/workflows/polaris-server-image.yml)
+[![Build Polaris Admin Tool PostgreSQL](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-admin-tool.yml/badge.svg)](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-admin-tool.yml)
+[![Build PolarisServer with PostgreSQL](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-server-image.yml/badge.svg)](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-server-image.yml)
 ![k3d](https://img.shields.io/badge/k3d-v5.6.0-427cc9)
 ![Docker Desktop](https://img.shields.io/badge/Docker%20Desktop-v4.27-0db7ed)
 ![Apache Polaris](https://img.shields.io/badge/Apache%20Polaris-1.0.0--SNAPSHOT-f9a825)
 ![LocalStack](https://img.shields.io/badge/LocalStack-3.0.0-46a831)
-
-## Synopsis
 
 This starter kit provides a complete development environment for Apache Polaris with LocalStack integration running on k3s Kubernetes. It includes automated setup of PostgreSQL metastore, S3 integration via LocalStack, and all necessary configurations for immediate development use. The kit uses Kustomize for Kubernetes deployments and provides utilities for secure key generation and credential management.
 
@@ -37,7 +35,7 @@ Key features:
 Clone the repository:
 
 ```bash
-git clone https://github.com/kameshsampath/polaris-local-forge
+git clone https://github.com/snowflake-labs/polaris-local-forge
 cd polaris-local-forge
 ```
 
@@ -68,6 +66,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 Set up Python environment:
 
 ```bash
+# Pin python version
+uv python pin 3.12
 # Install and set up Python environment
 uv venv
 # On Unix-like systems
@@ -212,8 +212,8 @@ service/localstack   NodePort   10.43.112.185   <none>        4566:31566/TCP,...
 Currently, Apache Polaris does not publish any official images. The Apache Polaris images used by the repo are available at:
 
 ```
-docker pull ghcr.io/kameshsampath/polaris-forge-setup/apache-polaris-server-pgsql
-docker pull ghcr.io/kameshsampath/polaris-forge-setup/apache-polaris-admin-tool-pgsql
+docker pull ghcr.io/snowflake-labs/polaris-local-forge/apache-polaris-server-pgsql
+docker pull ghcr.io/snowflake-labs/polaris-local-forge/apache-polaris-admin-tool-pgsql
 ```
 
 The images are built with PostgreSQL as database dependency.
@@ -325,6 +325,17 @@ Next, we will do the following:
 - Create Principal `root` with Principal Role `admin`
 - Create Catalog Role `sudo`, assign the role to Principal Role `admin`
 - Finally, grant the Catalog Role `sudo` to manage catalog via `CATALOG_MANAGE_CONTENT` role. This will make the principals with role `admin` able to manage the catalog.
+
+Setup the environment variables,
+
+```shell
+# just avoid colliding with existing AWS profiles
+unset AWS_PROFILE
+export AWS_ENDPOINT_URL=http://localstack.localstack:4566
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+export AWS_REGION=us-east-1
+```
 
 ```shell
 $PROJECT_HOME/polaris-forge-setup/catalog_setup.yml
