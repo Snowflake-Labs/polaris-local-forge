@@ -1,0 +1,16 @@
+extends: default
+line-length:
+    max: 120
+    allow-non-breakable-words: true
+indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+comments:
+    require-starting-space: true
+    ignore-shebangs: true
+    min-spaces-from-content: 2
+new-lines:
+    type: platform
+braces:
+    forbid: true

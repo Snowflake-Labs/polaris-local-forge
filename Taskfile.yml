@@ -1,0 +1,82 @@
+# https://taskfile.dev
+
+version: "3"
+
+vars:
+    IMAGE_REGISTRY: k3d-registry.localhost:5001
+    POLARIS_IMAGE_NAME: polaris-local-forge/apache-polaris-server-pgsql
+    POLARIS_ADMIN_TOOL_IMAGE_NAME: polaris-local-forge/apache-polaris-admin-tool-pgsql
+    ECLIPSE_LINK_DEPS: "org.postgresql:postgresql:42.7.4"
+
+tasks:
+    clone_repo:
+        cmds:
+            - rm -rf work/polaris
+            - git clone https://github.com/apache/polaris work/polaris
+        silent: true
+    build-server:
+        dir: work/polaris
+        deps:
+            - task: clone_repo
+        cmds:
+            - >-
+                ./gradlew clean :polaris-quarkus-server:build
+                -PeclipseLinkDeps={{.ECLIPSE_LINK_DEPS}}
+                -Dquarkus.container-image.build=true
+                -Dquarkus.container-image.group=
+                -Dquarkus.container-image.name={{.POLARIS_IMAGE_NAME}}
+                -Dquarkus.container-image.tag=latest
+                -Dquarkus.container-image.push=true
+                -Dquarkus.container-image.registry={{.IMAGE_REGISTRY}}
+        silent: false
+    build-admin:
+        dir: work/polaris
+        cmds:
+            - >-
+                ./gradlew clean :polaris-quarkus-admin:build
+                -PeclipseLinkDeps={{.ECLIPSE_LINK_DEPS}}
+                -Dquarkus.container-image.build=true
+                -Dquarkus.container-image.group=
+                -Dquarkus.container-image.name={{.POLARIS_ADMIN_TOOL_IMAGE_NAME}}
+                -Dquarkus.container-image.tag=latest
+                -Dquarkus.container-image.push=true
+                -Dquarkus.container-image.registry={{.IMAGE_REGISTRY}}
+        silent: false
+
+    images:
+        cmds:
+            - task: clone_repo
+            - task: build-server
+            - task: build-admin
+
+    start-postgresql:
+        silent: true
+        cmds:
+            - >-
+                docker run --name polaris-pg -p 5432:5432 -e POSTGRES_DB=polaris
+                -e POSTGRES_PASSWORD=password123 -d postgres
+    polaris-server:
+        silent: false
+        dir: work/polaris
+        cmds:
+            - >-
+                ./gradlew clean :polaris-quarkus-server:quarkusDev
+                -Dquarkus.profile=dev -Dpolaris.persistence.type=eclipse-link
+                -Dpolaris.persistence.eclipselink.configuration-file=/Users/ksampath/mylabs/localstack/polaris/work/config/persistence.xml
+                -Dpolaris.persistence.eclipselink.persistence-unit=polaris-dev
+                -Dquarkus.log.console.level=DEBUG
+                -Dquarkus.log.category."io.smallrye.config".level=DEBUG
+
+    bootstrap:
+        silent: false
+        dir: work/polaris
+        cmds:
+            - >-
+                ./gradlew clean :polaris-quarkus-admin:build
+                -PeclipseLinkDeps={{.ECLIPSE_LINK_DEPS}}
+            - >-
+                java
+                -Dpolaris.persistence.eclipselink.configuration-file=/Users/ksampath/mylabs/localstack/polaris/work/config/persistence.xml
+                -Dpolaris.persistence.eclipselink.persistence-unit=polaris-dev
+                -jar quarkus/admin/build/polaris-quarkus-admin-*-runner.jar
+                bootstrap -c="polaris,myuser,password" -r="polaris"

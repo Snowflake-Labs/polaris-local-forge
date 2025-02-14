@@ -1,0 +1,267 @@
+#!ansible-playbook
+---
+# Main playbook for setting up Polaris Local Forge environment
+- name: Set up your first Polaris catalog
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - defaults/main.yml
+
+  tasks:
+    # Create s3 bucket that will be used as the warehouse
+    - name: Create s3 bucket
+      amazon.aws.s3_bucket:
+        name: "{{ plf_catalog_name }}"
+        state: present
+        region: "{{ plf_aws_region }}"
+        aws_endpoint_url: "{{ plf_aws_endpoint_url }}"
+        tags:
+          Name: "Polaris Catalog"
+      tags:
+        - setup
+        - s3
+
+    # Directory Setup
+    - name: Ensure work directory exists
+      ansible.builtin.file:
+        path: "{{ plf_work_dir }}"
+        state: directory
+        mode: "0755"
+      tags:
+        - setup
+        - directory
+
+    - name: Parse bootstrap credentials
+      ansible.builtin.set_fact:
+        credential:
+          "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',') |
+          list }}"
+      tags:
+        - auth
+        - token
+
+    - name: Set credential variables
+      ansible.builtin.set_fact:
+        realm: "{{ credential[0] }}"
+        client_id: "{{ credential[1] }}"
+        client_secret: "{{ credential[2] }}"
+      tags:
+        - auth
+        - token
+
+    # Authentication
+    - name: Get access token
+      ansible.builtin.uri:
+        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/catalog/v1/oauth/tokens"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ client_id }}:{{ client_secret }}"
+          accept: application/json
+          content-type: application/x-www-form-urlencoded
+          Polaris-Realm: "{{ realm }}"
+        body_format: form-urlencoded
+        body:
+          grant_type: client_credentials
+          client_id: "{{ client_id }}"
+          client_secret: "{{ client_secret }}"
+          scope: "PRINCIPAL_ROLE:ALL"
+        status_code: [200]
+      register: token_response
+      tags:
+        - auth
+        - token
+
+    - name: Set access token
+      ansible.builtin.set_fact:
+        access_token: "{{ token_response.json.access_token }}"
+      tags:
+        - auth
+        - token
+
+    - name: Print access token
+      ansible.builtin.debug:
+        var: access_token
+      tags:
+        - auth
+        - token
+        - debug
+
+    # Catalog Setup
+    - name: Create Polaris catalog {{ plf_catalog_name }}
+      ansible.builtin.uri:
+        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/catalogs"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ access_token }}"
+          accept: application/json
+          content-type: application/json
+          Polaris-Realm: "{{ realm }}"
+        body_format: json
+        body:
+          catalog:
+            name: "{{ plf_catalog_name }}"
+            type: "INTERNAL"
+            readOnly: false
+            properties:
+              default-base-location: "{{ plf_base_s3_location }}"
+              s3.path-style-access: true
+              table-default.s3.path-style-access: true
+              table-default.s3.endpoint: "{{ plf_aws_endpoint_url }}"
+              s3.endpoint: "{{ plf_aws_endpoint_url }}"
+              s3.region: "{{ plf_aws_region }}"
+            storageConfigInfo:
+              storageType: "S3"
+              allowedLocations:
+                - "{{ plf_base_s3_location }}"
+              roleArn: "{{ plf_aws_role_arn }}"
+        status_code: [201, 409] # Allow 409 for idempotency (already exists)
+      register: catalog_response
+      tags:
+        - catalog
+
+    # Principal Setup
+    - name: Create principal user {{ plf_admin_username }}
+      ansible.builtin.uri:
+        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/principals"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ access_token }}"
+          accept: application/json
+          content-type: application/json
+          Polaris-Realm: "{{ realm }}"
+        body_format: json
+        body:
+          name: "{{ plf_admin_username }}"
+          type: "user"
+        status_code: [201, 409] # Allow 409 for idempotency
+      register: principal_response
+      tags:
+        - principal
+        - token
+
+    - name: Print principal credentials
+      ansible.builtin.debug:
+        var: principal_response.json
+      tags:
+        - auth
+        - token
+        - principal
+        - debug
+
+    # Save Principal Credentials
+    - name: Write principal credentials to file {{ plf_work_dir }}/principal.txt
+      ansible.builtin.copy:
+        content: "{{ realm }},{{ principal_response.json.credentials.clientId }},{{
+          principal_response.json.credentials.clientSecret }}"
+        dest: "{{ plf_work_dir }}/principal.txt"
+        force: true
+        mode: "0600" # Secure file permissions
+      when: principal_response.status == 201 # Only write if principal was newly created
+      tags:
+        - principal
+        - token
+
+    # Role Setup
+    - name: Create principal role {{ plf_admin_role }}
+      ansible.builtin.uri:
+        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/principal-roles"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ access_token }}"
+          accept: application/json
+          content-type: application/json
+          Polaris-Realm: "{{ realm }}"
+        body_format: json
+        body:
+          name: "{{ plf_admin_role }}"
+        status_code: [201, 409] # Allow 409 for idempotency
+      tags:
+        - roles
+        - principal
+        - token
+
+    # Role Assignment
+    - name: Assign role to principal
+      ansible.builtin.uri:
+        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/principals/{{ plf_admin_username
+          }}/principal-roles"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ access_token }}"
+          accept: application/json
+          content-type: application/json
+          Polaris-Realm: "{{ realm }}"
+        body_format: json
+        body:
+          principalRole:
+            name: "{{ plf_admin_role }}"
+        status_code: [201, 409] # Allow 409 for idempotency
+      tags:
+        - roles
+        - principal
+        - token
+
+    - name: Create catalog role {{ plf_catalog_role }}
+      ansible.builtin.uri:
+        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/catalogs/{{ plf_catalog_name }}/catalog-roles"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ access_token }}"
+          accept: application/json
+          content-type: application/json
+          Polaris-Realm: "{{ realm }}"
+        body_format: json
+        body:
+          catalogRole:
+            name: "{{ plf_catalog_role }}"
+        status_code: [201, 409] # Allow 409 for idempotency
+      tags:
+        - roles
+        - catalog
+        - token
+
+    - name: Assign catalog role to principal role
+      ansible.builtin.uri:
+        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/principal-roles/{{ plf_admin_role
+          }}/catalog-roles/{{ plf_catalog_name }}"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ access_token }}"
+          accept: application/json
+          content-type: application/json
+          Polaris-Realm: "{{ realm }}"
+        body_format: json
+        body:
+          catalogRole:
+            name: "{{ plf_catalog_role }}"
+        status_code: [201, 409] # Allow 409 for idempotency
+      tags:
+        - roles
+        - catalog
+        - principal
+        - token
+
+    # Grant Assignment
+    - name: Assign grants to catalog role on catalog
+      ansible.builtin.uri:
+        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/catalogs/{{ plf_catalog_name
+          }}/catalog-roles/{{ plf_catalog_role }}/grants"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ access_token }}"
+          accept: application/json
+          content-type: application/json
+          Polaris-Realm: "{{ realm }}"
+        body_format: json
+        body:
+          grant:
+            type: "{{ grant_type | default('catalog') }}"
+            privilege: "{{ grant_privilege | default('CATALOG_MANAGE_CONTENT') }}"
+        status_code: [201, 409] # Allow 409 for idempotency
+      tags:
+        - grants
+        - catalog
+        - principal
+        - token

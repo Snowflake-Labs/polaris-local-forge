@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: polaris-bootstrap
+  annotations:
+    description: "Polaris bootstrap job - will setup polaris bootstrap credentials"
+spec:
+  backoffLimit: 3 # Maximum number of retries
+  template:
+    metadata:
+      labels:
+        app: bootstrap
+    spec:
+      serviceAccountName: polaris
+      restartPolicy: OnFailure # Required for Jobs
+      containers:
+        - name: bootstrap
+          image: ghcr.io/kameshsampath/polaris-local-forge/apache-polaris-admin-tool-pgsql
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: polaris-properties
+          env:
+            - name: CREDENTIAL
+              valueFrom:
+                secretKeyRef:
+                  name: bootstrap-credentials
+                  key: credential
+            - name: REALM
+              valueFrom:
+                secretKeyRef:
+                  name: bootstrap-credentials
+                  key: realm
+          args:
+            - bootstrap
+            - "--credential=$(CREDENTIAL)"
+            - "--realm=$(REALM)"
+          resources:
+            limits:
+              memory: "1024Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: persistence-config
+              mountPath: /polaris/config
+      volumes:
+        - name: persistence-config
+          configMap:
+            name: persistence-config

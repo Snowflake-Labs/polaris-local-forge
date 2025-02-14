@@ -1,0 +1,42 @@
+---
+- name: Get tables in Namespace
+  ansible.builtin.uri:
+    url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/catalog/v1/{{ plf_catalog_name }}/namespaces/{{ item }}/tables"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ access_token }}"
+      Accept: application/json
+      Content-Type: application/json
+      Polaris-Realm: "{{ realm }}"
+    status_code:
+      - 200
+  register: table_response
+  tags:
+    - cleanup
+    - catalog
+    - token
+
+- name: Print table
+  ansible.builtin.debug:
+    var: table_response
+  tags:
+    - debug
+
+- name: Drop Table in Namespace
+  ansible.builtin.uri:
+    url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/catalog/v1/{{ plf_catalog_name }}/namespaces/{{ item }}/tables/{{ item_table.name }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ access_token }}"
+      Polaris-Realm: "{{ realm }}"
+    status_code:
+      - 204
+      - 404
+  loop: "{{ table_response.json.identifiers }}"
+  loop_control:
+    label: "{{ item_table.name }}"
+    loop_var: item_table
+  tags:
+    - cleanup
+    - catalog
+    - token

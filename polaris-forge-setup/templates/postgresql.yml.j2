@@ -1,0 +1,20 @@
+---
+# https://github.com/bitnami/charts/tree/main/bitnami/postgresql/#installing-the-chart
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: postgresql
+  namespace: kube-system
+spec:
+  chart: oci://registry-1.docker.io/bitnamicharts/postgresql
+  createNamespace: true
+  targetNamespace: polaris
+  valuesContent: |-
+    global:
+      postgresql:
+        auth:
+          username: {{ plf_jdbc_username }}
+          postgresPassword: {{ plf_jdbc_password }}
+          database: {{ plf_polaris_database }}
+    image:
+      tag: 14.15.0-debian-12-r12

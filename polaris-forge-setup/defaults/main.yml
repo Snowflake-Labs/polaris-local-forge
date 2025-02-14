@@ -1,0 +1,31 @@
+# defaults/main.yml
+---
+# AWS LocalStack Configuration
+plf_aws_endpoint_url: http://localstack.localstack:4566 # LocalStack endpoint in k3s
+plf_aws_region: us-east-1 # AWS region for LocalStack
+plf_aws_role_arn: arn:aws:iam::000000000000:role/Admin # Default role ARN for LocalStack
+
+# Polaris API Configuration
+plf_api_host: localhost # Polaris API host
+plf_api_port: 18181 # Default Polaris API port
+plf_realm: POLARIS # Polaris realm name
+
+# Catalog Configuration
+plf_catalog_name: polardb # Name of the Polaris catalog
+plf_base_s3_location: "s3://{{ plf_catalog_name }}" # S3 location for catalog storage
+
+# Security Configuration
+plf_admin_username: super_user # Superuser for Polaris
+plf_admin_role: admin # Admin role name
+plf_catalog_role: sudo # Catalog role name
+
+# File System Configuration
+plf_work_dir: "{{ playbook_dir }}/../work" # Work directory for storing credentials
+plf_k8s_dir: "{{ playbook_dir }}/../k8s"
+plf_credentials_file: "{{ plf_k8s_dir }}/polaris/.bootstrap-credentials.env" # Bootstrap credentials location
+
+# Polaris Metastore configuration
+plf_jpa_persistence_unit_name: polaris-dev
+plf_jdbc_username: postgres
+plf_polaris_database: polaris
+plf_jdbc_url: "jdbc:postgresql://postgresql:5432/{{ plf_polaris_database }}"

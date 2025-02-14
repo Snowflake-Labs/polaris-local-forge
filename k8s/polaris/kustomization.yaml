@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: polaris
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - files:
+      - persistence.xml=persistence.xml
+    name: persistence-config
+  - envs:
+      - .polaris.env
+    name:
+      polaris-properties
+
+      # TODO: Check if Polaris supports encrypted keys
+      # - private-key-passphrase=keys/passphrase
+secretGenerator:
+  - files:
+      - private-key=rsa_key
+      - public-key=rsa_key.pub
+    name: polaris-credentials
+  - envs:
+      - .bootstrap-credentials.env
+    name: bootstrap-credentials
+
+resources:
+  - sa.yaml
+  - rbac.yaml
+  - deployment.yaml
+  - service.yaml
+  - jobs
+
+labels:
+  - includeSelectors: true
+    pairs:
+      kubernetes.io/component: polaris

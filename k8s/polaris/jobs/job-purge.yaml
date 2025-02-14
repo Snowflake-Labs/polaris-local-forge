@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: polaris-purge
+  annotations:
+    description: "Polaris purge job - manually trigger when needed"
+spec:
+  suspend: true # Job is created but won't start automatically
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: purge
+    spec:
+      serviceAccountName: polaris
+      restartPolicy: OnFailure
+      containers:
+        - name: purge
+          image: ghcr.io/kameshsampath/polaris-local-forge/apache-polaris-admin-tool-pgsql
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: polaris-properties
+          env:
+            - name: REALM
+              valueFrom:
+                secretKeyRef:
+                  name: bootstrap-credentials
+                  key: realm
+          args:
+            - purge
+            - "--realm=$(REALM)"
+          resources:
+            limits:
+              memory: "1024Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: persistence-config
+              mountPath: /polaris/config
+      volumes:
+        - name: persistence-config
+          configMap:
+            name: persistence-config

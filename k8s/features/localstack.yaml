@@ -1,0 +1,13 @@
+---
+# https://github.com/localstack/helm-charts
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: localstack
+  namespace: kube-system
+spec:
+  repo: https://helm.localstack.cloud
+  chart: localstack
+  createNamespace: true
+  targetNamespace: localstack
+  valuesContent:

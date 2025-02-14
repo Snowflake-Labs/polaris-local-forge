@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: polaris
+spec:
+  selector:
+    app: polaris
+  ports:
+    - port: 8181
+      targetPort: 8181
+      nodePort: 32181
+  type: LoadBalancer

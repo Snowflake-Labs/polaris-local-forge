@@ -1,0 +1,27 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: polaris-credentials-reader
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["polaris-credentials", "root-credentials"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["persistence-config", "polaris-properties"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: polaris-credentials-binding
+subjects:
+  - kind: ServiceAccount
+    name: polaris
+    namespace: polaris
+roleRef:
+  kind: Role
+  name: polaris-credentials-reader
+  apiGroup: rbac.authorization.k8s.io
