@@ -14,7 +14,7 @@ spec:
       serviceAccountName: polaris
       containers:
         - name: polaris
-          image: ghcr.io/kameshsampath/polaris-local-forge/apache-polaris-server-pgsql
+          image: ghcr.io/snowflake-labs/polaris-local-forge/apache-polaris-server-pgsql
           imagePullPolicy: Always
           envFrom:
             - configMapRef:

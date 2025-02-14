@@ -16,7 +16,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: purge
-          image: ghcr.io/kameshsampath/polaris-local-forge/apache-polaris-admin-tool-pgsql
+          image: ghcr.io/snowflake-labs/polaris-local-forge/apache-polaris-admin-tool-pgsql
           imagePullPolicy: Always
           envFrom:
             - configMapRef:
