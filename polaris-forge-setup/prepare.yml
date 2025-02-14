@@ -106,7 +106,7 @@
 
     - name: Generate bootstrap credentials file
       ansible.builtin.template:
-        src: templates/bootstrap-credentials.j2
+        src: templates/bootstrap-credentials.env.j2
         dest: "{{ plf_k8s_dir }}/polaris/.bootstrap-credentials.env"
         mode: "0600"
       when: not bootstrap_credentials_file.stat.exists
