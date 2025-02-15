@@ -26,7 +26,6 @@
       delay: 10
       tags:
         - namespace
-        - kubernetes
 
     # Check LocalStack namespace
     - name: Wait for LocalStack namespace to be active
@@ -42,7 +41,6 @@
       delay: 10
       tags:
         - namespace
-        - kubernetes
 
     # Check PostgreSQL deployment in Polaris namespace
     - name: Wait for PostgreSQL deployment to be ready
@@ -62,7 +60,6 @@
       tags:
         - deployment
         - postgresql
-        - kubernetes
 
     # Check LocalStack deployment
     - name: Wait for LocalStack deployment to be ready
@@ -82,7 +79,6 @@
       tags:
         - deployment
         - localstack
-        - kubernetes
 
     # Verification messages
     - name: Display component status
@@ -101,7 +97,6 @@
         - status
         - postgresql
         - localstack
-        - kubernetes
 
     # Check Polaris deployment
     - name: Wait for Polaris deployment to be ready
@@ -121,7 +116,6 @@
       tags:
         - deployment
         - polaris
-        - kubernetes
 
     - name: Wait for Polaris bootstrap job to be completed successfully
       kubernetes.core.k8s_info:
@@ -138,7 +132,6 @@
       tags:
         - job
         - polaris
-        - kubernetes
 
     - name: Ensure Polaris purge job is suspended
       kubernetes.core.k8s_info:
@@ -155,4 +148,3 @@
       tags:
         - job
         - polaris
-        - kubernetes

@@ -1,6 +1,5 @@
 #!ansible-playbook
 ---
-# Main playbook for setting up Polaris Local Forge environment
 - name: Set up your first Polaris catalog
   hosts: localhost
   connection: local
@@ -21,7 +20,7 @@
           Name: "Polaris Catalog"
       tags:
         - setup
-        - s3
+        - directory
 
     # Directory Setup
     - name: Ensure work directory exists
@@ -139,14 +138,11 @@
       register: principal_response
       tags:
         - principal
-        - token
 
     - name: Print principal credentials
       ansible.builtin.debug:
         var: principal_response.json
       tags:
-        - auth
-        - token
         - principal
         - debug
 
@@ -161,7 +157,6 @@
       when: principal_response.status == 201 # Only write if principal was newly created
       tags:
         - principal
-        - token
 
     # Role Setup
     - name: Create principal role {{ plf_admin_role }}
@@ -180,7 +175,6 @@
       tags:
         - roles
         - principal
-        - token
 
     # Role Assignment
     - name: Assign role to principal
@@ -201,7 +195,6 @@
       tags:
         - roles
         - principal
-        - token
 
     - name: Create catalog role {{ plf_catalog_role }}
       ansible.builtin.uri:
@@ -220,7 +213,6 @@
       tags:
         - roles
         - catalog
-        - token
 
     - name: Assign catalog role to principal role
       ansible.builtin.uri:
@@ -239,9 +231,7 @@
         status_code: [201, 409] # Allow 409 for idempotency
       tags:
         - roles
-        - catalog
         - principal
-        - token
 
     # Grant Assignment
     - name: Assign grants to catalog role on catalog
@@ -261,7 +251,5 @@
             privilege: "{{ grant_privilege | default('CATALOG_MANAGE_CONTENT') }}"
         status_code: [201, 409] # Allow 409 for idempotency
       tags:
+        - roles
         - grants
-        - catalog
-        - principal
-        - token
