@@ -19,40 +19,27 @@
       - endpoint: "/api/management/v1/principal-roles/{{ plf_admin_role }}"
         tags:
           - cleanup
-          - principal
-          - token
 
       - endpoint: "/api/management/v1/principals/{{ plf_admin_username }}/principal-roles/{{ plf_admin_role }}"
         tags:
           - cleanup
-          - principal
-          - token
 
       - endpoint: "/api/management/v1/catalogs/{{ plf_catalog_name }}/catalog-roles/{{ plf_catalog_role }}"
         tags:
           - cleanup
-          - catalog
-          - token
 
       - endpoint: "/api/management/v1/principal-roles/{{ plf_admin_role }}/catalog-roles/{{ plf_catalog_name }}/{{
           plf_catalog_role }}"
         tags:
           - cleanup
-          - catalog
-          - principal
-          - token
 
       - endpoint: "/api/management/v1/catalogs/{{ plf_catalog_name }}"
         tags:
           - cleanup
-          - catalog
-          - token
 
       - endpoint: "/api/management/v1/principals/{{ plf_admin_username }}"
         tags:
           - cleanup
-          - principal
-          - token
 
   tasks:
     - name: Ensure work directory exists
@@ -62,7 +49,6 @@
         mode: "0755"
       tags:
         - cleanup
-        - directory
 
     - name: Parse credential file and set auth variables
       ansible.builtin.set_fact:
@@ -73,7 +59,6 @@
         plf_client_id: "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',')[1] }}"
         plf_client_secret: "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',')[2] }}"
       tags:
-        - auth
         - token
 
     - name: Get access token
@@ -94,14 +79,12 @@
         status_code: [200]
       register: plf_token_response
       tags:
-        - auth
         - token
 
     - name: Set access token
       ansible.builtin.set_fact:
         plf_access_token: "{{ plf_token_response.json.access_token }}"
       tags:
-        - auth
         - token
 
     - name: Get Namespaces under Catalog
@@ -112,16 +95,12 @@
         status_code: [200, 404]
       register: plf_catalog_namespaces_response
       tags:
-        - token
-        - catalog
         - cleanup
 
     - name: Set Namespaces fact
       ansible.builtin.set_fact:
         plf_namespaces: "{{ plf_catalog_namespaces_response.json.namespaces[0] | default([]) }}"
       tags:
-        - token
-        - catalog
         - cleanup
 
     - name: Drop Tables in Schema
@@ -132,8 +111,6 @@
       when: plf_namespaces and plf_namespaces | length > 0
       tags:
         - cleanup
-        - catalog
-        - token
 
     - name: Execute Polaris API deletion operations
       ansible.builtin.uri:
@@ -147,25 +124,8 @@
         label: "{{ item.endpoint }}"
       tags:
         - cleanup
-        - catalog
-        - principal
         - token
       when: "item.tags | intersect(ansible_run_tags) or not ansible_run_tags"
-
-    - name: Delete namespaces in catalog
-      ansible.builtin.uri:
-        url: "{{ plf_api_base_url }}/api/catalog/v1/{{ plf_catalog_name }}/namespaces/{{ item }}"
-        method: DELETE
-        headers: "{{ plf_default_headers }}"
-        status_code: [204, 404]
-      loop: "{{ plf_namespaces }}"
-      loop_control:
-        label: "{{ item }}"
-      when: plf_namespaces and plf_namespaces | length > 0
-      tags:
-        - cleanup
-        - catalog
-        - token
 
     - name: Delete s3 bucket
       amazon.aws.s3_bucket:
