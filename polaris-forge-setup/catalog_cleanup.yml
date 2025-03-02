@@ -9,8 +9,52 @@
   vars_files:
     - defaults/main.yml
 
+  vars:
+    plf_default_headers:
+      Authorization: "Bearer {{ plf_access_token }}"
+      content-type: application/json
+      Polaris-Realm: "{{ plf_realm }}"
+
+    plf_api_endpoints:
+      - endpoint: "/api/management/v1/principal-roles/{{ plf_admin_role }}"
+        tags:
+          - cleanup
+          - principal
+          - token
+
+      - endpoint: "/api/management/v1/principals/{{ plf_admin_username }}/principal-roles/{{ plf_admin_role }}"
+        tags:
+          - cleanup
+          - principal
+          - token
+
+      - endpoint: "/api/management/v1/catalogs/{{ plf_catalog_name }}/catalog-roles/{{ plf_catalog_role }}"
+        tags:
+          - cleanup
+          - catalog
+          - token
+
+      - endpoint: "/api/management/v1/principal-roles/{{ plf_admin_role }}/catalog-roles/{{ plf_catalog_name }}/{{
+          plf_catalog_role }}"
+        tags:
+          - cleanup
+          - catalog
+          - principal
+          - token
+
+      - endpoint: "/api/management/v1/catalogs/{{ plf_catalog_name }}"
+        tags:
+          - cleanup
+          - catalog
+          - token
+
+      - endpoint: "/api/management/v1/principals/{{ plf_admin_username }}"
+        tags:
+          - cleanup
+          - principal
+          - token
+
   tasks:
-    # Directory Setup
     - name: Ensure work directory exists
       ansible.builtin.file:
         path: "{{ plf_work_dir }}"
@@ -20,129 +64,53 @@
         - cleanup
         - directory
 
-    - name: Parse bootstrap credentials
+    - name: Parse credential file and set auth variables
       ansible.builtin.set_fact:
-        credential:
+        plf_credential:
           "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',') |
           list }}"
+        plf_realm: "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',')[0] }}"
+        plf_client_id: "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',')[1] }}"
+        plf_client_secret: "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',')[2] }}"
       tags:
         - auth
         - token
 
-    - name: Set credential variables
-      ansible.builtin.set_fact:
-        realm: "{{ credential[0] }}"
-        client_id: "{{ credential[1] }}"
-        client_secret: "{{ credential[2] }}"
-      tags:
-        - auth
-        - token
-
-    # Authentication
     - name: Get access token
       ansible.builtin.uri:
-        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/catalog/v1/oauth/tokens"
+        url: "{{ plf_api_base_url }}/api/catalog/v1/oauth/tokens"
         method: POST
         headers:
-          Authorization: "Bearer {{ client_id }}:{{ client_secret }}"
+          Authorization: "Bearer {{ plf_client_id }}:{{ plf_client_secret }}"
           accept: application/json
           content-type: application/x-www-form-urlencoded
-          Polaris-Realm: "{{ realm }}"
+          Polaris-Realm: "{{ plf_realm }}"
         body_format: form-urlencoded
         body:
           grant_type: client_credentials
-          client_id: "{{ client_id }}"
-          client_secret: "{{ client_secret }}"
+          client_id: "{{ plf_client_id }}"
+          client_secret: "{{ plf_client_secret }}"
           scope: "PRINCIPAL_ROLE:ALL"
         status_code: [200]
-      register: token_response
+      register: plf_token_response
       tags:
         - auth
         - token
 
     - name: Set access token
       ansible.builtin.set_fact:
-        access_token: "{{ token_response.json.access_token }}"
+        plf_access_token: "{{ plf_token_response.json.access_token }}"
       tags:
         - auth
         - token
 
-    - name: Print access token
-      ansible.builtin.debug:
-        var: access_token
-      tags:
-        - auth
-        - token
-        - debug
-
-    # Role Setup
-    - name: Delete principal role {{ plf_admin_role }}
+    - name: Get Namespaces under Catalog
       ansible.builtin.uri:
-        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/principal-roles/{{ plf_admin_role }}"
-        method: DELETE
-        headers:
-          Authorization: "Bearer {{ access_token }}"
-          Polaris-Realm: "{{ realm }}"
-        status_code: [204, 404]
-      tags:
-        - cleanup
-        - principal
-        - token
-
-    # Role Assignment
-    - name: Unassign role from principal
-      ansible.builtin.uri:
-        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/principals/{{ plf_admin_username
-          }}/principal-roles/{{ plf_admin_role }}"
-        method: DELETE
-        headers:
-          Authorization: "Bearer {{ access_token }}"
-          Polaris-Realm: "{{ realm }}"
-        status_code: [204, 404]
-      tags:
-        - cleanup
-        - principal
-        - token
-
-    - name: Delete catalog role {{ plf_catalog_role }}
-      ansible.builtin.uri:
-        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/catalogs/{{ plf_catalog_name }}/catalog-roles/{{ plf_catalog_role }}"
-        method: DELETE
-        headers:
-          Authorization: "Bearer {{ access_token }}"
-          Polaris-Realm: "{{ realm }}"
-        status_code: [204, 404]
-      tags:
-        - cleanup
-        - catalog
-        - token
-
-    - name: Unassign catalog role to principal role
-      ansible.builtin.uri:
-        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/principal-roles/{{ plf_admin_role
-          }}/catalog-roles/{{ plf_catalog_name }}/{{ plf_catalog_role }}"
-        method: DELETE
-        headers:
-          Authorization: "Bearer {{ access_token }}"
-          Polaris-Realm: "{{ realm }}"
-        status_code: [204, 404]
-      tags:
-        - cleanup
-        - catalog
-        - principal
-        - token
-
-    - name: Get Namespaces under Catalog {{ plf_catalog_name }}
-      ansible.builtin.uri:
-        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/catalog/v1/{{ plf_catalog_name }}/namespaces"
+        url: "{{ plf_api_base_url }}/api/catalog/v1/{{ plf_catalog_name }}/namespaces"
         method: GET
-        headers:
-          Authorization: "Bearer {{ access_token }}"
-          accept: application/json
-          content-type: application/json
-          Polaris-Realm: "{{ realm }}"
+        headers: "{{ plf_default_headers }}"
         status_code: [200, 404]
-      register: catalog_namespaces_response
+      register: plf_catalog_namespaces_response
       tags:
         - token
         - catalog
@@ -150,81 +118,55 @@
 
     - name: Set Namespaces fact
       ansible.builtin.set_fact:
-        namespaces: "{{ catalog_namespaces_response.json.namespaces[0] | default([]) }}"
+        plf_namespaces: "{{ plf_catalog_namespaces_response.json.namespaces[0] | default([]) }}"
       tags:
         - token
         - catalog
         - cleanup
 
-    - name: Print Namespaces
-      ansible.builtin.debug:
-        var: namespaces
-      tags:
-        - token
-        - catalog
-        - cleanup
-
-    # Drop tables in namespace
     - name: Drop Tables in Schema
       ansible.builtin.include_tasks: tasks/drop_tables.yml
-      loop: "{{ namespaces }}"
+      loop: "{{ plf_namespaces }}"
       loop_control:
         label: "{{ item }}"
-      when: namespaces and namespaces | length > 0
+      when: plf_namespaces and plf_namespaces | length > 0
       tags:
         - cleanup
         - catalog
         - token
 
-    # Drop Namespaces
-    - name: Delete namespaces in catalog {{ plf_catalog_name }}
+    - name: Execute Polaris API deletion operations
       ansible.builtin.uri:
-        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/catalog/v1/{{ plf_catalog_name }}/namespaces/{{ item }}"
-        method: DELETE
-        headers:
-          Authorization: "Bearer {{ access_token }}"
-          content-type: application/json
-          Polaris-Realm: "{{ realm }}"
+        url: "{{ plf_api_base_url }}{{ item.endpoint }}"
+        method: "{{ item.method | default('DELETE') }}"
+        headers: "{{ plf_default_headers }}"
         status_code: [204, 404]
-      loop: "{{ namespaces }}"
+      register: plf_api_result
+      loop: "{{ plf_api_endpoints }}"
       loop_control:
-        label: "{{ item }}"
-      when: namespaces and namespaces | length > 0
+        label: "{{ item.endpoint }}"
       tags:
         - cleanup
         - catalog
-        - token
-    #
-    - name: Delete Polaris catalog {{ plf_catalog_name }}
-      ansible.builtin.uri:
-        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/catalogs/{{ plf_catalog_name }}"
-        method: DELETE
-        headers:
-          Authorization: "Bearer {{ access_token }}"
-          content-type: application/json
-          Polaris-Realm: "{{ realm }}"
-        status_code: [204, 404]
-      tags:
-        - cleanup
-        - catalog
-        - token
-
-    # Principal
-    - name: Delete principal user {{ plf_admin_username }}
-      ansible.builtin.uri:
-        url: "http://{{ plf_api_host }}:{{ plf_api_port }}/api/management/v1/principals/{{  plf_admin_username}}"
-        method: DELETE
-        headers:
-          Authorization: "Bearer {{ access_token }}"
-          Polaris-Realm: "{{ realm }}"
-        status_code: [204, 404]
-      register: principal_response
-      tags:
-        - cleanup
         - principal
         - token
+      when: "item.tags | intersect(ansible_run_tags) or not ansible_run_tags"
 
-    # Delete s3 bucket that will be used as the warehouse
+    - name: Delete namespaces in catalog
+      ansible.builtin.uri:
+        url: "{{ plf_api_base_url }}/api/catalog/v1/{{ plf_catalog_name }}/namespaces/{{ item }}"
+        method: DELETE
+        headers: "{{ plf_default_headers }}"
+        status_code: [204, 404]
+      loop: "{{ plf_namespaces }}"
+      loop_control:
+        label: "{{ item }}"
+      when: plf_namespaces and plf_namespaces | length > 0
+      tags:
+        - cleanup
+        - catalog
+        - token
+
     - name: Delete s3 bucket
       amazon.aws.s3_bucket:
         name: "{{ plf_catalog_name }}"

@@ -1,4 +1,3 @@
-#!ansible-playbook
 ---
 - name: Prepare the environment for setting up polaris
   hosts: localhost
@@ -8,6 +7,20 @@
   vars_files:
     - defaults/main.yml
 
+  vars:
+    plf_key_files:
+      - "{{ plf_polaris_dir }}/rsa_key"
+      - "{{ plf_polaris_dir }}/rsa_key.pub"
+    plf_config_files:
+      - file: "{{ plf_polaris_dir }}/.bootstrap-credentials.env"
+        template: "templates/bootstrap-credentials.env.j2"
+      - file: "{{ plf_features_dir }}/postgresql.yaml"
+        template: "templates/postgresql.yml.j2"
+      - file: "{{ plf_polaris_dir }}/persistence.xml"
+        template: "templates/persistence.xml.j2"
+      - file: "{{ plf_polaris_dir }}/.polaris.env"
+        template: "templates/polaris.env.j2"
+
   pre_tasks:
     - name: Install required collections
       ansible.builtin.command: ansible-galaxy collection install community.crypto
@@ -16,7 +29,7 @@
   tasks:
     - name: Ensure key directory exists with secure permissions
       ansible.builtin.file:
-        path: "{{ plf_k8s_dir }}/polaris"
+        path: "{{ plf_polaris_dir }}"
         state: directory
         mode: "0700"
       tags:
@@ -25,54 +38,51 @@
 
     - name: Check if RSA keys already exist
       ansible.builtin.stat:
-        path: "{{ plf_k8s_dir }}/polaris/rsa_key"
+        path: "{{ plf_polaris_dir }}/rsa_key"
       register: private_key_stat
       tags:
         - rsa
         - setup
 
-    - name: Generate RSA private key
-      community.crypto.openssl_privatekey:
-        path: "{{ plf_k8s_dir }}/polaris/rsa_key"
-        size: 4096
-        type: RSA
-        format: "pkcs8"
-        mode: "0600"
+    - name: Generate RSA key pair
       when: not private_key_stat.stat.exists
-      tags:
-        - rsa
-        - setup
+      block:
+        - name: Generate RSA private key
+          community.crypto.openssl_privatekey:
+            path: "{{ plf_polaris_dir }}/rsa_key"
+            size: 4096
+            type: RSA
+            format: "pkcs8"
+            mode: "0600"
+          tags:
+            - rsa
+            - setup
 
-    - name: Generate RSA public key
-      community.crypto.openssl_publickey:
-        path: "{{ plf_k8s_dir }}/polaris/rsa_key.pub"
-        privatekey_path: "{{ plf_k8s_dir }}/polaris/rsa_key"
-        mode: "0644"
-      when: not private_key_stat.stat.exists
-      tags:
-        - rsa
-        - setup
+        - name: Generate RSA public key
+          community.crypto.openssl_publickey:
+            path: "{{ plf_polaris_dir }}/rsa_key.pub"
+            privatekey_path: "{{ plf_polaris_dir }}/rsa_key"
+            mode: "0644"
+          tags:
+            - rsa
+            - setup
 
-    - name: Get RSA keys exist
+    - name: Verify RSA keys exist
       ansible.builtin.stat:
         path: "{{ item }}"
-      loop:
-        - "{{ plf_k8s_dir }}/polaris/rsa_key"
-        - "{{ plf_k8s_dir }}/polaris/rsa_key.pub"
+      loop: "{{ plf_key_files }}"
       register: key_stats
-      loop_control:
-        label: "{{ item }}"
       tags:
         - rsa
         - verify
 
-    - name: Verify keys exists
+    - name: Fail if keys are missing
       ansible.builtin.fail:
-        msg: "{{ item.path }} does not exist"
+        msg: "{{ item.item }} does not exist"
       when: not item.stat.exists
       loop: "{{ key_stats.results }}"
       loop_control:
-        label: "{{ item.stat.path }}"
+        label: "{{ item.item }}"
       tags:
         - rsa
         - verify
@@ -81,19 +91,11 @@
       ansible.builtin.debug:
         msg:
           - "RSA keys generated successfully"
-          - "Private key location: {{ plf_k8s_dir }}/polaris/rsa_key"
-          - "Public key location: {{ plf_k8s_dir }}/polaris/rsa_key.pub"
+          - "Private key location: {{ plf_polaris_dir }}/rsa_key"
+          - "Public key location: {{ plf_polaris_dir }}/rsa_key.pub"
       tags:
         - rsa
         - verify
-
-    - name: Check of bootstrap credentials file exists
-      ansible.builtin.stat:
-        path: "{{ plf_k8s_dir }}/polaris/.bootstrap-credentials.env"
-      register: bootstrap_credentials_file
-      tags:
-        - bootstrap
-        - k8s
 
     - name: Generate credentials
       ansible.builtin.set_fact:
@@ -104,65 +106,33 @@
         - bootstrap
         - k8s
 
-    - name: Generate bootstrap credentials file
-      ansible.builtin.template:
-        src: templates/bootstrap-credentials.env.j2
-        dest: "{{ plf_k8s_dir }}/polaris/.bootstrap-credentials.env"
-        mode: "0600"
-      when: not bootstrap_credentials_file.stat.exists
-      tags:
-        - bootstrap
-        - k8s
-
-    - name: Check of PostgreSQL helm.cattle.io/HelmChart exists
+    - name: Check if config files exist
       ansible.builtin.stat:
-        path: "{{ plf_k8s_dir }}/features/postgresql.yaml"
-      register: postgresql_file
+        path: "{{ item.file }}"
+      loop: "{{ plf_config_files }}"
+      register: config_file_stats
       tags:
         - bootstrap
         - k8s
 
-    - name: Generate PostgreSQL helm.cattle.io/HelmChart
+    - name: Create config files if they don't exist
       ansible.builtin.template:
-        src: templates/postgresql.yml.j2
-        dest: "{{ plf_k8s_dir }}/features/postgresql.yaml"
+        src: "{{ item.0.template }}"
+        dest: "{{ item.0.file }}"
         mode: "0600"
-      when: not postgresql_file.stat.exists
+      when: not item.1.stat.exists
+      loop: "{{ plf_config_files | zip(config_file_stats.results) | list }}"
+      loop_control:
+        label: "{{ item.0.file }}"
       tags:
         - bootstrap
         - k8s
 
-    - name: Check of persistence.xml helm.cattle.io/HelmChart exists
-      ansible.builtin.stat:
-        path: "{{ plf_k8s_dir }}/polaris/persistence.xml"
-      register: persistence_xml_file
-      tags:
-        - bootstrap
-        - k8s
-
-    - name: Generate JPA persistence.xml
-      ansible.builtin.template:
-        src: templates/persistence.xml.j2
-        dest: "{{ plf_k8s_dir }}/polaris/persistence.xml"
-        mode: "0600"
-      when: not postgresql_file.stat.exists and not persistence_xml_file.stat.exists
-      tags:
-        - bootstrap
-        - k8s
-
-    - name: Check of persistence.xml helm.cattle.io/HelmChart exists
-      ansible.builtin.stat:
-        path: "{{ plf_k8s_dir }}/polaris/.polaris.env"
-      register: polaris_env_file
-      tags:
-        - bootstrap
-        - k8s
-    - name: Generate polaris.env
-      ansible.builtin.template:
-        src: templates/polaris.env.j2
-        dest: "{{ plf_k8s_dir }}/polaris/.polaris.env"
-        mode: "0600"
-      when: not polaris_env_file.stat.exists
+    - name: Ensure features directory exists
+      ansible.builtin.file:
+        path: "{{ plf_features_dir }}"
+        state: directory
+        mode: "0755"
       tags:
         - bootstrap
         - k8s
