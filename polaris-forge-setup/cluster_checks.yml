@@ -12,139 +12,98 @@
     - name: Install required collections
       ansible.builtin.command: ansible-galaxy collection install kubernetes.core
       changed_when: false
+
   tasks:
-    # Check Polaris namespace
-    - name: Wait for Polaris namespace to be active
+    - name: Wait for Namespaces to be ready
       kubernetes.core.k8s_info:
         kind: Namespace
-        name: "{{ polaris_namespace | default('polaris') }}"
+        name: "{{ namespace.name }}"
         api_version: v1
-      register: polaris_ns_status
-      until: polaris_ns_status.resources[0].status.phase is defined and polaris_ns_status.resources[0].status.phase ==
-        "Active"
+      register: ns_status
+      until: ns_status.resources[0].status.phase is defined and ns_status.resources[0].status.phase == "Active"
+      loop: "{{ namespace_list }}"
+      loop_control:
+        label: "{{ namespace.name }}"
+        loop_var: "namespace"
       retries: 30
       delay: 10
       tags:
-        - namespace
+        - bootstrap
+      when: "namespace.tags | intersect(ansible_run_tags) or not ansible_run_tags"
+      vars:
+        namespace_list:
+          - name: localstack
+            tags: ["bootstrap"]
+          - name: polaris
+            tags: ["bootstrap"]
 
-    # Check LocalStack namespace
-    - name: Wait for LocalStack namespace to be active
+    - name: Wait for Deployments to be ready
       kubernetes.core.k8s_info:
-        kind: Namespace
-        name: "{{ localstack_namespace | default('localstack') }}"
-        api_version: v1
-      register: localstack_ns_status
-      until:
-        localstack_ns_status.resources[0].status.phase is defined and localstack_ns_status.resources[0].status.phase ==
-        "Active"
-      retries: 30
-      delay: 10
-      tags:
-        - namespace
-
-    # Check PostgreSQL deployment in Polaris namespace
-    - name: Wait for PostgreSQL deployment to be ready
-      kubernetes.core.k8s_info:
-        kind: StatefulSet
-        name: postgresql
-        namespace: "{{ polaris_namespace | default('polaris') }}"
-        api_version: apps/v1
-      register: postgresql_status
-      until: >
-        postgresql_status.resources[0].status.availableReplicas is defined and
-        postgresql_status.resources[0].status.availableReplicas > 0 and
-        postgresql_status.resources[0].status.readyReplicas is defined and
-        postgresql_status.resources[0].status.readyReplicas == postgresql_status.resources[0].status.replicas
+        kind: "{{ deployment.kind }}"
+        name: "{{ deployment.name }}"
+        namespace: "{{ deployment.namespace }}"
+        api_version: "{{ deployment.api_version | default('apps/v1') }}"
+      register: resource_status
+      until: resource_status.resources[0].status.availableReplicas is defined and
+        resource_status.resources[0].status.availableReplicas > 0 and
+        resource_status.resources[0].status.readyReplicas is defined and
+        resource_status.resources[0].status.readyReplicas == resource_status.resources[0].status.replicas
+      loop: "{{ deployments_resources_list }}"
+      loop_control:
+        label: "{{ deployment.namespace }}/{{ deployment.kind }}/{{ deployment.name }}"
+        loop_var: "deployment"
       retries: 60
       delay: 10
       tags:
-        - deployment
-        - postgresql
-
-    # Check LocalStack deployment
-    - name: Wait for LocalStack deployment to be ready
-      kubernetes.core.k8s_info:
-        kind: Deployment
-        name: localstack
-        namespace: "{{ localstack_namespace | default('localstack') }}"
-        api_version: apps/v1
-      register: localstack_status
-      until: >
-        localstack_status.resources[0].status.availableReplicas is defined and
-        localstack_status.resources[0].status.availableReplicas > 0 and
-        localstack_status.resources[0].status.readyReplicas is defined and
-        localstack_status.resources[0].status.readyReplicas == localstack_status.resources[0].status.replicas
-      retries: 60
-      delay: 10
-      tags:
-        - deployment
-        - localstack
-
-    # Verification messages
-    - name: Display component status
-      ansible.builtin.debug:
-        msg:
-          - "Polaris namespace is ready"
-          - "LocalStack namespace is ready"
-          - "PostgreSQL deployment is ready with {{ postgresql_status.resources[0].status.readyReplicas }} replicas"
-          - "LocalStack deployment is ready with {{ localstack_status.resources[0].status.readyReplicas }} replicas"
-      when:
-        - polaris_ns_status.resources[0].status.phase == "Active"
-        - localstack_ns_status.resources[0].status.phase == "Active"
-        - postgresql_status.resources[0].status.readyReplicas is defined
-        - localstack_status.resources[0].status.readyReplicas is defined
-      tags:
-        - status
-        - postgresql
-        - localstack
-
-    # Check Polaris deployment
-    - name: Wait for Polaris deployment to be ready
-      kubernetes.core.k8s_info:
-        kind: Deployment
-        name: polaris
-        namespace: "{{ polaris_namespace | default('polaris') }}"
-        api_version: apps/v1
-      register: polaris_server_status
-      until: >
-        polaris_server_status.resources[0].status.availableReplicas is defined and
-        polaris_server_status.resources[0].status.availableReplicas > 0 and
-        polaris_server_status.resources[0].status.readyReplicas is defined and
-        polaris_server_status.resources[0].status.readyReplicas == polaris_server_status.resources[0].status.replicas
-      retries: 60
-      delay: 10
-      tags:
-        - deployment
+        - bootstrap
         - polaris
+      when: "deployment.tags | intersect(ansible_run_tags) or not ansible_run_tags"
+      vars:
+        deployments_resources_list:
+          - name: localstack
+            namespace: localstack
+            kind: Deployment
+            tags:
+              - bootstrap
+          - name: postgresql
+            namespace: polaris
+            kind: StatefulSet
+            tags:
+              - bootstrap
+          - name: polaris
+            namespace: polaris
+            kind: Deployment
+            tags:
+              - polaris
 
-    - name: Wait for Polaris bootstrap job to be completed successfully
+    - name: Wait for Jobs to reach desired state
       kubernetes.core.k8s_info:
         kind: Job
-        name: polaris-bootstrap
-        namespace: "{{ polaris_namespace | default('polaris') }}"
+        name: "{{ job.name }}"
+        namespace: "{{ job.namespace }}"
         api_version: batch/v1
-      register: polaris_bootstrap_status
+      register: job_status
       until: >
-        polaris_bootstrap_status.resources[0].status.succeeded is defined and
-        polaris_bootstrap_status.resources[0].status.succeeded > 0
+        (job.type == 'completion' and job_status.resources[0].status.succeeded is defined and job_status.resources[0].status.succeeded > 0) or
+        (job.type == 'suspension' and job_status.resources[0].spec.suspend is defined and job_status.resources[0].spec.suspend == true)
       retries: 60
       delay: 10
+      loop: "{{ job_resources_list }}"
+      loop_control:
+        loop_var: "job"
+        label: "{{ job.name }}"
       tags:
-        - job
         - polaris
-
-    - name: Ensure Polaris purge job is suspended
-      kubernetes.core.k8s_info:
-        kind: Job
-        name: polaris-purge
-        namespace: "{{ polaris_namespace | default('polaris') }}"
-        api_version: batch/v1
-      register: polaris_purge_status
-      until: >
-        polaris_purge_status.resources[0].spec.suspend is defined and
-        polaris_purge_status.resources[0].spec.suspend == true
-      retries: 60
-      delay: 10
-      tags:
-        - job
-        - polaris
+      when: "job.tags | intersect(ansible_run_tags) or not ansible_run_tags"
+      vars:
+        job_resources_list:
+          - name: polaris-bootstrap
+            namespace: polaris
+            type: completion
+            tags:
+              - polaris
+          - name: polaris-purge
+            namespace: polaris
+            type: suspension
+            tags:
+              - polaris

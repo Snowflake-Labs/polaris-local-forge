@@ -14,11 +14,6 @@ ports:
   - port: 18181:32181
     nodeFilters:
       - loadbalancer
-  # Adminer Tool - polaris 8080 set to port 32080 and it will be accessible via 818180801
-  - port: 18080:32080
-    nodeFilters:
-      - loadbalancer
-
 registries: # define how registries should be created or used
   create: # creates a default registry to be used with the cluster; same as `--registry-create registry.localhost`
     name: registry.localhost
@@ -30,11 +25,11 @@ volumes:
   - volume: ${FEATURES_DIR}/features/postgresql.yaml:/var/lib/rancher/k3s/server/manifests/postgresql.yaml
     nodeFilters:
       - server:*
-  # Deploy Adminer
-  - volume: ${FEATURES_DIR}/features/adminer.yaml:/var/lib/rancher/k3s/server/manifests/adminer.yaml
-    nodeFilters:
-      - server:*
   # Deploy Localstack
   - volume: ${FEATURES_DIR}/features/localstack.yaml:/var/lib/rancher/k3s/server/manifests/localstack.yaml
+    nodeFilters:
+      - server:*
+  # Deploy TektonCD
+  - volume: ${FEATURES_DIR}/features/tektoncd.yaml:/var/lib/rancher/k3s/server/manifests/tektoncd.yaml
     nodeFilters:
       - server:*

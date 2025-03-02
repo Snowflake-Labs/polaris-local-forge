@@ -1,0 +1,379 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "# Verify Polaris Setup\n",
+        "\n",
+        "This notebook allows us to check if the Apache Polaris setup has been successful and we are able to work with the catalog e.g create namespaces, tables etc.,"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Imports"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "import os\n",
+        "import traceback\n",
+        "from pathlib import Path\n",
+        "\n",
+        "import pyarrow as pa\n",
+        "from pyiceberg.catalog.rest import RestCatalog\n",
+        "from pyiceberg.exceptions import NamespaceAlreadyExistsError, TableAlreadyExistsError\n",
+        "from pyiceberg.types import StringType"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Retrieve Principal Credentials\n",
+        "As part of the catalog setup script, the Principal(`super_user`) credentials are stored in  `$PROJECT_HOME/work/principal.txt`, let us retrieve it for further operations."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "import os\n",
+        "from pathlib import Path\n",
+        "\n",
+        "principal_creds = Path(\"<< notebook_vars.plf_work_dir >>\", \"principal.txt\")\n",
+        "with open(principal_creds, \"r\") as file:\n",
+        "    realm, client_id, client_secret = file.readline().split(\",\")\n",
+        "\n",
+        "print(f\"Retrieved credentials for realm: {realm}\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Define Variables\n",
+        "Let us define some variables for use across the notebook"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# Catalog details\n",
+        "namespace = \"<<notebook_vars.namespace>>\"\n",
+        "table_name = \"<<notebook_vars.table_name>>\"\n",
+        "CATALOG_URI = \"<<notebook_vars.plf_api_base_url>>/api/catalog\"\n",
+        "catalog_name = \"<<notebook_vars.catalog_name>>\"\n",
+        "\n",
+        "# Print configuration\n",
+        "print(f\"Connecting to catalog: {catalog_name}\")\n",
+        "print(f\"API endpoint: {CATALOG_URI}\")\n",
+        "print(f\"Working with namespace: {namespace}\")\n",
+        "print(f\"Working with table: {table_name}\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Working with Catalog\n",
+        "Let us retrieve the catalog `<<notebook_vars.catalog_name>>` that we created earlier."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "catalog = RestCatalog(\n",
+        "    name=catalog_name,\n",
+        "    **{\n",
+        "        \"uri\": CATALOG_URI,\n",
+        "        \"credential\": f\"{client_id}:{client_secret}\",\n",
+        "        \"header.content-type\": \"application/vnd.api+json\",\n",
+        "        \"header.X-Iceberg-Access-Delegation\": \"vended-credentials\",\n",
+        "        \"header.Polaris-Realm\": realm,\n",
+        "        \"warehouse\": catalog_name,\n",
+        "        \"scope\": \"PRINCIPAL_ROLE:ALL\",\n",
+        "    },\n",
+        ")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Create Namespace\n",
+        "Create a new namespace named `<<notebook_vars.namespace>>`"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "try:\n",
+        "    catalog.create_namespace(namespace)\n",
+        "    print(f\"Successfully created namespace '{namespace}'\")\n",
+        "except NamespaceAlreadyExistsError:\n",
+        "    print(f\"Namespace '{namespace}' already exists\")\n",
+        "except Exception as e:\n",
+        "    print(f\"Error creating namespace: {e}\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Create Table\n",
+        "Create a table named `<<notebook_vars.table_name>>` with two columns."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "_schema = pa.schema(\n",
+        "    [\n",
+        "        pa.field(\"id\", pa.int64(), nullable=False),\n",
+        "        pa.field(\"name\", pa.string(), nullable=True),\n",
+        "    ]\n",
+        ")\n",
+        "try:\n",
+        "    new_tbl = catalog.create_table(\n",
+        "        identifier=f\"{namespace}.{table_name}\",\n",
+        "        schema=_schema,\n",
+        "    )\n",
+        "    print(f\"Successfully created table {namespace}.{table_name}\")\n",
+        "    print(new_tbl)\n",
+        "except TableAlreadyExistsError:\n",
+        "    print(f\"Table '{namespace}.{table_name}' already exists\")\n",
+        "except Exception as e:\n",
+        "    print(f\"Error creating table: {e}\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Load Table\n",
+        "Now let's load the table we just created"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "try:\n",
+        "    table = catalog.load_table(f\"{namespace}.{table_name}\")\n",
+        "    df = table.scan().to_pandas()\n",
+        "    print(f\"Successfully loaded table {namespace}.{table_name}\")\n",
+        "except Exception as e:\n",
+        "    print(f\"Error loading table: {e}\")",
+        "df.head()\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Insert Data\n",
+        "Insert some sample data"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "try:\n",
+        "    data = pa.Table.from_pylist(\n",
+        "        [\n",
+        "            {\"id\": 1, \"name\": \"mango\"},\n",
+        "            {\"id\": 2, \"name\": \"banana\"},\n",
+        "            {\"id\": 3, \"name\": \"orange\"},\n",
+        "        ],\n",
+        "        schema=_schema,\n",
+        "    )\n",
+        "    table.append(data)\n",
+        "    print(\"Successfully inserted data\")\n",
+        "except Exception as e:\n",
+        "    print(f\"Error inserting data: {e}\")\n",
+        "    print(traceback.format_exc())"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Query Data\n",
+        "Query the inserted data"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "try:\n",
+        "    df = table.scan().to_pandas()\n",
+        "    print(\"Query results:\")\n",
+        "except Exception as e:\n",
+        "    print(f\"Error querying data: {e}\")",
+        "df.head()\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Schema Evolution\n",
+        "Let's add a new column named `season` to the table"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "try:\n",
+        "    with table.update_schema() as update:\n",
+        "        update.add_column(\"season\", StringType(), doc=\"Fruit Season\")\n",
+        "    print(\"Successfully added 'season' column\")\n",
+        "except Exception as e:\n",
+        "    print(f\"Error evolving schema: {e}\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### View Table Structure\n",
+        "Print the table to view its structure after schema evolution"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "print(table)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Query with Updated Schema\n",
+        "If you query the table again, you'll see the new column with null values"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "df = table.scan().to_pandas()\n",
+        "df.head()"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Insert Data with New Schema\n",
+        "Now let's update our records with season values"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "try:\n",
+        "    new_schema = _schema.append(pa.field(\"season\", pa.string(), nullable=True))\n",
+        "    # New data with season column\n",
+        "    new_table = pa.Table.from_pylist([\n",
+        "        {\"id\": 1, \"name\": \"mango\", \"season\": \"summer\"},\n",
+        "        {\"id\": 2, \"name\": \"banana\", \"season\": \"all\"},\n",
+        "        {\"id\": 3, \"name\": \"orange\", \"season\": \"winter\"},\n",
+        "    ], schema=new_schema)\n",
+        "    table.overwrite(new_table)\n",
+        "    print(\"Successfully updated data with season values\")\n",
+        "except Exception as e:\n",
+        "    print(f\"Error updating data with new schema: {e}\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Final Query\n",
+        "Let's see our complete dataset with the season column"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "df = table.scan().to_pandas()\n",
+        "df.head()"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Verification Complete!\n",
+        "\n",
+        "If you've reached this point without errors, your Polaris catalog is set up correctly and functioning as expected."
+      ]
+    }
+  ],
+  "metadata": {
+    "kernelspec": {
+      "display_name": "Python 3",
+      "language": "python",
+      "name": "python3"
+    },
+    "language_info": {
+      "codemirror_mode": {
+        "name": "ipython",
+        "version": 3
+      },
+      "file_extension": ".py",
+      "mimetype": "text/x-python",
+      "name": "python",
+      "nbconvert_exporter": "python",
+      "pygments_lexer": "ipython3",
+      "version": "3.12.8"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 2
+}

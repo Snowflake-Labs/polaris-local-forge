@@ -153,7 +153,7 @@ To ensure reuse and for security, files with passwords are not added to git. Cur
 The following script will generate the required sensitive files from templates using Ansible:
 
 ```shell
-$PROJECT_HOME/polaris-forge-setup/prepare.yml
+ansible-playbook $PROJECT_HOME/polaris-forge-setup/prepare.yml
 ```
 
 ## Create the Cluster
@@ -167,7 +167,7 @@ $PROJECT_HOME/bin/setup.sh
 Once the cluster is started, wait for the deployments to be ready:
 
 ```shell
-$PROJECT_HOME/polaris-forge-setup/cluster_checks.yml --tags namespace,postgresql,localstack
+ansible-playbook  $PROJECT_HOME/polaris-forge-setup/cluster_checks.yml --tags=bootstrap
 ```
 
 The cluster will deploy `localstack` and `postgresql`. You can verify them as shown:
@@ -239,7 +239,7 @@ kubectl apply -k $PROJECT_HOME/k8s/polaris
 Ensure all deployments and jobs have succeeded:
 
 ```shell
-$PROJECT_HOME/polaris-forge-setup/cluster_checks.yml --tags polaris
+ansible-playbook  $PROJECT_HOME/polaris-forge-setup/cluster_checks.yml --tags polaris
 ```
 
 #### Purge and Bootstrap
@@ -303,17 +303,6 @@ service/postgresql-hl   ClusterIP      None           <none>                  54
 | Adminer    | http://localhost:18080 | PostgreSQL host will be: `postgresql.polaris`, check $FEATURES_DIR/postgresql.yaml for credentials |
 | LocalStack | http://localhost:14566 | Use `test/test` for AWS credentials with Endpoint URL as http://localhost:14566                    |
 
-### Update Environment
-
-With all services deployed successfully, update the environment to be like:
-
-```shell
-export AWS_ENDPOINT_URL=http://localstack.localstack:14566
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
-export AWS_REGION=us-east-1
-```
-
 ## Setup Demo Catalog
 
 The Polaris server does not yet have any catalogs. Run the following script to set up your first catalog, principal, principal role, catalog role, and grants.
@@ -343,7 +332,13 @@ $PROJECT_HOME/polaris-forge-setup/catalog_setup.yml
 
 ## Verify Setup
 
-Once you are successful in setting up the catalog, run the [notebook](./notebooks/verify_setup.ipynb) to make sure you are able to create the namespace, table, and insert some data.
+Generate the Juypter notebook to verify the setup,
+
+```shell
+$PROJECT_HOME/polaris-forge-setup/catalog_setup.yml --tags=verify
+```
+
+Run the `$PROJECT_HOME/notebooks/verify_setup.ipynb` to make sure you are able to create the namespace, table, and insert some data.
 
 To double-check if we have all our iceberg files created and committed, open <https://app.localstack.cloud/inst/default/resources/s3/polardb>. You should see something as shown in the screenshots below:
 
