@@ -1,4 +1,4 @@
-#!ansible-playbook
+#!/usr/bin/env ansible-playbook
 ---
 # Clean up all Catalog and related resources
 - name: Clean up Demo Catalog and resources
@@ -28,7 +28,8 @@
         tags:
           - cleanup
 
-      - endpoint: "/api/management/v1/principal-roles/{{ plf_admin_role }}/catalog-roles/{{ plf_catalog_name }}/{{
+      - endpoint:
+          "/api/management/v1/principal-roles/{{ plf_admin_role }}/catalog-roles/{{ plf_catalog_name }}/{{
           plf_catalog_role }}"
         tags:
           - cleanup
@@ -55,9 +56,12 @@
         plf_credential:
           "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',') |
           list }}"
-        plf_realm: "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',')[0] }}"
-        plf_client_id: "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',')[1] }}"
-        plf_client_secret: "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',')[2] }}"
+        plf_realm:
+          "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',')[0] }}"
+        plf_client_id:
+          "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',')[1] }}"
+        plf_client_secret:
+          "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',')[2] }}"
       tags:
         - token
 

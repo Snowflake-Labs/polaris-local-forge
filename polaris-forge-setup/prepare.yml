@@ -27,11 +27,14 @@
       changed_when: false
 
   tasks:
-    - name: Ensure key directory exists with secure permissions
+    - name: Ensure required directories exists with secure permissions
       ansible.builtin.file:
-        path: "{{ plf_polaris_dir }}"
+        path: "{{ item }}"
         state: directory
         mode: "0700"
+      loop:
+        - "{{ plf_work_dir }}"
+        - "{{ plf_polaris_dir }}"
       tags:
         - rsa
         - setup
@@ -99,9 +102,12 @@
 
     - name: Generate credentials
       ansible.builtin.set_fact:
-        bootstrap_client_id: "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_lowercase', 'digits'], length=8) }}"
-        bootstrap_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_lowercase', 'digits'], length=12) }}"
-        plf_jdbc_password: "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_lowercase', 'digits'], length=12) }}"
+        bootstrap_client_id:
+          "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_lowercase', 'digits'], length=8) }}"
+        bootstrap_client_secret:
+          "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_lowercase', 'digits'], length=12) }}"
+        plf_jdbc_password:
+          "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_lowercase', 'digits'], length=12) }}"
       tags:
         - bootstrap
         - k8s

@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 - name: Set up your first Polaris catalog
   hosts: localhost
@@ -38,7 +39,9 @@
     # Authentication
     - name: Parse bootstrap credentials
       ansible.builtin.set_fact:
-        credential: "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',') | list }}"
+        credential:
+          "{{ lookup('ansible.builtin.ini', 'credential', type='properties', file=plf_credentials_file).split(',') |
+          list }}"
       tags:
         - token
 
@@ -127,7 +130,9 @@
 
     - name: Write principal credentials to file
       ansible.builtin.copy:
-        content: "{{ plf_realm }},{{ principal_response.json.credentials.clientId }},{{ principal_response.json.credentials.clientSecret }}"
+        content:
+          "{{ plf_realm }},{{ principal_response.json.credentials.clientId }},{{
+          principal_response.json.credentials.clientSecret }}"
         dest: "{{ plf_work_dir }}/principal.txt"
         force: true
         mode: "0600"
@@ -178,7 +183,9 @@
 
     - name: Assign catalog role to principal role
       ansible.builtin.uri:
-        url: "{{ plf_api_base_url }}/api/management/v1/principal-roles/{{ plf_admin_role }}/catalog-roles/{{ plf_catalog_name }}"
+        url:
+          "{{ plf_api_base_url }}/api/management/v1/principal-roles/{{ plf_admin_role }}/catalog-roles/{{
+          plf_catalog_name }}"
         method: PUT
         headers: "{{ plf_auth_headers }}"
         body_format: json
@@ -193,7 +200,9 @@
 
     - name: Assign grants to catalog role on catalog
       ansible.builtin.uri:
-        url: "{{ plf_api_base_url }}/api/management/v1/catalogs/{{ plf_catalog_name }}/catalog-roles/{{ plf_catalog_role }}/grants"
+        url:
+          "{{ plf_api_base_url }}/api/management/v1/catalogs/{{ plf_catalog_name }}/catalog-roles/{{ plf_catalog_role
+          }}/grants"
         method: PUT
         headers: "{{ plf_auth_headers }}"
         body_format: json

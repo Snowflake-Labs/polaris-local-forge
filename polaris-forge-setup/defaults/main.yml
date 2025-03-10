@@ -4,6 +4,8 @@
 plf_aws_endpoint_url: http://localstack.localstack:4566 # LocalStack endpoint in k3s
 plf_aws_region: us-east-1 # AWS region for LocalStack
 plf_aws_role_arn: arn:aws:iam::000000000000:role/Admin # Default role ARN for LocalStack
+plf_aws_access_key_id: test # AWS_ACCESS_KEY_ID
+plf_aws_secret_access_key: test # AWS_SECRET_ACCESS_KEY
 
 # Polaris API Configuration
 plf_api_host: localhost # Polaris API host
@@ -34,6 +36,7 @@ plf_jpa_persistence_unit_name: polaris-dev
 plf_jdbc_username: postgres
 plf_polaris_database: polaris
 plf_jdbc_url: "jdbc:postgresql://postgresql:5432/{{ plf_polaris_database }}"
+
 ## Verification config
 plf_demo_db: demo_db
 plf_demo_table: fruits

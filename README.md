@@ -327,7 +327,7 @@ export AWS_REGION=us-east-1
 ```
 
 ```shell
-$PROJECT_HOME/polaris-forge-setup/catalog_setup.yml
+ansible-playbook $PROJECT_HOME/polaris-forge-setup/catalog_setup.yml
 ```
 
 ## Verify Setup
@@ -335,7 +335,7 @@ $PROJECT_HOME/polaris-forge-setup/catalog_setup.yml
 Generate the Juypter notebook to verify the setup,
 
 ```shell
-$PROJECT_HOME/polaris-forge-setup/catalog_setup.yml --tags=verify
+ansible-playbook $PROJECT_HOME/polaris-forge-setup/catalog_setup.yml --tags=verify
 ```
 
 Run the `$PROJECT_HOME/notebooks/verify_setup.ipynb` to make sure you are able to create the namespace, table, and insert some data.
@@ -427,7 +427,7 @@ kubectl logs -f -n localstack deployment/localstack
 Cleanup the Polaris resources:
 
 ```bash
-$PROJECT_HOME/polaris-forge-setup/catalog_cleanup.yml
+ansible-playbook $PROJECT_HOME/polaris-forge-setup/catalog_cleanup.yml
 ```
 
 Delete the whole cluster:
