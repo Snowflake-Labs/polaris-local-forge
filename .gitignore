@@ -24,4 +24,4 @@ work/**
 **/persistence.xml
 **/postgresql.yaml
 **/polaris.env
-notebooks/verify_setup.ipynb
+notebooks/verify_*.ipynb
