@@ -1,4 +1,4 @@
-#!ansible-playbook
+#!/usr/bin/env ansible-playbook
 ---
 - name: Ensure the cluster is ready with required deployments
   hosts: localhost
@@ -44,10 +44,10 @@
         namespace: "{{ deployment.namespace }}"
         api_version: "{{ deployment.api_version | default('apps/v1') }}"
       register: resource_status
-      until: resource_status.resources[0].status.availableReplicas is defined and
-        resource_status.resources[0].status.availableReplicas > 0 and
-        resource_status.resources[0].status.readyReplicas is defined and
-        resource_status.resources[0].status.readyReplicas == resource_status.resources[0].status.replicas
+      until:
+        resource_status.resources[0].status.availableReplicas is defined and
+        resource_status.resources[0].status.availableReplicas > 0 and resource_status.resources[0].status.readyReplicas
+        is defined and resource_status.resources[0].status.readyReplicas == resource_status.resources[0].status.replicas
       loop: "{{ deployments_resources_list }}"
       loop_control:
         label: "{{ deployment.namespace }}/{{ deployment.kind }}/{{ deployment.name }}"
@@ -84,8 +84,9 @@
         api_version: batch/v1
       register: job_status
       until: >
-        (job.type == 'completion' and job_status.resources[0].status.succeeded is defined and job_status.resources[0].status.succeeded > 0) or
-        (job.type == 'suspension' and job_status.resources[0].spec.suspend is defined and job_status.resources[0].spec.suspend == true)
+        (job.type == 'completion' and job_status.resources[0].status.succeeded is defined and
+        job_status.resources[0].status.succeeded > 0) or (job.type == 'suspension' and
+        job_status.resources[0].spec.suspend is defined and job_status.resources[0].spec.suspend == true)
       retries: 60
       delay: 10
       loop: "{{ job_resources_list }}"
