@@ -211,7 +211,7 @@ service/localstack   NodePort   10.43.112.185   <none>        4566:31566/TCP,...
 
 Currently, Apache Polaris does not publish any official images. The Apache Polaris images used by the repo are available at:
 
-```
+```text
 docker pull ghcr.io/snowflake-labs/polaris-local-forge/apache-polaris-server-pgsql
 docker pull ghcr.io/snowflake-labs/polaris-local-forge/apache-polaris-admin-tool-pgsql
 ```
@@ -309,11 +309,11 @@ The Polaris server does not yet have any catalogs. Run the following script to s
 
 Next, we will do the following:
 
-- Create s3 bucket
+- Create s3 bucket named `polardb`
 - Create Catalog named `polardb`
-- Create Principal `root` with Principal Role `admin`
+- Create Principal `super_user` with Principal Role `admin`
 - Create Catalog Role `sudo`, assign the role to Principal Role `admin`
-- Finally, grant the Catalog Role `sudo` to manage catalog via `CATALOG_MANAGE_CONTENT` role. This will make the principals with role `admin` able to manage the catalog.
+- Finally, grant the Catalog Role `sudo` to manage catalog via `CATALOG_MANAGE_CONTENT` role. This will make the principals with role `super_user` able to manage the catalog.
 
 Setup the environment variables,
 
