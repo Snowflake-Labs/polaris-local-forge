@@ -1,4 +1,4 @@
-# Apache Polaris Starter Kit with LocalStack on k3s
+# Apache Polaris(Incubating) Starter Kit with LocalStack on k3s
 
 [![Build Polaris Admin Tool PostgreSQL](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-admin-tool.yml/badge.svg)](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-admin-tool.yml)
 [![Build PolarisServer with PostgreSQL](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-server-image.yml/badge.svg)](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-server-image.yml)
