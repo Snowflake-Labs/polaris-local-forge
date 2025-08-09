@@ -16,8 +16,6 @@
         template: "templates/bootstrap-credentials.env.j2"
       - file: "{{ plf_features_dir }}/postgresql.yaml"
         template: "templates/postgresql.yml.j2"
-      - file: "{{ plf_polaris_dir }}/persistence.xml"
-        template: "templates/persistence.xml.j2"
       - file: "{{ plf_polaris_dir }}/.polaris.env"
         template: "templates/polaris.env.j2"
 

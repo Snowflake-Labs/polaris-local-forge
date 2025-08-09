@@ -7,14 +7,10 @@ generatorOptions:
   disableNameSuffixHash: true
 
 configMapGenerator:
-  - files:
-      - persistence.xml=persistence.xml
-    name: persistence-config
   - envs:
       - .polaris.env
     name:
       polaris-properties
-
       # TODO: Check if Polaris supports encrypted keys
       # - private-key-passphrase=keys/passphrase
 secretGenerator:
