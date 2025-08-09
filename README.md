@@ -1,10 +1,8 @@
 # Apache Polaris(Incubating) Starter Kit with LocalStack on k3s
 
-[![Build Polaris Admin Tool PostgreSQL](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-admin-tool.yml/badge.svg)](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-admin-tool.yml)
-[![Build PolarisServer with PostgreSQL](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-server-image.yml/badge.svg)](https://github.com/Snowflake-Labs/polaris-local-forge/actions/workflows/polaris-server-image.yml)
 ![k3d](https://img.shields.io/badge/k3d-v5.6.0-427cc9)
 ![Docker Desktop](https://img.shields.io/badge/Docker%20Desktop-v4.27-0db7ed)
-![Apache Polaris](https://img.shields.io/badge/Apache%20Polaris-1.0.0--SNAPSHOT-f9a825)
+![Apache Polaris](https://img.shields.io/badge/Apache%20Polaris-1.0.1-incubating-rc0)
 ![LocalStack](https://img.shields.io/badge/LocalStack-3.0.0-46a831)
 
 This starter kit provides a complete development environment for Apache Polaris with LocalStack integration running on k3s Kubernetes. It includes automated setup of PostgreSQL metastore, S3 integration via LocalStack, and all necessary configurations for immediate development use. The kit uses Kustomize for Kubernetes deployments and provides utilities for secure key generation and credential management.
@@ -132,7 +130,6 @@ The project has the following directories and files:
 │   ├── preapare.yml
 │   └── templates
 │       ├── bootstrap-credentials.env.j2
-│       ├── persistence.xml.j2
 │       ├── polaris.env.j2
 │       └── postgresql.yml.j2
 ├── pyproject.toml
@@ -207,29 +204,6 @@ service/localstack   NodePort   10.43.112.185   <none>        4566:31566/TCP,...
 
 ### Deploy Polaris
 
-#### Container Images
-
-Currently, Apache Polaris does not publish any official images. The Apache Polaris images used by the repo are available at:
-
-```text
-docker pull ghcr.io/snowflake-labs/polaris-local-forge/apache-polaris-server-pgsql
-docker pull ghcr.io/snowflake-labs/polaris-local-forge/apache-polaris-admin-tool-pgsql
-```
-
-The images are built with PostgreSQL as database dependency.
-
-(OR)
-
-The project also has scripts to build them from sources locally.
-
-Run the following command to build Apache Polaris images and push them into the local registry `k3d-registry.localhost:5000`. Update the `IMAGE_REGISTRY` env in [Taskfile](./Taskfile.yml) and then run:
-
-```shell
-task images
-```
-
-When you build locally, please make sure to update the `k8s/polaris/deployment.yaml`, `k8s/polaris/bootstrap.yaml`, and `k8s/polaris/purge.yaml` with correct images.
-
 #### Apply Manifests
 
 ```shell
@@ -299,9 +273,9 @@ service/postgresql-hl   ClusterIP      None           <none>                  54
 
 | Service    | URL                    | Default Credentials                                                                                |
 | ---------- | ---------------------- | -------------------------------------------------------------------------------------------------- |
-| Polaris UI | http://localhost:18181 | $PROJECT_HOME/k8s/polaris/.bootstrap-credentials.env                                               |
-| Adminer    | http://localhost:18080 | PostgreSQL host will be: `postgresql.polaris`, check $FEATURES_DIR/postgresql.yaml for credentials |
-| LocalStack | http://localhost:14566 | Use `test/test` for AWS credentials with Endpoint URL as http://localhost:14566                    |
+| Polaris UI | <http://localhost:18181> | $PROJECT_HOME/k8s/polaris/.bootstrap-credentials.env                                               |
+| Adminer    | <http://localhost:18080> | PostgreSQL host will be: `postgresql.polaris`, check $FEATURES_DIR/postgresql.yaml for credentials |
+| LocalStack | <http://localhost:14566> | Use `test/test` for AWS credentials with Endpoint URL as <http://localhost:14566>                    |
 
 ## Setup Demo Catalog
 

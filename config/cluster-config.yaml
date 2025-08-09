@@ -29,7 +29,3 @@ volumes:
   - volume: ${FEATURES_DIR}/features/localstack.yaml:/var/lib/rancher/k3s/server/manifests/localstack.yaml
     nodeFilters:
       - server:*
-  # Deploy TektonCD
-  - volume: ${FEATURES_DIR}/features/tektoncd.yaml:/var/lib/rancher/k3s/server/manifests/tektoncd.yaml
-    nodeFilters:
-      - server:*
