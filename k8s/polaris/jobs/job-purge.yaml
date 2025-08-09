@@ -16,8 +16,8 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: purge
-          image: ghcr.io/snowflake-labs/polaris-local-forge/apache-polaris-admin-tool-pgsql
-          imagePullPolicy: Always
+          image: docker.io/apache/polaris-admin-tool
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
                 name: polaris-properties
@@ -34,10 +34,3 @@ spec:
             limits:
               memory: "1024Mi"
               cpu: "500m"
-          volumeMounts:
-            - name: persistence-config
-              mountPath: /polaris/config
-      volumes:
-        - name: persistence-config
-          configMap:
-            name: persistence-config

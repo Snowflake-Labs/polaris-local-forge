@@ -14,8 +14,8 @@ spec:
       serviceAccountName: polaris
       containers:
         - name: polaris
-          image: ghcr.io/snowflake-labs/polaris-local-forge/apache-polaris-server-pgsql
-          imagePullPolicy: Always
+          image: docker.io/apache/polaris
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
                 name: polaris-properties
@@ -51,16 +51,10 @@ spec:
             failureThreshold: 3
             timeoutSeconds: 30
           volumeMounts:
-            - name: persistence-config
-              readOnly: true
-              mountPath: /polaris/config
             - name: polaris-credentials
               readOnly: true
               mountPath: /polaris/credentials
       volumes:
-        - name: persistence-config
-          configMap:
-            name: persistence-config
         - name: polaris-credentials
           secret:
             secretName: polaris-credentials
