@@ -2,7 +2,7 @@
 
 ![k3d](https://img.shields.io/badge/k3d-v5.6.0-427cc9)
 ![Docker Desktop](https://img.shields.io/badge/Docker%20Desktop-v4.27-0db7ed)
-![Apache Polaris](https://img.shields.io/badge/Apache%20Polaris-1.0.0--SNAPSHOT-f9a825)
+![Apache Polaris](https://img.shields.io/badge/Apache%20Polaris-1.0.1-incubating-rc0)
 ![LocalStack](https://img.shields.io/badge/LocalStack-3.0.0-46a831)
 
 This starter kit provides a complete development environment for Apache Polaris with LocalStack integration running on k3s Kubernetes. It includes automated setup of PostgreSQL metastore, S3 integration via LocalStack, and all necessary configurations for immediate development use. The kit uses Kustomize for Kubernetes deployments and provides utilities for secure key generation and credential management.
