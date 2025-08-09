@@ -14,7 +14,7 @@ spec:
       serviceAccountName: polaris
       containers:
         - name: polaris
-          image: docker.io/apache/polaris
+          image: docker.io/apache/polaris:1.0.1-incubating-rc0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
