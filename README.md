@@ -2,44 +2,210 @@
 
 ![k3d](https://img.shields.io/badge/k3d-v5.6.0-427cc9)
 ![Docker Desktop](https://img.shields.io/badge/Docker%20Desktop-v4.27-0db7ed)
-![Apache Polaris](https://img.shields.io/badge/Apache%20Polaris-1.0.1-incubating-rc0)
-![LocalStack](https://img.shields.io/badge/LocalStack-3.0.0-46a831)
+![Apache Polaris(Incubating)](https://img.shields.io/badge/Apache%20Polaris-1.2.0-incubating)
+![LocalStack](https://img.shields.io/badge/LocalStack-4.10.0)
 
-This starter kit provides a complete development environment for Apache Polaris with LocalStack integration running on k3s Kubernetes. It includes automated setup of PostgreSQL metastore, S3 integration via LocalStack, and all necessary configurations for immediate development use. The kit uses Kustomize for Kubernetes deployments and provides utilities for secure key generation and credential management.
+This starter kit provides a complete development environment for Apache Polaris with LocalStack integration running on k3s Kubernetes. It includes automated setup of PostgreSQL metastore, S3 integration via LocalStack, and all necessary configurations for immediate development use.
 
-Key features:
+**Key features:**
 
-- Automated k3s cluster setup with k3d
-- Integrated LocalStack for AWS S3 emulation
-- PostgreSQL metastore configuration
-- Ansible Playbooks for setup and configuration
+- 🚀 Automated k3s cluster setup with k3d
+- ☁️ Integrated LocalStack for AWS S3 emulation
+- 🗄️ PostgreSQL metastore configuration
+- 🤖 Task-based automation for easy management
+- 📓 Jupyter notebook for verification
 
-## Prerequisites
+## 🚀 Quick Start
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Docker Engine](https://docs.docker.com/engine/install/)
-- [kubectl](https://kubernetes.io/docs/tasks/tools/#kubectl) - Kubernetes command-line tool
-- [k3d](https://k3d.io/) (>= 5.0.0) - Lightweight wrapper to run [k3s](https://k3s.io) in Docker
-- [Python](https://www.python.org/downloads/) >= 3.11
-- [uv](https://github.com/astral-sh/uv) - Python packaging tool
-- [Task](https://taskfile.dev) - Makefile in YAML
-- [LocalStack](https://localstack.cloud/) (>= 3.0.0) - AWS cloud service emulator
-- [Dnsmasq](https://dnsmasq.org/doc.html) - **Optional** to avoid editing `/etc/hosts`
+Get Apache Polaris running locally in 3 steps:
 
-> **Important**
-> Ensure the tools are downloaded and on your path before proceeding further with this tutorial.
-
-## Get the Sources
-
-Clone the repository:
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/snowflake-labs/polaris-local-forge
 cd polaris-local-forge
 ```
 
-Set up environment variables:
+### 2. Install Prerequisites
+
+Install [Task](https://taskfile.dev) (if not already installed):
 
 ```bash
+# macOS
+brew install go-task/tap/go-task
+
+# Linux
+curl -sL https://taskfile.dev/install.sh | sh
+sudo mv bin/task /usr/local/bin/
+
+# Windows (Scoop)
+scoop install task
+
+# Windows (Chocolatey)
+choco install go-task
+```
+
+Setup Python environment:
+
+```bash
+# Install uv and setup Python environment
+task setup:python
+```
+
+> **Note**: Task commands automatically use the virtual environment. You only need to manually activate it if running Python/Jupyter commands directly:
+>
+> ```bash
+> source .venv/bin/activate  # On Unix-like systems
+> .venv\Scripts\activate     # On Windows
+> ```
+
+### 3. Deploy Everything
+
+```bash
+task setup:all
+```
+
+This single command will:
+
+- ✅ Generate required configuration files
+- ✅ Create the k3s cluster with k3d
+- ✅ Deploy PostgreSQL and LocalStack
+- ✅ Deploy Apache Polaris
+- ✅ Create a demo catalog
+
+**That's it!** ✨
+
+After completion, open and run `notebooks/verify_setup.ipynb` to verify your setup.
+
+## 📍 What You Get
+
+Once setup completes, you'll have the following services running:
+
+| Service    | URL                      | Credentials/Details                                          |
+| ---------- | ------------------------ | ------------------------------------------------------------ |
+| 🌟 **Polaris API** | <http://localhost:18181> | See `k8s/polaris/.bootstrap-credentials.env` for login       |
+| ☁️ **LocalStack** | <http://localhost:14566> | AWS S3 emulator - Use `test/test` for credentials           |
+
+**Quick access:**
+
+```bash
+task urls  # Display all service URLs
+task status  # Check deployment status
+```
+
+## 📋 Task Commands Reference
+
+The project uses [Task](https://taskfile.dev) to automate common workflows. Here are the most useful commands:
+
+### Installation & Setup
+
+```bash
+task install:uv      # Install uv Python package manager
+task setup:python    # Setup Python environment (installs uv + creates venv)
+task setup:dnsmasq   # Configure DNSmasq for .localstack domain (macOS only)
+task prepare         # Generate required configuration files
+```
+
+### Essential Commands
+
+```bash
+task help            # List all available tasks
+task setup:all       # Complete setup (prepare → cluster → deploy → catalog)
+task reset:all       # Complete reset (delete cluster → recreate everything)
+task urls            # Show all service URLs and credentials
+task status          # Check deployment status
+task clean:all       # Delete cluster and all resources
+```
+
+### Cluster Management
+
+```bash
+task cluster:create           # Create k3d cluster
+task cluster:bootstrap-check  # Wait for bootstrap deployments
+task cluster:polaris-check    # Wait for Polaris deployment
+task cluster:delete           # Delete the cluster
+task cluster:reset            # Delete and recreate cluster with fresh catalog
+```
+
+### Polaris Operations
+
+```bash
+task polaris:deploy     # Deploy Polaris to the cluster
+task polaris:reset      # Purge and re-bootstrap Polaris
+task polaris:purge      # Purge Polaris data
+task polaris:bootstrap  # Bootstrap Polaris (run after purge)
+```
+
+### Catalog Management
+
+```bash
+task catalog:setup    # Setup demo catalog (bucket, catalog, principal, roles)
+task catalog:verify   # Generate verification notebook
+task catalog:cleanup  # Cleanup catalog resources
+task catalog:reset    # Cleanup and recreate catalog (keeps cluster running)
+```
+
+### Logging & Troubleshooting
+
+```bash
+# View logs
+task logs:polaris      # Stream Polaris server logs
+task logs:postgresql   # Stream PostgreSQL logs
+task logs:localstack   # Stream LocalStack logs
+task logs:bootstrap    # View bootstrap job logs
+task logs:purge        # View purge job logs
+
+# Troubleshooting
+task troubleshoot:polaris     # Diagnose Polaris issues
+task troubleshoot:postgresql  # Check database connectivity
+task troubleshoot:localstack  # Verify LocalStack connectivity
+task troubleshoot:events      # Show recent events in polaris namespace
+```
+
+## 📦 Prerequisites
+
+Before you begin, ensure you have the following tools installed:
+
+### Required Tools
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (>= 4.27) or [Docker Engine](https://docs.docker.com/engine/install/)
+- [kubectl](https://kubernetes.io/docs/tasks/tools/#kubectl) - Kubernetes command-line tool
+- [k3d](https://k3d.io/) (>= 5.0.0) - Lightweight wrapper to run k3s in Docker
+- [Python](https://www.python.org/downloads/) (>= 3.11)
+- [uv](https://github.com/astral-sh/uv) - Python packaging tool
+- [Task](https://taskfile.dev) - Task runner (see installation above)
+
+### Optional Tools
+
+- [Dnsmasq](https://dnsmasq.org/doc.html) - Avoid editing `/etc/hosts` (see [Advanced Configuration](#dnsmasq-optional))
+- [direnv](https://direnv.net) - Automatic environment variable loading
+
+> **Important**
+> Ensure all required tools are installed and on your PATH before running `task setup:all`.
+
+### Verify Prerequisites
+
+```bash
+# Check required tools
+docker --version
+kubectl version --client
+k3d version
+python3 --version
+uv --version
+task --version
+
+# Check Docker is running
+docker ps
+```
+
+## 🔧 Advanced Configuration
+
+### Environment Variables
+
+The Taskfile automatically manages most environment variables. If you need to customize them, create a `.env` file:
+
+```bash
+# Optional: Override default values
 export PROJECT_HOME="$PWD"
 export KUBECONFIG="$PWD/.kube/config"
 export K3D_CLUSTER_NAME=polaris-local-forge
@@ -47,393 +213,250 @@ export K3S_VERSION=v1.32.1-k3s1
 export FEATURES_DIR="$PWD/k8s"
 ```
 
-Going forward we will refer to the cloned sources folder as `$PROJECT_HOME`.
+> **Tip**: Use [direnv](https://direnv.net) to automatically load environment variables when entering the project directory.
 
-## Python Environment Setup
+### DNSmasq (Optional)
 
-Install the `uv` tool:
+For seamless access to services, you can configure DNSmasq instead of editing `/etc/hosts`.
+
+**macOS Setup:**
 
 ```bash
-# Using pip
-pip install uv
+# Configure DNSmasq
+echo "address=/.localstack/127.0.0.1" >> $(brew --prefix)/etc/dnsmasq.conf
 
-# Or using curl (Unix-like systems)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Add resolver
+sudo tee /etc/resolver/localstack <<EOF
+nameserver 127.0.0.1
+EOF
+
+# Restart DNSmasq
+sudo brew services restart dnsmasq
 ```
 
-Set up Python environment:
+**Or use Task:**
 
 ```bash
-# Pin python version
-uv python pin 3.12
-# Install and set up Python environment
-uv venv
-# On Unix-like systems
+task setup:dnsmasq  # macOS only
+```
+
+### Custom Python Version
+
+```bash
+# Pin a different Python version
+uv python pin 3.11  # or 3.13
+
+# Recreate virtual environment
+uv venv --force
 source .venv/bin/activate
-# Install deps/packages
 uv sync
 ```
 
-> **Tip**
-> Use tools like [direnv](https://direnv.net) to make it easy setting environment variables
+## ✅ Verification
 
-## Tasks
+After running `task setup:all`, verify your setup:
 
-This project uses the [`Task`](https://taskfile.dev) runner (see `Taskfile.yml`) to orchestrate common workflows like cluster setup, Polaris deployment, and catalog initialization.
+### 1. Run the Verification Notebook
 
-### Install Task
-
-- **macOS**
-  - Using Homebrew:
-
-    ```bash
-    brew install go-task/tap/go-task
-    ```
-
-  - Or via script:
-
-    ```bash
-    curl -sL https://taskfile.dev/install.sh | sh
-    sudo mv bin/task /usr/local/bin/
-    ```
-
-- **Linux**
-  - Using script:
-
-    ```bash
-    curl -sL https://taskfile.dev/install.sh | sh
-    sudo mv bin/task /usr/local/bin/
-    ```
-
-  - Or download a binary from the [releases page](https://github.com/go-task/task/releases) and place it on your `PATH`.
-
-- **Windows**
-  - Using Scoop:
-
-    ```powershell
-    scoop install task
-    ```
-
-  - Using Chocolatey:
-
-    ```powershell
-    choco install go-task
-    ```
-
-  - Or download a `.zip` from the [releases page](https://github.com/go-task/task/releases), extract `task.exe`, and add its folder to your `PATH`.
-
-### Using the Taskfile
-
-- **List available tasks**:
-
-  ```bash
-  task help
-  ```
-
-- **End-to-end setup (prepare files, create cluster, deploy Polaris, set up catalog)**:
-
-  ```bash
-  task setup:all
-  ```
-
-- **Show service URLs and helpful endpoints**:
-
-  ```bash
-  task urls
-  ```
-
-- **Clean up catalog and delete the cluster**:
-
-  ```bash
-  task clean:all
-  ```
-
-## DNSmasq (Optional)
-
-For seamless access of services with the local k3s cluster and host, we might need to add entries in `/etc/hosts` of the host. But using dnsmasq is a much cleaner and neater way.
-
-Assuming you have `dnsmasq` installed, here is what is needed to set that up on macOS:
-
-```shell
-echo "address=/.localstack/127.0.0.1" >> $(brew --prefix)/etc/dnsmasq.conf
-```
-
-```shell
-cat <<EOF | sudo tee /etc/resolver/localstack
-nameserver 127.0.0.1
-EOF
-```
-
-### Prepare for Deployment
-
-The following script will generate the required sensitive files from templates using Ansible:
-
-```shell
-ansible-playbook $PROJECT_HOME/polaris-forge-setup/prepare.yml
-```
-
-## Create the Cluster
-
-Run the cluster setup script:
+Activate the virtual environment (if not already activated) and open the notebook:
 
 ```bash
-$PROJECT_HOME/bin/setup.sh
+source .venv/bin/activate  # On Unix-like systems
+# .venv\Scripts\activate   # On Windows
+
+jupyter notebook notebooks/verify_setup.ipynb
 ```
 
-Once the cluster is started, wait for the deployments to be ready:
+The notebook will:
 
-```shell
-ansible-playbook  $PROJECT_HOME/polaris-forge-setup/cluster_checks.yml --tags=bootstrap
-```
+- Create a test namespace
+- Create a test table
+- Insert sample data
+- Query the data back
 
-The cluster will deploy `localstack` and `postgresql`. You can verify them as shown:
+### 2. Check LocalStack Storage
 
-#### PostgreSQL
-
-To verify the deployments:
-
-```bash
-kubectl get pods,svc -n polaris
-```
-
-Expected output:
-
-```text
-NAME               READY   STATUS    RESTARTS   AGE
-pod/postgresql-0   1/1     Running   0          76m
-
-NAME                    TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)    AGE
-service/postgresql      ClusterIP   10.43.182.31   <none>        5432/TCP   76m
-service/postgresql-hl   ClusterIP   None           <none>        5432/TCP   76m
-```
-
-```bash
-kubectl get pods,svc -n localstack
-```
-
-Expected output:
-
-```text
-NAME                              READY   STATUS    RESTARTS   AGE
-pod/localstack-86b7f56d7f-hs6vq   1/1     Running   0          76m
-
-NAME                 TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)             AGE
-service/localstack   NodePort   10.43.112.185   <none>        4566:31566/TCP,...  76m
-```
-
-### Deploy Polaris
-
-#### Apply Manifests
-
-```shell
-kubectl apply -k $PROJECT_HOME/k8s/polaris
-```
-
-Ensure all deployments and jobs have succeeded:
-
-```shell
-ansible-playbook  $PROJECT_HOME/polaris-forge-setup/cluster_checks.yml --tags polaris
-```
-
-#### Purge and Bootstrap
-
-Whenever there is a need to clean and do bootstrap again, run the following sequence of commands:
-
-```shell
-kubectl patch job polaris-purge -p '{"spec":{"suspend":false}}'
-```
-
-Wait for purge to complete:
-
-```shell
-kubectl logs -f -n polaris jobs/polaris-purge
-```
-
-Scale down bootstrap and then scale it up:
-
-```shell
-kubectl delete -k k8s/polaris/job
-```
-
-```shell
-kubectl apply -k k8s/polaris/job
-```
-
-Wait for bootstrap to complete successfully:
-
-```shell
-kubectl logs -f -n polaris jobs/polaris-bootstrap
-```
-
-A successful bootstrap will have the following text in the log:
-
-```text
-...
-Realm 'POLARIS' successfully bootstrapped.
-Bootstrap completed successfully.
-...
-```
-
-Checking for pods and services in the `polaris` namespace should display:
-
-```text
-NAME                           READY   STATUS      RESTARTS   AGE
-pod/polaris-694ddbb476-m2trm   1/1     Running     0          13m
-pod/polaris-bootstrap-tpkh4    0/1     Completed   0          13m
-pod/postgresql-0               1/1     Running     0          100m
-
-NAME                    TYPE           CLUSTER-IP     EXTERNAL-IP             PORT(S)          AGE
-service/polaris         LoadBalancer   10.43.202.93   172.19.0.3,172.19.0.4   8181:32181/TCP   13m
-service/postgresql      ClusterIP      10.43.182.31   <none>                  5432/TCP         100m
-service/postgresql-hl   ClusterIP      None           <none>                  5432/TCP         100m
-```
-
-### Available Services
-
-| Service    | URL                    | Default Credentials                                                                                |
-| ---------- | ---------------------- | -------------------------------------------------------------------------------------------------- |
-| Polaris UI | <http://localhost:18181> | $PROJECT_HOME/k8s/polaris/.bootstrap-credentials.env                                               |
-| Adminer    | <http://localhost:18080> | PostgreSQL host will be: `postgresql.polaris`, check $FEATURES_DIR/postgresql.yaml for credentials |
-| LocalStack | <http://localhost:14566> | Use `test/test` for AWS credentials with Endpoint URL as <http://localhost:14566>                    |
-
-## Setup Demo Catalog
-
-The Polaris server does not yet have any catalogs. Run the following script to set up your first catalog, principal, principal role, catalog role, and grants.
-
-Next, we will do the following:
-
-- Create s3 bucket named `polardb`
-- Create Catalog named `polardb`
-- Create Principal `super_user` with Principal Role `admin`
-- Create Catalog Role `sudo`, assign the role to Principal Role `admin`
-- Finally, grant the Catalog Role `sudo` to manage catalog via `CATALOG_MANAGE_CONTENT` role. This will make the principals with role `super_user` able to manage the catalog.
-
-Setup the environment variables,
-
-```shell
-# just avoid colliding with existing AWS profiles
-unset AWS_PROFILE
-export AWS_ENDPOINT_URL=http://localstack.localstack:4566
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
-export AWS_REGION=us-east-1
-```
-
-```shell
-ansible-playbook $PROJECT_HOME/polaris-forge-setup/catalog_setup.yml
-```
-
-## Verify Setup
-
-Generate the Juypter notebook to verify the setup,
-
-```shell
-ansible-playbook $PROJECT_HOME/polaris-forge-setup/catalog_setup.yml --tags=verify
-```
-
-Run the `$PROJECT_HOME/notebooks/verify_setup.ipynb` to make sure you are able to create the namespace, table, and insert some data.
-
-To double-check if we have all our iceberg files created and committed, open <https://app.localstack.cloud/inst/default/resources/s3/polardb>. You should see something as shown in the screenshots below:
+Open <https://app.localstack.cloud/inst/default/resources/s3/polardb> to view your Iceberg files:
 
 ![Localstack](./docs/localstack_view.png)
 
-> **Important**
-> Default Instance URL is updated as shown
+You should see the catalog structure with metadata and data files:
 
 ![Catalog](./docs/catalog_storage.png)
 ![Catalog Metadata](./docs/catalog_metadata.png)
 ![Catalog Data](./docs/catalog_data.png)
 
-Your local Apache Polaris environment is ready for use. Please explore it further using or connect it with other query engines/tools like Apache Spark, Trino, Risingwave, etc.
-
-## Troubleshooting
-
-### Checking Component Logs
-
-You can use `kubectl logs` to inspect the logs of various components:
-
-#### Polaris Server
+### 3. Verify Deployments
 
 ```bash
-# Check Polaris server logs
-kubectl logs -f -n polaris deployment/polaris
+# Check all deployments
+task status
+
+# Or manually
+kubectl get all -n polaris
+kubectl get all -n localstack
 ```
 
-#### Bootstrap and Purge Jobs
+Expected output in `polaris` namespace:
 
-```bash
-# Check bootstrap job logs
-kubectl logs -f -n polaris jobs/polaris-bootstrap
+```text
+NAME                           READY   STATUS      RESTARTS   AGE
+pod/polaris-694ddbb476-m2trm   1/1     Running     0          13m
+pod/polaris-bootstrap-xxxxx    0/1     Completed   0          13m
+pod/postgresql-0               1/1     Running     0          15m
 
-# Check purge job logs
-kubectl logs -f -n polaris jobs/polaris-purge
+NAME                    TYPE           CLUSTER-IP     EXTERNAL-IP             PORT(S)          AGE
+service/polaris         LoadBalancer   10.43.202.93   172.19.0.3,172.19.0.4   8181:32181/TCP   13m
+service/postgresql      ClusterIP      10.43.182.31   <none>                  5432/TCP         15m
+service/postgresql-hl   ClusterIP      None           <none>                  5432/TCP         15m
 ```
 
-#### Database
+## 🔍 Troubleshooting
+
+### Quick Diagnostics
 
 ```bash
-# Check PostgreSQL logs
-kubectl logs -f -n polaris statefulset/postgresql
-```
+# Check deployment status
+task status
 
-#### LocalStack
+# View events
+task troubleshoot:events
 
-```bash
-# Check LocalStack logs
-kubectl logs -f -n localstack deployment/localstack
+# Check specific component
+task troubleshoot:polaris
+task troubleshoot:postgresql
+task troubleshoot:localstack
 ```
 
 ### Common Issues
 
-1. If Polaris server fails to start:
-
-   ```bash
-   # Check events in the namespace
-   kubectl get events -n polaris --sort-by='.lastTimestamp'
-
-   # Check Polaris pod status
-   kubectl describe pod -n polaris -l app=polaris
-   ```
-
-2. If LocalStack isn't accessible:
-
-   ```bash
-   # Check LocalStack service
-   kubectl get svc -n localstack
-
-   # Verify LocalStack endpoints
-   kubectl exec -it -n localstack deployment/localstack -- aws --endpoint-url=http://localhost:4566 s3 ls
-   ```
-
-3. If PostgreSQL connection fails:
-
-   ```bash
-   # Check PostgreSQL service
-   kubectl get svc -n polaris postgresql-hl
-
-   # Verify PostgreSQL connectivity
-   kubectl exec -it -n polaris postgresql-0 -- pg_isready -h localhost
-   ```
-
-## Cleanup
-
-Cleanup the Polaris resources:
+#### 1. Polaris Server Fails to Start
 
 ```bash
-ansible-playbook $PROJECT_HOME/polaris-forge-setup/catalog_cleanup.yml
+# Check Polaris logs
+task logs:polaris
+
+# Check pod status and events
+task troubleshoot:polaris
 ```
 
-Delete the whole cluster:
+#### 2. LocalStack Not Accessible
 
 ```bash
-$PROJECT_HOME/bin/cleanup.sh
+# Verify LocalStack is running
+kubectl get pods -n localstack
+
+# Check connectivity
+task troubleshoot:localstack
 ```
 
-## Related Projects and Tools
+#### 3. PostgreSQL Connection Issues
+
+```bash
+# Check PostgreSQL logs
+task logs:postgresql
+
+# Verify connectivity
+task troubleshoot:postgresql
+```
+
+#### 4. Bootstrap Job Fails
+
+```bash
+# View bootstrap logs
+task logs:bootstrap
+
+# Reset Polaris
+task polaris:reset
+```
+
+### Manual Troubleshooting Commands
+
+If Task commands don't help, you can use these manual commands:
+
+```bash
+# Check events
+kubectl get events -n polaris --sort-by='.lastTimestamp'
+
+# Describe pods
+kubectl describe pod -n polaris -l app=polaris
+
+# Check logs
+kubectl logs -f -n polaris deployment/polaris
+kubectl logs -f -n polaris jobs/polaris-bootstrap
+kubectl logs -f -n polaris statefulset/postgresql
+kubectl logs -f -n localstack deployment/localstack
+
+# Check services
+kubectl get svc -n polaris
+kubectl get svc -n localstack
+
+# Verify PostgreSQL
+kubectl exec -it -n polaris postgresql-0 -- pg_isready -h localhost
+
+# Verify LocalStack
+kubectl exec -it -n localstack deployment/localstack -- \
+  aws --endpoint-url=http://localhost:4566 s3 ls
+```
+
+## 🧹 Cleanup & Reset
+
+### Reset Catalog Only (Keep Cluster Running)
+
+Clean and recreate the catalog with fresh data:
+
+```bash
+task catalog:reset
+```
+
+Or just cleanup without recreating:
+
+```bash
+task catalog:cleanup
+```
+
+### Reset Everything (Delete and Recreate Cluster)
+
+Complete reset - deletes cluster and recreates everything with fresh catalog:
+
+```bash
+task reset:all
+# Same as: task cluster:reset
+```
+
+### Delete Everything
+
+Delete the k3d cluster and all resources:
+
+```bash
+task clean:all
+```
+
+This removes:
+
+- k3d cluster
+- All Kubernetes resources
+- Catalog data in LocalStack
+- PostgreSQL data
+
+> **Note**: Your configuration files in `k8s/polaris/` (credentials, secrets, keys) are preserved. Run `task prepare` to regenerate them if needed.
+
+## 🛠️ What's Next?
+
+Now that you have Apache Polaris running locally, you can:
+
+- **Connect query engines**: Use with Apache Spark, Trino, or Risingwave
+- **Explore the API**: Check the [Polaris API documentation](https://polaris.apache.org/)
+- **Create more catalogs**: Run `task catalog:setup` with custom parameters
+- **Develop integrations**: Use the LocalStack S3 endpoint for testing
+- **Experiment with Iceberg**: Create tables, partitions, and time-travel queries
+
+## 📚 Related Projects and Tools
 
 ### Core Components
 
-- [Apache Polaris](https://github.com/apache/arrow-datafusion-python) - Data Catalog and Governance Platform
+- [Apache Polaris](https://github.com/apache/polaris) - Data Catalog and Governance Platform
+- [Apache Iceberg](https://iceberg.apache.org/) - Open table format for data lakes
 - [PyIceberg](https://py.iceberg.apache.org/) - Python library to interact with Apache Iceberg
 - [LocalStack](https://github.com/localstack/localstack) - AWS Cloud Service Emulator
 - [k3d](https://k3d.io) - k3s in Docker
@@ -443,26 +466,139 @@ $PROJECT_HOME/bin/cleanup.sh
 
 - [Docker](https://www.docker.com/) - Container Platform
 - [Kubernetes](https://kubernetes.io/) - Container Orchestration
-- [Helm](https://helm.sh/) - Kubernetes Package Manager
 - [kubectl](https://kubernetes.io/docs/reference/kubectl/) - Kubernetes CLI
-- [uv](https://github.com/astral-sh/uv) - Python Packaging Tool
+- [Task](https://taskfile.dev) - Modern task runner and build tool
+- [uv](https://github.com/astral-sh/uv) - Fast Python packaging tool
+- [Ansible](https://www.ansible.com/) - Automation and configuration management
 
 ### Documentation
 
-- [Ansible](https://docs.ansible.com/ansible/latest/getting_started/index.html)
-- [Ansible Crypto Module](https://docs.ansible.com/ansible/latest/collections/community/crypto/index.html)
-- [Ansible AWS Module](https://docs.ansible.com/ansible/latest/collections/amazon/aws/index.html)
-- [Ansible Kubernetes Module](https://docs.ansible.com/ansible/latest/collections/kubernetes/core/k8s_module.html)
-- [k3d Documentation](https://k3d.io/v5.5.1/)
+- [Polaris Documentation](https://polaris.apache.org/)
+- [Iceberg Documentation](https://iceberg.apache.org/docs/latest/)
 - [LocalStack Documentation](https://docs.localstack.cloud/overview/)
+- [k3d Documentation](https://k3d.io/v5.5.1/)
 - [Kubernetes Documentation](https://kubernetes.io/docs/home/)
-- [Docker Documentation](https://docs.docker.com/)
+- [Task Documentation](https://taskfile.dev/usage/)
+
+---
 
 ## 📄 License
 
-Copyright (c) Snowflake Inc. All rights reserved.
+Copyright (c) Snowflake Inc. All rights reserved.  
 Licensed under the Apache 2.0 license.
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+---
+
+<details>
+<summary>🔧 Advanced: Manual Setup (Click to expand)</summary>
+
+If you prefer to run commands manually instead of using Task, here's the step-by-step process:
+
+### 1. Prepare Configuration Files
+
+Generate required sensitive files from templates:
+
+```bash
+ansible-playbook polaris-forge-setup/prepare.yml
+```
+
+### 2. Create the Cluster
+
+```bash
+bin/setup.sh
+```
+
+Wait for bootstrap deployments:
+
+```bash
+ansible-playbook polaris-forge-setup/cluster_checks.yml --tags=bootstrap
+```
+
+### 3. Verify Base Components
+
+PostgreSQL:
+
+```bash
+kubectl get pods,svc -n polaris
+```
+
+LocalStack:
+
+```bash
+kubectl get pods,svc -n localstack
+```
+
+### 4. Deploy Polaris
+
+```bash
+kubectl apply -k k8s/polaris
+```
+
+Wait for Polaris deployment:
+
+```bash
+ansible-playbook polaris-forge-setup/cluster_checks.yml --tags=polaris
+```
+
+### 5. Setup Catalog
+
+Export AWS environment variables:
+
+```bash
+unset AWS_PROFILE
+export AWS_ENDPOINT_URL=http://localstack.localstack:4566
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+export AWS_REGION=us-east-1
+```
+
+Create catalog:
+
+```bash
+ansible-playbook polaris-forge-setup/catalog_setup.yml
+```
+
+### 6. Generate Verification Notebook
+
+```bash
+ansible-playbook polaris-forge-setup/catalog_setup.yml --tags=verify
+```
+
+### 7. Purge and Re-bootstrap (if needed)
+
+Purge:
+
+```bash
+kubectl patch job polaris-purge -n polaris -p '{"spec":{"suspend":false}}'
+kubectl wait --for=condition=complete --timeout=300s job/polaris-purge -n polaris
+kubectl logs -n polaris jobs/polaris-purge
+```
+
+Re-bootstrap:
+
+```bash
+kubectl delete -k k8s/polaris/job
+kubectl apply -k k8s/polaris/job
+kubectl wait --for=condition=complete --timeout=300s job/polaris-bootstrap -n polaris
+kubectl logs -n polaris jobs/polaris-bootstrap
+```
+
+### 8. Cleanup
+
+Cleanup catalog:
+
+```bash
+ansible-playbook polaris-forge-setup/catalog_cleanup.yml
+```
+
+Delete cluster:
+
+```bash
+bin/cleanup.sh
+```
+
+</details>

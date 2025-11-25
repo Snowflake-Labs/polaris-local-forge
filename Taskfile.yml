@@ -5,7 +5,7 @@ vars:
     sh: pwd
   KUBECONFIG: "{{.PROJECT_HOME}}/.kube/config"
   K3D_CLUSTER_NAME: polaris-local-forge
-  K3S_VERSION: v1.32.1-k3s1
+  K3S_VERSION: v1.31.5-k3s1
   FEATURES_DIR: "{{.PROJECT_HOME}}/k8s"
 
 env:
@@ -13,16 +13,41 @@ env:
 
 tasks:
   # ============================================
+  # Installation Tasks
+  # ============================================
+
+  install:uv:
+    desc: Install uv Python package manager
+    cmds:
+      - |
+        if ! command -v uv &> /dev/null; then
+          echo "Installing uv..."
+          pip install uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+        else
+          echo "uv is already installed ($(uv --version))"
+        fi
+    status:
+      - command -v uv
+
+  # ============================================
   # Setup and Initialization Tasks
   # ============================================
 
   setup:python:
     desc: Set up Python environment using uv
+    deps:
+      - install:uv
     cmds:
       - uv python pin 3.12
       - uv venv
-      - echo "Run 'source .venv/bin/activate' to activate the virtual environment"
       - uv sync
+      - |
+        echo ""
+        echo "✅ Python environment setup complete!"
+        echo ""
+        echo "📌 Next step: Activate the virtual environment in your shell:"
+        echo "   source .venv/bin/activate"
+        echo ""
 
   setup:dnsmasq:
     desc: Configure DNSmasq for .localstack domain (macOS only)
@@ -35,8 +60,11 @@ tasks:
 
   prepare:
     desc: Generate required sensitive files from templates using Ansible
+    preconditions:
+      - sh: test -f .venv/bin/activate || test -f .venv/Scripts/activate
+        msg: "Python venv not found. Run 'task setup:python' first."
     cmds:
-      - ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/prepare.yml
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/prepare.yml
 
   # ============================================
   # Cluster Management Tasks
@@ -44,23 +72,44 @@ tasks:
 
   cluster:create:
     desc: Create the k3d cluster and deploy initial components
+    deps:
+      - prepare
     cmds:
-      - "{{.PROJECT_HOME}}/bin/setup.sh"
+      - |
+        export K3D_CLUSTER_NAME={{.K3D_CLUSTER_NAME}}
+        export K3S_VERSION={{.K3S_VERSION}}
+        export FEATURES_DIR={{.FEATURES_DIR}}
+        {{.PROJECT_HOME}}/bin/setup.sh
 
   cluster:bootstrap-check:
     desc: Wait for bootstrap deployments to be ready
     cmds:
-      - ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=bootstrap
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=bootstrap
 
   cluster:polaris-check:
     desc: Wait for polaris deployments to be ready
     cmds:
-      - ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=polaris
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=polaris
 
   cluster:delete:
     desc: Delete the k3d cluster
     cmds:
-      - "{{.PROJECT_HOME}}/bin/cleanup.sh"
+      - |
+        export K3D_CLUSTER_NAME={{.K3D_CLUSTER_NAME}}
+        {{.PROJECT_HOME}}/bin/cleanup.sh
+
+  cluster:reset:
+    desc: Delete and recreate cluster with fresh catalog
+    cmds:
+      - task: cluster:delete
+      - task: cluster:create
+      - task: cluster:bootstrap-check
+      - task: polaris:deploy
+      - task: cluster:polaris-check
+      - task: catalog:setup
+      - 'echo ""'
+      - 'echo "✅ Cluster reset complete!"'
+      - 'echo "All services are running with a fresh catalog"'
 
   # ============================================
   # Polaris Deployment Tasks
@@ -74,7 +123,7 @@ tasks:
   polaris:check:
     desc: Ensure all Polaris deployments and jobs have succeeded
     cmds:
-      - ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=polaris
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=polaris
 
   polaris:purge:
     desc: Purge Polaris data
@@ -112,7 +161,7 @@ tasks:
         export AWS_SECRET_ACCESS_KEY=test
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
-        ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml
+        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml
 
   catalog:verify:
     desc: Generate and prepare verification notebook
@@ -123,13 +172,23 @@ tasks:
         export AWS_SECRET_ACCESS_KEY=test
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
-        ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml --tags=verify
+        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml --tags=verify
       - echo "Run the notebook at {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"
 
   catalog:cleanup:
     desc: Cleanup Polaris catalog resources
     cmds:
-      - ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_cleanup.yml
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_cleanup.yml
+
+  catalog:reset:
+    desc: Cleanup and recreate catalog (keeps cluster running)
+    cmds:
+      - task: catalog:cleanup
+      - task: catalog:setup
+      - 'echo ""'
+      - 'echo "✅ Catalog reset complete!"'
+      - 'echo "Run the verification notebook to test:"'
+      - 'echo "  {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"'
 
   # ============================================
   # Logging and Troubleshooting Tasks
@@ -192,9 +251,8 @@ tasks:
   # ============================================
 
   setup:all:
-    desc: Complete setup - prepare files and create cluster
+    desc: Complete setup - prepare files, create cluster, deploy Polaris, setup catalog
     cmds:
-      - task: prepare
       - task: cluster:create
       - task: cluster:bootstrap-check
       - task: polaris:deploy
@@ -205,10 +263,14 @@ tasks:
       - 'echo "Now open and run the verification notebook:"'
       - 'echo "  {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"'
 
-  clean:all:
-    desc: Clean up catalog and delete cluster
+  reset:all:
+    desc: Complete reset - delete cluster, recreate everything with fresh catalog
     cmds:
-      - task: catalog:cleanup
+      - task: cluster:reset
+
+  clean:all:
+    desc: Delete cluster and all resources
+    cmds:
       - task: cluster:delete
 
   # ============================================
