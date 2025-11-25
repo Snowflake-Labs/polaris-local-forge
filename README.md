@@ -77,6 +77,77 @@ uv sync
 > **Tip**
 > Use tools like [direnv](https://direnv.net) to make it easy setting environment variables
 
+## Tasks
+
+This project uses the [`Task`](https://taskfile.dev) runner (see `Taskfile.yml`) to orchestrate common workflows like cluster setup, Polaris deployment, and catalog initialization.
+
+### Install Task
+
+- **macOS**
+  - Using Homebrew:
+
+    ```bash
+    brew install go-task/tap/go-task
+    ```
+
+  - Or via script:
+
+    ```bash
+    curl -sL https://taskfile.dev/install.sh | sh
+    sudo mv bin/task /usr/local/bin/
+    ```
+
+- **Linux**
+  - Using script:
+
+    ```bash
+    curl -sL https://taskfile.dev/install.sh | sh
+    sudo mv bin/task /usr/local/bin/
+    ```
+
+  - Or download a binary from the [releases page](https://github.com/go-task/task/releases) and place it on your `PATH`.
+
+- **Windows**
+  - Using Scoop:
+
+    ```powershell
+    scoop install task
+    ```
+
+  - Using Chocolatey:
+
+    ```powershell
+    choco install go-task
+    ```
+
+  - Or download a `.zip` from the [releases page](https://github.com/go-task/task/releases), extract `task.exe`, and add its folder to your `PATH`.
+
+### Using the Taskfile
+
+- **List available tasks**:
+
+  ```bash
+  task help
+  ```
+
+- **End-to-end setup (prepare files, create cluster, deploy Polaris, set up catalog)**:
+
+  ```bash
+  task setup:all
+  ```
+
+- **Show service URLs and helpful endpoints**:
+
+  ```bash
+  task urls
+  ```
+
+- **Clean up catalog and delete the cluster**:
+
+  ```bash
+  task clean:all
+  ```
+
 ## DNSmasq (Optional)
 
 For seamless access of services with the local k3s cluster and host, we might need to add entries in `/etc/hosts` of the host. But using dnsmasq is a much cleaner and neater way.
@@ -92,58 +163,6 @@ cat <<EOF | sudo tee /etc/resolver/localstack
 nameserver 127.0.0.1
 EOF
 ```
-
-## Directory Structure
-
-The project has the following directories and files:
-
-```
-├── LICENSE
-├── README.md
-├── Taskfile.yml
-├── bin
-│   ├── cleanup.sh
-│   └── setup.sh
-├── config
-│   └── cluster-config.yaml
-├── k8s
-│   ├── features
-│   │   ├── adminer.yml
-│   │   └── localstack.yml
-│   └── polaris
-│       ├── bootstrap.yaml
-│       ├── deployment.yaml
-│       ├── kustomization.yaml
-│       ├── purge.yaml
-│       ├── rbac.yaml
-│       ├── sa.yaml
-│       └── service.yaml
-├── notebooks
-│   └── verify_setup.ipynb
-├── polaris-forge-setup
-│   ├── ansible.cfg
-│   ├── catalog_setup.yml
-│   ├── defaults
-│   │   └── main.yml
-│   ├── inventory
-│   │   └── hosts
-│   ├── preapare.yml
-│   └── templates
-│       ├── bootstrap-credentials.env.j2
-│       ├── polaris.env.j2
-│       └── postgresql.yml.j2
-├── pyproject.toml
-├── uv.lock
-└── work
-```
-
-To ensure reuse and for security, files with passwords are not added to git. Currently, the following files are ignored or not available out of the box (they will be generated in upcoming steps):
-
-- k8s/features/postgresql.yml
-- k8s/polaris/persistence.xml
-- k8s/polaris/.bootstrap-credentials
-- k8s/polaris/.polaris.env
-- All RSA KeyPairs
 
 ### Prepare for Deployment
 

@@ -1,82 +1,243 @@
-# https://taskfile.dev
-
 version: "3"
 
 vars:
-    IMAGE_REGISTRY: k3d-registry.localhost:5001
-    POLARIS_IMAGE_NAME: polaris-local-forge/apache-polaris-server-pgsql
-    POLARIS_ADMIN_TOOL_IMAGE_NAME: polaris-local-forge/apache-polaris-admin-tool-pgsql
-    ECLIPSE_LINK_DEPS: "org.postgresql:postgresql:42.7.4"
+  PROJECT_HOME:
+    sh: pwd
+  KUBECONFIG: "{{.PROJECT_HOME}}/.kube/config"
+  K3D_CLUSTER_NAME: polaris-local-forge
+  K3S_VERSION: v1.32.1-k3s1
+  FEATURES_DIR: "{{.PROJECT_HOME}}/k8s"
+
+env:
+  KUBECONFIG: "{{.KUBECONFIG}}"
 
 tasks:
-    clone_repo:
-        cmds:
-            - rm -rf work/polaris
-            - git clone https://github.com/apache/polaris work/polaris
-        silent: true
-    build-server:
-        dir: work/polaris
-        deps:
-            - task: clone_repo
-        cmds:
-            - >-
-                ./gradlew clean :polaris-quarkus-server:build
-                -PeclipseLinkDeps={{.ECLIPSE_LINK_DEPS}}
-                -Dquarkus.container-image.build=true
-                -Dquarkus.container-image.group=
-                -Dquarkus.container-image.name={{.POLARIS_IMAGE_NAME}}
-                -Dquarkus.container-image.tag=latest
-                -Dquarkus.container-image.push=true
-                -Dquarkus.container-image.registry={{.IMAGE_REGISTRY}}
-        silent: false
-    build-admin:
-        dir: work/polaris
-        cmds:
-            - >-
-                ./gradlew clean :polaris-quarkus-admin:build
-                -PeclipseLinkDeps={{.ECLIPSE_LINK_DEPS}}
-                -Dquarkus.container-image.build=true
-                -Dquarkus.container-image.group=
-                -Dquarkus.container-image.name={{.POLARIS_ADMIN_TOOL_IMAGE_NAME}}
-                -Dquarkus.container-image.tag=latest
-                -Dquarkus.container-image.push=true
-                -Dquarkus.container-image.registry={{.IMAGE_REGISTRY}}
-        silent: false
+  # ============================================
+  # Setup and Initialization Tasks
+  # ============================================
 
-    images:
-        cmds:
-            - task: clone_repo
-            - task: build-server
-            - task: build-admin
+  setup:python:
+    desc: Set up Python environment using uv
+    cmds:
+      - uv python pin 3.12
+      - uv venv
+      - echo "Run 'source .venv/bin/activate' to activate the virtual environment"
+      - uv sync
 
-    start-postgresql:
-        silent: true
-        cmds:
-            - >-
-                docker run --name polaris-pg -p 5432:5432 -e POSTGRES_DB=polaris
-                -e POSTGRES_PASSWORD=password123 -d postgres
-    polaris-server:
-        silent: false
-        dir: work/polaris
-        cmds:
-            - >-
-                ./gradlew clean :polaris-quarkus-server:quarkusDev
-                -Dquarkus.profile=dev -Dpolaris.persistence.type=eclipse-link
-                -Dpolaris.persistence.eclipselink.configuration-file=/Users/ksampath/mylabs/localstack/polaris/work/config/persistence.xml
-                -Dpolaris.persistence.eclipselink.persistence-unit=polaris-dev
-                -Dquarkus.log.console.level=DEBUG
-                -Dquarkus.log.category."io.smallrye.config".level=DEBUG
+  setup:dnsmasq:
+    desc: Configure DNSmasq for .localstack domain (macOS only)
+    cmds:
+      - echo "address=/.localstack/127.0.0.1" >> $(brew --prefix)/etc/dnsmasq.conf
+      - sudo tee /etc/resolver/localstack <<< "nameserver 127.0.0.1"
+    preconditions:
+      - sh: which brew
+        msg: "Homebrew is required for this task"
 
-    bootstrap:
-        silent: false
-        dir: work/polaris
-        cmds:
-            - >-
-                ./gradlew clean :polaris-quarkus-admin:build
-                -PeclipseLinkDeps={{.ECLIPSE_LINK_DEPS}}
-            - >-
-                java
-                -Dpolaris.persistence.eclipselink.configuration-file=/Users/ksampath/mylabs/localstack/polaris/work/config/persistence.xml
-                -Dpolaris.persistence.eclipselink.persistence-unit=polaris-dev
-                -jar quarkus/admin/build/polaris-quarkus-admin-*-runner.jar
-                bootstrap -c="polaris,myuser,password" -r="polaris"
+  prepare:
+    desc: Generate required sensitive files from templates using Ansible
+    cmds:
+      - ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/prepare.yml
+
+  # ============================================
+  # Cluster Management Tasks
+  # ============================================
+
+  cluster:create:
+    desc: Create the k3d cluster and deploy initial components
+    cmds:
+      - "{{.PROJECT_HOME}}/bin/setup.sh"
+
+  cluster:bootstrap-check:
+    desc: Wait for bootstrap deployments to be ready
+    cmds:
+      - ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=bootstrap
+
+  cluster:polaris-check:
+    desc: Wait for polaris deployments to be ready
+    cmds:
+      - ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=polaris
+
+  cluster:delete:
+    desc: Delete the k3d cluster
+    cmds:
+      - "{{.PROJECT_HOME}}/bin/cleanup.sh"
+
+  # ============================================
+  # Polaris Deployment Tasks
+  # ============================================
+
+  polaris:deploy:
+    desc: Deploy Polaris to the cluster
+    cmds:
+      - kubectl apply -k {{.PROJECT_HOME}}/k8s/polaris
+
+  polaris:check:
+    desc: Ensure all Polaris deployments and jobs have succeeded
+    cmds:
+      - ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=polaris
+
+  polaris:purge:
+    desc: Purge Polaris data
+    cmds:
+      - kubectl patch job polaris-purge -n polaris -p '{"spec":{"suspend":false}}'
+      - echo "Waiting for purge to complete..."
+      - kubectl wait --for=condition=complete --timeout=300s job/polaris-purge -n polaris
+      - kubectl logs -n polaris jobs/polaris-purge
+
+  polaris:bootstrap:
+    desc: Bootstrap Polaris (run after purge)
+    cmds:
+      - kubectl delete -k {{.PROJECT_HOME}}/k8s/polaris/job
+      - kubectl apply -k {{.PROJECT_HOME}}/k8s/polaris/job
+      - echo "Waiting for bootstrap to complete..."
+      - kubectl wait --for=condition=complete --timeout=300s job/polaris-bootstrap -n polaris
+      - kubectl logs -n polaris jobs/polaris-bootstrap
+
+  polaris:reset:
+    desc: Purge and re-bootstrap Polaris
+    cmds:
+      - task: polaris:purge
+      - task: polaris:bootstrap
+
+  # ============================================
+  # Catalog Management Tasks
+  # ============================================
+
+  catalog:setup:
+    desc: Set up demo catalog with s3 bucket, catalog, principal, and roles
+    cmds:
+      - |
+        export AWS_ENDPOINT_URL=http://localstack.localstack:4566
+        export AWS_ACCESS_KEY_ID=test
+        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_REGION=us-east-1
+        unset AWS_PROFILE
+        ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml
+
+  catalog:verify:
+    desc: Generate and prepare verification notebook
+    cmds:
+      - |
+        export AWS_ENDPOINT_URL=http://localstack.localstack:4566
+        export AWS_ACCESS_KEY_ID=test
+        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_REGION=us-east-1
+        unset AWS_PROFILE
+        ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml --tags=verify
+      - echo "Run the notebook at {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"
+
+  catalog:cleanup:
+    desc: Cleanup Polaris catalog resources
+    cmds:
+      - ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_cleanup.yml
+
+  # ============================================
+  # Logging and Troubleshooting Tasks
+  # ============================================
+
+  logs:polaris:
+    desc: Stream Polaris server logs
+    cmds:
+      - kubectl logs -f -n polaris deployment/polaris
+
+  logs:bootstrap:
+    desc: View Polaris bootstrap job logs
+    cmds:
+      - kubectl logs -f -n polaris jobs/polaris-bootstrap
+
+  logs:purge:
+    desc: View Polaris purge job logs
+    cmds:
+      - kubectl logs -f -n polaris jobs/polaris-purge
+
+  logs:postgresql:
+    desc: Stream PostgreSQL logs
+    cmds:
+      - kubectl logs -f -n polaris statefulset/postgresql
+
+  logs:localstack:
+    desc: Stream LocalStack logs
+    cmds:
+      - kubectl logs -f -n localstack deployment/localstack
+
+  # ============================================
+  # Troubleshooting Tasks
+  # ============================================
+
+  troubleshoot:events:
+    desc: Show recent events in polaris namespace
+    cmds:
+      - kubectl get events -n polaris --sort-by='.lastTimestamp'
+
+  troubleshoot:polaris:
+    desc: Troubleshoot Polaris deployment issues
+    cmds:
+      - kubectl get events -n polaris --sort-by='.lastTimestamp'
+      - kubectl describe pod -n polaris -l app=polaris
+
+  troubleshoot:localstack:
+    desc: Troubleshoot LocalStack connectivity
+    cmds:
+      - kubectl get svc -n localstack
+      - kubectl exec -it -n localstack deployment/localstack -- aws --endpoint-url=http://localhost:4566 s3 ls
+
+  troubleshoot:postgresql:
+    desc: Troubleshoot PostgreSQL connectivity
+    cmds:
+      - kubectl get svc -n polaris postgresql-hl
+      - kubectl exec -it -n polaris postgresql-0 -- pg_isready -h localhost
+
+  # ============================================
+  # Convenience Compound Tasks
+  # ============================================
+
+  setup:all:
+    desc: Complete setup - prepare files and create cluster
+    cmds:
+      - task: prepare
+      - task: cluster:create
+      - task: cluster:bootstrap-check
+      - task: polaris:deploy
+      - task: cluster:polaris-check
+      - task: catalog:setup
+      - 'echo ""'
+      - 'echo "Setup complete 🎉"'
+      - 'echo "Now open and run the verification notebook:"'
+      - 'echo "  {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"'
+
+  clean:all:
+    desc: Clean up catalog and delete cluster
+    cmds:
+      - task: catalog:cleanup
+      - task: cluster:delete
+
+  # ============================================
+  # Quick Reference Tasks
+  # ============================================
+
+  status:
+    desc: Show status of all deployments
+    cmds:
+      - echo "=== Polaris Namespace ==="
+      - kubectl get all -n polaris
+      - echo ""
+      - echo "=== LocalStack Namespace ==="
+      - kubectl get all -n localstack
+
+  urls:
+    desc: Display service URLs and credentials locations
+    cmds:
+      - 'echo "Service URLs:"'
+      - 'echo "  Polaris UI:  http://localhost:18181"'
+      - 'echo "  Credentials: {{.PROJECT_HOME}}/k8s/polaris/.bootstrap-credentials.env"'
+      - 'echo ""'
+      - 'echo "  Adminer:     http://localhost:18080"'
+      - 'echo "  PostgreSQL:  postgresql.polaris (check {{.FEATURES_DIR}}/postgresql.yaml)"'
+      - 'echo ""'
+      - 'echo "  LocalStack:  http://localhost:14566"'
+      - 'echo "  Credentials: test/test"'
+
+  help:
+    desc: Show available tasks with descriptions
+    cmds:
+      - task --list
