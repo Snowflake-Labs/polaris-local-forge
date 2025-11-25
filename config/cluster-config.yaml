@@ -29,3 +29,7 @@ volumes:
   - volume: ${FEATURES_DIR}/features/localstack.yaml:/var/lib/rancher/k3s/server/manifests/localstack.yaml
     nodeFilters:
       - server:*
+  # Polaris Helm Chart and Secrets
+  - volume: ${FEATURES_DIR}/features/polaris.yaml:/var/lib/rancher/k3s/server/manifests/polaris.yaml
+    nodeFilters:
+      - server:*

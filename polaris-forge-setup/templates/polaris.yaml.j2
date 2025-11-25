@@ -1,0 +1,111 @@
+---
+# https://downloads.apache.org/incubator/polaris/helm-chart/
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: polaris
+  namespace: kube-system
+spec:
+  repo: https://downloads.apache.org/incubator/polaris/helm-chart/
+  chart: polaris
+  version: 1.2.0-incubating
+  createNamespace: true
+  targetNamespace: polaris
+  valuesContent: |-
+    image:
+      repository: apache/polaris
+      tag: 1.2.0-incubating
+      pullPolicy: IfNotPresent
+
+    replicaCount: 1
+
+    resources:
+      requests:
+        memory: "1024Mi"
+        cpu: "500m"
+      limits:
+        memory: "2048Mi"
+        cpu: "1000m"
+
+    service:
+      type: NodePort
+      ports:
+        - name: polaris-http
+          port: 8181
+          targetPort: 8181
+          protocol: TCP
+          nodePort: 32181
+
+    # Environment variables for AWS/LocalStack configuration
+    extraEnv:
+      - name: AWS_ENDPOINT_URL
+        value: "{{ plf_aws_endpoint_url }}"
+      - name: AWS_REGION
+        value: "{{ plf_aws_region }}"
+      - name: AWS_ACCESS_KEY_ID
+        value: "{{ plf_aws_access_key_id }}"
+      - name: AWS_SECRET_ACCESS_KEY
+        value: "{{ plf_aws_secret_access_key }}"
+
+    # Realm context configuration
+    realmContext:
+      type: default
+      realms:
+        - POLARIS
+
+    # Persistence configuration using PostgreSQL
+    persistence:
+      type: relational-jdbc
+      relationalJdbc:
+        secret:
+          # The Bitnami PostgreSQL chart creates a secret named 'postgresql'
+          # with keys: 'password' (for the user) and 'postgres-password' (for postgres user)
+          # We'll use a custom secret that matches the expected keys
+          name: polaris-db-credentials
+          username: username
+          password: password
+          jdbcUrl: jdbcUrl
+
+    # Authentication configuration using RSA key pair
+    authentication:
+      type: internal
+      tokenBroker:
+        type: rsa-key-pair
+        maxTokenGeneration: PT1H
+        secret:
+          name: polaris-credentials
+          rsaKeyPair:
+            publicKey: public-key
+            privateKey: private-key
+
+    # Health checks
+    livenessProbe:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      successThreshold: 1
+      failureThreshold: 3
+      timeoutSeconds: 10
+      terminationGracePeriodSeconds: 30
+
+    readinessProbe:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      successThreshold: 1
+      failureThreshold: 3
+      timeoutSeconds: 10
+
+    # Service Account
+    serviceAccount:
+      create: true
+      name: polaris
+
+    # Logging configuration
+    logging:
+      level: DEBUG
+      console:
+        enabled: true
+        threshold: ALL
+        json: false
+      categories:
+        org.apache.polaris: DEBUG
+        org.apache.iceberg.rest: DEBUG
