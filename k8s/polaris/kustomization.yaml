@@ -14,20 +14,13 @@ configMapGenerator:
       # TODO: Check if Polaris supports encrypted keys
       # - private-key-passphrase=keys/passphrase
 secretGenerator:
-  - files:
-      - private-key=rsa_key
-      - public-key=rsa_key.pub
-    name: polaris-credentials
   - envs:
       - .bootstrap-credentials.env
     name: bootstrap-credentials
 
 resources:
-  - sa.yaml
-  - rbac.yaml
-  - deployment.yaml
-  - service.yaml
   - jobs
+  - polaris-secrets.yaml
 
 labels:
   - includeSelectors: true

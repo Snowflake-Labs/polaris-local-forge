@@ -16,9 +16,12 @@
         template: "templates/bootstrap-credentials.env.j2"
       - file: "{{ plf_features_dir }}/postgresql.yaml"
         template: "templates/postgresql.yml.j2"
+      - file: "{{ plf_features_dir }}/polaris.yaml"
+        template: "templates/polaris.yaml.j2"
+      - file: "{{ plf_polaris_dir }}/polaris-secrets.yaml"
+        template: "templates/polaris-secrets.yaml.j2"
       - file: "{{ plf_polaris_dir }}/.polaris.env"
         template: "templates/polaris.env.j2"
-
   pre_tasks:
     - name: Install required collections
       ansible.builtin.command: ansible-galaxy collection install community.crypto

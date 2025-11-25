@@ -25,3 +25,6 @@ work/**
 **/postgresql.yaml
 **/polaris.env
 notebooks/verify_*.ipynb
+.local
+polaris-secrets.yaml
+polaris.yaml

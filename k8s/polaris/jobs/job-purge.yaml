@@ -16,7 +16,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: purge
-          image: docker.io/apache/polaris-admin-tool:1.0.1-incubating-rc0
+          image: docker.io/apache/polaris-admin-tool:1.2.0-incubating
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
