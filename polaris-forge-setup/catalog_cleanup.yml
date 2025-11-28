@@ -128,8 +128,6 @@
         label: "{{ item.endpoint }}"
       tags:
         - cleanup
-        - token
-      when: "item.tags | intersect(ansible_run_tags) or not ansible_run_tags"
 
     - name: Delete s3 bucket
       amazon.aws.s3_bucket:

@@ -163,7 +163,11 @@
         body:
           principalRole:
             name: "{{ plf_admin_role }}"
-        status_code: [201, 409]
+        status_code: [201, 409, 500]
+      register: assign_role_response
+      failed_when: 
+        - assign_role_response.status == 500
+        - '"duplicate key" not in assign_role_response.json.error.message | default("")'
       tags:
         - principal
         - roles
@@ -193,7 +197,11 @@
         body:
           catalogRole:
             name: "{{ plf_catalog_role }}"
-        status_code: [201, 409]
+        status_code: [201, 409, 500]
+      register: assign_catalog_role_response
+      failed_when:
+        - assign_catalog_role_response.status == 500
+        - '"duplicate key" not in assign_catalog_role_response.json.error.message | default("")'
       tags:
         - principal
         - catalog
@@ -211,7 +219,11 @@
           grant:
             type: "{{ plf_grant_type | default('catalog') }}"
             privilege: "{{ plf_grant_privilege | default('CATALOG_MANAGE_CONTENT') }}"
-        status_code: [201, 409]
+        status_code: [201, 409, 500]
+      register: assign_grants_response
+      failed_when:
+        - assign_grants_response.status == 500
+        - '"duplicate key" not in assign_grants_response.json.error.message | default("")'
       tags:
         - catalog
         - principal
