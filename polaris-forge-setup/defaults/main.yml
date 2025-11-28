@@ -16,6 +16,7 @@ plf_api_base_url: "http://{{ plf_api_host }}:{{ plf_api_port }}" # Polaris API U
 # Catalog Configuration
 plf_catalog_name: polardb # Name of the Polaris catalog
 plf_base_s3_location: "s3://{{ plf_catalog_name }}" # S3 location for catalog storage
+plf_aws_path_style_access: true # AWS path style access
 
 # Security Configuration
 plf_admin_username: super_user # Superuser for Polaris

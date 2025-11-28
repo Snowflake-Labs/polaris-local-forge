@@ -98,8 +98,8 @@
             readOnly: false
             properties:
               default-base-location: "{{ plf_base_s3_location }}"
-              s3.path-style-access: true
-              table-default.s3.path-style-access: true
+              s3.path-style-access: "{{ plf_aws_path_style_access }}"
+              table-default.s3.path-style-access: "{{ plf_aws_path_style_access }}"
               table-default.s3.endpoint: "{{ plf_aws_endpoint_url }}"
               s3.endpoint: "{{ plf_aws_endpoint_url }}"
               s3.region: "{{ plf_aws_region }}"
@@ -108,6 +108,7 @@
               allowedLocations:
                 - "{{ plf_base_s3_location }}"
               roleArn: "{{ plf_aws_role_arn }}"
+              pathStyleAccess: "{{ plf_aws_path_style_access }}"
         status_code: [201, 409]
       register: catalog_response
       tags:
