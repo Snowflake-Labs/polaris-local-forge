@@ -3,7 +3,7 @@
 ![k3d](https://img.shields.io/badge/k3d-v5.6.0-427cc9)
 ![Docker Desktop](https://img.shields.io/badge/Docker%20Desktop-v4.27-0db7ed)
 ![Apache Polaris(Incubating)](https://img.shields.io/badge/Apache%20Polaris-1.2.0-incubating)
-![LocalStack](https://img.shields.io/badge/LocalStack-4.10.0)
+![LocalStack](https://img.shields.io/badge/LocalStack-3.8.1-blue)
 
 This starter kit provides a complete development environment for Apache Polaris with LocalStack integration running on k3s Kubernetes. It includes automated setup of PostgreSQL metastore, S3 integration via LocalStack, and all necessary configurations for immediate development use.
 
@@ -13,6 +13,7 @@ This starter kit provides a complete development environment for Apache Polaris 
 - ☁️ Integrated LocalStack for AWS S3 emulation
 - 🗄️ PostgreSQL metastore configuration
 - 🤖 Task-based automation for easy management
+- 🦆 DuckDB CLI + SQL-first catalog exploration
 - 📓 Jupyter notebook for verification
 
 ## 🚀 Quick Start
@@ -75,7 +76,15 @@ This single command will:
 
 **That's it!** ✨
 
-After completion, open and run `notebooks/verify_setup.ipynb` to verify your setup.
+Verify your setup:
+
+```bash
+# Option 1: DuckDB CLI (if installed)
+task catalog:verify:sql
+
+# Option 2: Jupyter notebook (Python + PyIceberg)
+jupyter notebook notebooks/verify_setup.ipynb
+```
 
 ## 📍 What You Get
 
@@ -139,10 +148,11 @@ task polaris:bootstrap  # Bootstrap Polaris (run after purge)
 ### Catalog Management
 
 ```bash
-task catalog:setup    # Setup demo catalog (bucket, catalog, principal, roles)
-task catalog:verify   # Generate verification notebook
-task catalog:cleanup  # Cleanup catalog resources
-task catalog:reset    # Cleanup and recreate catalog (keeps cluster running)
+task catalog:setup        # Setup demo catalog (bucket, catalog, principal, roles)
+task catalog:verify:sql   # Verify catalog using DuckDB CLI (non-interactive)
+task catalog:explore:sql  # Explore catalog using DuckDB CLI (interactive)
+task catalog:cleanup      # Cleanup catalog resources
+task catalog:reset        # Cleanup and recreate catalog (keeps cluster running)
 ```
 
 ### Logging & Troubleshooting
@@ -177,8 +187,21 @@ Before you begin, ensure you have the following tools installed:
 
 ### Optional Tools
 
-- [Dnsmasq](https://dnsmasq.org/doc.html) - Avoid editing `/etc/hosts` (see [Advanced Configuration](#dnsmasq-optional))
+- [DuckDB CLI](https://duckdb.org/docs/installation/) - For SQL-first verification (`task catalog:verify:sql`)
+- [Dnsmasq](https://dnsmasq.org/doc.html) - For wildcard DNS resolution (see [Local DNS Resolution](#local-dns-resolution))
 - [direnv](https://direnv.net) - Automatic environment variable loading
+
+**Install DuckDB CLI:**
+
+```bash
+# macOS
+brew install duckdb
+
+# Linux (or download from https://duckdb.org/docs/installation/)
+curl -LO https://github.com/duckdb/duckdb/releases/latest/download/duckdb_cli-linux-amd64.zip
+unzip duckdb_cli-linux-amd64.zip
+sudo mv duckdb /usr/local/bin/
+```
 
 > **Important**
 > Ensure all required tools are installed and on your PATH before running `task setup:all`.
@@ -198,7 +221,7 @@ task --version
 docker ps
 ```
 
-## 🔧 Advanced Configuration
+## 🔧 Configuration
 
 ### Environment Variables
 
@@ -215,9 +238,37 @@ export FEATURES_DIR="$PWD/k8s"
 
 > **Tip**: Use [direnv](https://direnv.net) to automatically load environment variables when entering the project directory.
 
-### DNSmasq (Optional)
+### Custom Python Version
 
-For seamless access to services, you can configure DNSmasq instead of editing `/etc/hosts`.
+```bash
+# Pin a different Python version
+uv python pin 3.11  # or 3.13
+
+# Recreate virtual environment
+uv venv --force
+source .venv/bin/activate
+uv sync
+```
+
+### Local DNS Resolution
+
+For seamless access to services (like `localstack.localstack`), you need to configure local DNS resolution. Choose one of the following options:
+
+#### Option 1: Edit `/etc/hosts` (Simple)
+
+Add the following entries to your `/etc/hosts` file:
+
+```bash
+sudo tee -a /etc/hosts <<EOF
+# Polaris Local Forge
+127.0.0.1 localstack.localstack
+127.0.0.1 polaris.polaris
+EOF
+```
+
+#### Option 2: DNSmasq (Advanced)
+
+For a more flexible setup that handles wildcard domains, configure DNSmasq instead.
 
 **macOS Setup:**
 
@@ -240,32 +291,19 @@ sudo brew services restart dnsmasq
 task setup:dnsmasq  # macOS only
 ```
 
-### Custom Python Version
-
-```bash
-# Pin a different Python version
-uv python pin 3.11  # or 3.13
-
-# Recreate virtual environment
-uv venv --force
-source .venv/bin/activate
-uv sync
-```
-
 ## ✅ Verification
 
 After running `task setup:all`, verify your setup:
 
 ### 1. Run the Verification Notebook
 
-Activate the virtual environment (if not already activated) and open the notebook:
+Open the notebook:
 
 ```bash
-source .venv/bin/activate  # On Unix-like systems
-# .venv\Scripts\activate   # On Windows
-
 jupyter notebook notebooks/verify_setup.ipynb
 ```
+
+> **Note**: If running Jupyter directly (not via Task), ensure your virtual environment is activated first: `source .venv/bin/activate`
 
 The notebook will:
 
@@ -274,7 +312,42 @@ The notebook will:
 - Insert sample data
 - Query the data back
 
-### 2. Check LocalStack Storage
+### 2. DuckDB CLI Verification (SQL-first)
+
+If you prefer SQL-first workflows, use DuckDB CLI to verify and explore the catalog:
+
+```bash
+# Non-interactive: runs SQL script and exits
+task catalog:verify:sql
+
+# Interactive: runs SQL script then drops into DuckDB shell
+task catalog:explore:sql
+```
+
+The SQL script (`scripts/explore_catalog.sql`) is auto-generated during `task catalog:setup` with your principal credentials pre-configured. It will:
+
+- Attach DuckDB to Polaris REST catalog
+- Create a `wildlife` schema and `penguins` Iceberg table
+- Load the Palmer Penguins dataset (333 rows)
+- Run analytics queries (species stats, correlations)
+- Explore Iceberg metadata and snapshots
+
+In interactive mode, you can continue exploring:
+
+```sql
+-- Query the penguins table
+SELECT * FROM polaris_catalog.wildlife.penguins LIMIT 10;
+
+-- Custom analytics
+SELECT species, AVG(body_mass_g) as avg_mass
+FROM polaris_catalog.wildlife.penguins
+GROUP BY species;
+
+-- Explore Iceberg metadata
+SELECT * FROM iceberg_snapshots('polaris_catalog.wildlife.penguins');
+```
+
+### 3. Check LocalStack Storage
 
 Open <https://app.localstack.cloud/inst/default/resources/s3/polardb> to view your Iceberg files:
 
@@ -286,7 +359,7 @@ You should see the catalog structure with metadata and data files:
 ![Catalog Metadata](./docs/catalog_metadata.png)
 ![Catalog Data](./docs/catalog_data.png)
 
-### 3. Verify Deployments
+### 4. Verify Deployments
 
 ```bash
 # Check all deployments
@@ -550,11 +623,13 @@ Export AWS environment variables:
 
 ```bash
 unset AWS_PROFILE
-export AWS_ENDPOINT_URL=http://localstack.localstack:4566
+export AWS_ENDPOINT_URL=http://localhost:14566  # Use localhost for local machine
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_REGION=us-east-1
 ```
+
+> **Note**: Use `http://localhost:14566` when running from your local machine. The `http://localstack.localstack:4566` endpoint only works from inside the cluster.
 
 Create catalog:
 
