@@ -1,0 +1,10 @@
+# Note: explore_catalog.sql is generated
+
+The `explore_catalog.sql` file is auto-generated during `task catalog:setup` 
+from the Jinja2 template at:
+  polaris-forge-setup/templates/scripts/explore_catalog.sql.j2
+
+It will contain pre-configured credentials and endpoints for your environment.
+
+Run `task catalog:setup` to generate it.
+

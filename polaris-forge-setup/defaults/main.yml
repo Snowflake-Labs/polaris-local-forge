@@ -16,6 +16,7 @@ plf_api_base_url: "http://{{ plf_api_host }}:{{ plf_api_port }}" # Polaris API U
 # Catalog Configuration
 plf_catalog_name: polardb # Name of the Polaris catalog
 plf_base_s3_location: "s3://{{ plf_catalog_name }}" # S3 location for catalog storage
+plf_aws_path_style_access: true # AWS path style access
 
 # Security Configuration
 plf_admin_username: super_user # Superuser for Polaris
@@ -29,7 +30,8 @@ plf_polaris_dir: "{{ plf_k8s_dir }}/polaris" # Directory where polaris manifests
 plf_features_dir: "{{ plf_k8s_dir }}/features" # Directory where cluster feature manifests are stored
 plf_credentials_file: "{{ plf_k8s_dir }}/polaris/.bootstrap-credentials.env" # Bootstrap credentials location
 plf_notebook_dir: "{{ playbook_dir }}/../notebooks"
-plf_template_dir: "{{ playbook_dir }}/templates/notebooks"
+plf_scripts_dir: "{{ playbook_dir }}/../scripts"
+plf_template_dir: "{{ playbook_dir }}/templates"
 
 # Polaris Metastore configuration
 plf_jpa_persistence_unit_name: polaris-dev

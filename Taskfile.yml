@@ -64,7 +64,7 @@ tasks:
       - sh: test -f .venv/bin/activate || test -f .venv/Scripts/activate
         msg: "Python venv not found. Run 'task setup:python' first."
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/prepare.yml
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/prepare.yml {{if .TAGS}}--tags={{.TAGS}}{{end}}
 
   # ============================================
   # Cluster Management Tasks
@@ -83,13 +83,17 @@ tasks:
 
   cluster:bootstrap-check:
     desc: Wait for bootstrap deployments to be ready
+    vars:
+      TAGS: '{{.TAGS | default "bootstrap"}}'
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=bootstrap
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags={{.TAGS}}
 
   cluster:polaris-check:
     desc: Wait for polaris deployments to be ready
+    vars:
+      TAGS: '{{.TAGS | default "polaris"}}'
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=polaris
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags={{.TAGS}}
 
   cluster:delete:
     desc: Delete the k3d cluster
@@ -122,8 +126,10 @@ tasks:
 
   polaris:check:
     desc: Ensure all Polaris deployments and jobs have succeeded
+    vars:
+      TAGS: '{{.TAGS | default "polaris"}}'
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=polaris
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags={{.TAGS}}
 
   polaris:purge:
     desc: Purge Polaris data
@@ -156,29 +162,145 @@ tasks:
     desc: Set up demo catalog with s3 bucket, catalog, principal, and roles
     cmds:
       - |
-        export AWS_ENDPOINT_URL=http://localstack.localstack:4566
+        export AWS_ENDPOINT_URL=http://localhost:4566
         export AWS_ACCESS_KEY_ID=test
         export AWS_SECRET_ACCESS_KEY=test
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
-        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml
+        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml {{if .TAGS}}--tags={{.TAGS}}{{end}}
 
-  catalog:verify:
+  catalog:generate-notebook:
     desc: Generate and prepare verification notebook
+    vars:
+      TAGS: '{{.TAGS | default "verify"}}'
     cmds:
       - |
-        export AWS_ENDPOINT_URL=http://localstack.localstack:4566
+        export AWS_ENDPOINT_URL=http://localhost:4566
         export AWS_ACCESS_KEY_ID=test
         export AWS_SECRET_ACCESS_KEY=test
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
-        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml --tags=verify
+        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml --tags={{.TAGS}}
       - echo "Run the notebook at {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"
+
+  catalog:verify:duckdb:
+    desc: Verify Polaris catalog using DuckDB Iceberg extension (Python)
+    cmds:
+      - |
+        export AWS_ENDPOINT_URL=http://localhost:4566
+        export AWS_ACCESS_KEY_ID=test
+        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_REGION=us-east-1
+        unset AWS_PROFILE
+        uv run python {{.PROJECT_HOME}}/scripts/explore_catalog.py {{.CLI_ARGS}}
+    preconditions:
+      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
+        msg: "Principal credentials not found. Run 'task catalog:setup' first."
+
+  catalog:verify:sql:
+    desc: Verify Polaris catalog using DuckDB CLI with SQL script
+    cmds:
+      - |
+        export AWS_ENDPOINT_URL=http://localhost:4566
+        export AWS_ACCESS_KEY_ID=test
+        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_REGION=us-east-1
+        unset AWS_PROFILE
+        duckdb < {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+    preconditions:
+      - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+        msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
+      - sh: command -v duckdb
+        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+
+  catalog:explore:sql:
+    desc: Explore Polaris catalog with DuckDB CLI in interactive mode
+    cmds:
+      - |
+        export AWS_ENDPOINT_URL=http://localhost:4566
+        export AWS_ACCESS_KEY_ID=test
+        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_REGION=us-east-1
+        unset AWS_PROFILE
+        duckdb -init {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+    preconditions:
+      - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+        msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
+      - sh: command -v duckdb
+        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+
+  verify:
+    desc: Verify Polaris catalog setup (alias for catalog:verify:duckdb)
+    cmds:
+      - task: catalog:verify:duckdb
+        vars:
+          CLI_ARGS: "{{.CLI_ARGS}}"
+
+  verify:sql:
+    desc: Verify Polaris catalog setup using SQL (alias for catalog:verify:sql)
+    cmds:
+      - task: catalog:verify:sql
+        vars:
+          CLI_ARGS: "{{.CLI_ARGS}}"
+
+  catalog:info:
+    desc: Get catalog configuration details from Polaris API
+    cmds:
+      - |
+        echo "Fetching catalog configuration..."
+        REALM=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f1)
+        CLIENT_ID=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f2)
+        CLIENT_SECRET=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f3)
+
+        # Get access token
+        TOKEN=$(curl -s -X POST "http://localhost:18181/api/catalog/v1/oauth/tokens" \
+          -H "Authorization: Bearer ${CLIENT_ID}:${CLIENT_SECRET}" \
+          -H "Polaris-Realm: ${REALM}" \
+          -H "Content-Type: application/x-www-form-urlencoded" \
+          -d "grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&scope=PRINCIPAL_ROLE:ALL" \
+          | jq -r '.access_token')
+
+        if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+          echo "❌ Failed to get access token"
+          exit 1
+        fi
+
+        echo ""
+        echo "=== Catalog Configuration for 'polardb' ==="
+        echo ""
+
+        # Get catalog configuration
+        curl -s "http://localhost:18181/api/management/v1/catalogs/polardb" \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -H "Polaris-Realm: ${REALM}" \
+          | jq '.'
+
+        echo ""
+        echo "=== Key S3 Configuration ==="
+        echo ""
+        curl -s "http://localhost:18181/api/management/v1/catalogs/polardb" \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -H "Polaris-Realm: ${REALM}" \
+          | jq '{
+              properties: .properties,
+              storageConfigInfo: .storageConfigInfo
+            }'
+    preconditions:
+      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
+        msg: "Credentials file not found. Run 'task catalog:setup' first."
+      - sh: command -v jq
+        msg: "jq is required for this task. Install with: brew install jq"
 
   catalog:cleanup:
     desc: Cleanup Polaris catalog resources
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_cleanup.yml
+      - |
+        export AWS_ENDPOINT_URL=http://localhost:4566
+        export AWS_ACCESS_KEY_ID=test
+        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_REGION=us-east-1
+        unset AWS_PROFILE
+        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_cleanup.yml {{if .TAGS}}--tags={{.TAGS}}{{end}}
 
   catalog:reset:
     desc: Cleanup and recreate catalog (keeps cluster running)
@@ -187,8 +309,24 @@ tasks:
       - task: catalog:setup
       - 'echo ""'
       - 'echo "✅ Catalog reset complete!"'
-      - 'echo "Run the verification notebook to test:"'
-      - 'echo "  {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"'
+      - 'echo ""'
+      - 'echo "📝 Verification options:"'
+      - 'echo "  - Run DuckDB verification: task verify"'
+      - 'echo "  - Generate notebook: task catalog:generate-notebook"'
+
+  catalog:reset:full:
+    desc: Full reset - purge Polaris database and recreate catalog
+    cmds:
+      - echo "⚠️  This will purge the entire Polaris database and recreate from scratch"
+      - task: polaris:reset
+      - task: catalog:setup
+      - 'echo ""'
+      - 'echo "✅ Full catalog reset complete!"'
+      - 'echo "Polaris database was purged and catalog recreated"'
+      - 'echo ""'
+      - 'echo "📝 Verification options:"'
+      - 'echo "  - Run DuckDB verification: task verify"'
+      - 'echo "  - Generate notebook: task catalog:generate-notebook"'
 
   # ============================================
   # Logging and Troubleshooting Tasks
@@ -258,10 +396,14 @@ tasks:
       - task: polaris:deploy
       - task: cluster:polaris-check
       - task: catalog:setup
+      - task: verify
       - 'echo ""'
-      - 'echo "Setup complete 🎉"'
-      - 'echo "Now open and run the verification notebook:"'
-      - 'echo "  {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"'
+      - 'echo "✅ Setup complete 🎉"'
+      - 'echo ""'
+      - 'echo "📝 Additional verification options:"'
+      - 'echo "  - Run DuckDB verification again: task verify"'
+      - 'echo "  - Generate PyIceberg notebook: task catalog:generate-notebook"'
+      - 'echo "  - Open notebook at: {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"'
 
   reset:all:
     desc: Complete reset - delete cluster, recreate everything with fresh catalog
