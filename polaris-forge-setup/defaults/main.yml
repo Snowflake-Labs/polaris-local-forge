@@ -30,7 +30,8 @@ plf_polaris_dir: "{{ plf_k8s_dir }}/polaris" # Directory where polaris manifests
 plf_features_dir: "{{ plf_k8s_dir }}/features" # Directory where cluster feature manifests are stored
 plf_credentials_file: "{{ plf_k8s_dir }}/polaris/.bootstrap-credentials.env" # Bootstrap credentials location
 plf_notebook_dir: "{{ playbook_dir }}/../notebooks"
-plf_template_dir: "{{ playbook_dir }}/templates/notebooks"
+plf_scripts_dir: "{{ playbook_dir }}/../scripts"
+plf_template_dir: "{{ playbook_dir }}/templates"
 
 # Polaris Metastore configuration
 plf_jpa_persistence_unit_name: polaris-dev

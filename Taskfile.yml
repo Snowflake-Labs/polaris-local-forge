@@ -161,7 +161,7 @@ tasks:
         export AWS_SECRET_ACCESS_KEY=test
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
-        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml
+        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml {{if .TAGS}}--tags={{.TAGS}}{{end}}
 
   catalog:generate-notebook:
     desc: Generate and prepare verification notebook
@@ -176,7 +176,7 @@ tasks:
       - echo "Run the notebook at {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"
 
   catalog:verify:duckdb:
-    desc: Verify Polaris catalog using DuckDB Iceberg extension
+    desc: Verify Polaris catalog using DuckDB Iceberg extension (Python)
     cmds:
       - |
         export AWS_ENDPOINT_URL=http://localhost:4566
@@ -189,10 +189,49 @@ tasks:
       - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
         msg: "Principal credentials not found. Run 'task catalog:setup' first."
 
+  catalog:verify:sql:
+    desc: Verify Polaris catalog using DuckDB CLI with SQL script
+    cmds:
+      - |
+        export AWS_ENDPOINT_URL=http://localhost:4566
+        export AWS_ACCESS_KEY_ID=test
+        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_REGION=us-east-1
+        unset AWS_PROFILE
+        duckdb < {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+    preconditions:
+      - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+        msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
+      - sh: command -v duckdb
+        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+
+  catalog:explore:sql:
+    desc: Explore Polaris catalog with DuckDB CLI in interactive mode
+    cmds:
+      - |
+        export AWS_ENDPOINT_URL=http://localhost:4566
+        export AWS_ACCESS_KEY_ID=test
+        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_REGION=us-east-1
+        unset AWS_PROFILE
+        duckdb -init {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+    preconditions:
+      - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+        msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
+      - sh: command -v duckdb
+        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+
   verify:
     desc: Verify Polaris catalog setup (alias for catalog:verify:duckdb)
     cmds:
       - task: catalog:verify:duckdb
+        vars:
+          CLI_ARGS: "{{.CLI_ARGS}}"
+
+  verify:sql:
+    desc: Verify Polaris catalog setup using SQL (alias for catalog:verify:sql)
+    cmds:
+      - task: catalog:verify:sql
         vars:
           CLI_ARGS: "{{.CLI_ARGS}}"
 
@@ -235,8 +274,8 @@ tasks:
           -H "Authorization: Bearer ${TOKEN}" \
           -H "Polaris-Realm: ${REALM}" \
           | jq '{
-              properties: .catalog.properties,
-              storageConfigInfo: .catalog.storageConfigInfo
+              properties: .properties,
+              storageConfigInfo: .storageConfigInfo
             }'
     preconditions:
       - sh: test -f {{.PROJECT_HOME}}/work/principal.txt

@@ -133,9 +133,6 @@ class PolarisExplorer:
         This uses DuckDB's ATTACH statement with TYPE iceberg to establish
         connection to the Polaris REST Catalog with OAuth2 authentication.
 
-        Note: Using ACCESS_DELEGATION_MODE='none' due to bug in vended credentials
-        with custom S3 endpoints: https://github.com/duckdb/duckdb-iceberg/issues/594
-
         Reference: https://duckdb.org/docs/stable/core_extensions/iceberg/iceberg_rest_catalogs
         """
         try:
@@ -143,21 +140,6 @@ class PolarisExplorer:
 
             if not self.conn:
                 raise RuntimeError("DuckDB connection not established")
-
-            # Create S3 secret for LocalStack (used with ACCESS_DELEGATION_MODE='none')
-            self.log("Creating S3 secret for LocalStack...", "DEBUG")
-            self.conn.execute("""
-                CREATE SECRET localstack_secret (
-                    TYPE s3,
-                    PROVIDER config,
-                    ENDPOINT 'localstack.localstack:4566',
-                    KEY_ID 'test',
-                    SECRET 'test',
-                    URL_STYLE 'path',
-                    USE_SSL false,
-                    REGION 'us-east-1'
-                )
-            """)
 
             # Create secret for OAuth2 authentication
             if self.client_id and self.client_secret:
@@ -171,16 +153,13 @@ class PolarisExplorer:
                     )
                 """)
 
-                # Attach catalog with ACCESS_DELEGATION_MODE='none'
-                # This uses S3 secret instead of vended credentials
-                # See: https://github.com/duckdb/duckdb-iceberg/issues/594
+                # Attach catalog
                 self.log(f"Attaching catalog '{self.catalog_name}'...", "DEBUG")
                 self.conn.execute(f"""
                     ATTACH '{self.catalog_name}' AS polaris_catalog (
                         TYPE iceberg,
                         SECRET polaris_secret,
-                        ENDPOINT '{self.polaris_endpoint}',
-                        ACCESS_DELEGATION_MODE 'none'
+                        ENDPOINT '{self.polaris_endpoint}'
                     )
                 """)
             else:
@@ -188,9 +167,7 @@ class PolarisExplorer:
                 self.conn.execute(f"""
                     ATTACH '{self.catalog_name}' AS polaris_catalog (
                         TYPE iceberg,
-                        ENDPOINT '{self.polaris_endpoint}',
-                        AUTHORIZATION_TYPE 'none',
-                        ACCESS_DELEGATION_MODE 'none'
+                        ENDPOINT '{self.polaris_endpoint}'
                     )
                 """)
 
@@ -247,13 +224,9 @@ class PolarisExplorer:
         """
         Insert data from staging table to Polaris Iceberg table.
 
-        Using ACCESS_DELEGATION_MODE='none' means DuckDB uses the S3 secret
-        directly instead of Polaris vended credentials. This works around bug:
-        https://github.com/duckdb/duckdb-iceberg/issues/594
-
         Process:
         1. Communicates with Polaris REST API for metadata
-        2. Writes Parquet files to LocalStack S3 using S3 secret
+        2. Writes Parquet files to S3 storage
         3. Updates Iceberg metadata via Polaris
         """
         try:
@@ -261,7 +234,6 @@ class PolarisExplorer:
                 raise RuntimeError("DuckDB connection not established")
 
             self.log("Inserting data into Iceberg table...")
-            self.log("(Using S3 secret, not vended credentials)", "DEBUG")
 
             # INSERT from staging to Iceberg table
             self.conn.execute("""
@@ -407,15 +379,12 @@ class PolarisExplorer:
         Steps:
         1. Setup DuckDB with extensions
         2. Load Penguins CSV into memory
-        3. Connect to Polaris REST Catalog (with ACCESS_DELEGATION_MODE='none')
+        3. Connect to Polaris REST Catalog
         4. Create schema and Iceberg table
-        5. Insert data using S3 secret (workaround for vended credentials bug)
+        5. Insert data into Iceberg table
         6. Query data
         7. Explore Iceberg metadata
         8. Cleanup (optional)
-
-        Note: Using ACCESS_DELEGATION_MODE='none' to work around:
-        https://github.com/duckdb/duckdb-iceberg/issues/594
         """
         self.log("=" * 70)
         self.log("DuckDB Iceberg Extension - Polaris REST Catalog Explorer")

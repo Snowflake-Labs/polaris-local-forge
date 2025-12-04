@@ -2,6 +2,116 @@
 
 This directory contains utility scripts for the Polaris Local Forge project.
 
+## Overview
+
+The Polaris Local Forge provides multiple ways to explore and verify your Polaris catalog setup:
+
+| Script | Language | Interface | Best For |
+|--------|----------|-----------|----------|
+| `explore_catalog.py` | Python/SQL | CLI | Automated verification, CI/CD |
+| `explore_catalog.sql` | SQL | DuckDB CLI | Direct SQL exploration |
+
+**Note:** `explore_catalog.sql` is auto-generated during `task catalog:setup` from a Jinja2 template with your credentials pre-configured.
+
+## explore_catalog.sql
+
+A pure SQL script that demonstrates Polaris Iceberg REST Catalog functionality using DuckDB CLI. This file is **automatically generated** by Ansible during catalog setup with your credentials already configured.
+
+### Features
+
+- ✅ Pure SQL - no Python required
+- ✅ **Auto-generated with credentials** during setup
+- ✅ Run directly with DuckDB CLI
+- ✅ Same functionality as Python version
+- ✅ Well-commented for learning
+- ✅ Interactive mode available
+
+### Requirements
+
+Install DuckDB CLI: https://duckdb.org/docs/installation/
+
+**Port Forwarding Required:**
+
+```bash
+# Polaris API
+kubectl port-forward -n polaris svc/polaris 18181:8181
+```
+
+### Generation
+
+The SQL script is automatically generated when you run:
+
+```bash
+task catalog:setup
+```
+
+This generates `scripts/explore_catalog.sql` from the template `polaris-forge-setup/templates/scripts/explore_catalog.sql.j2` with:
+- ✅ Client ID and secret pre-configured
+- ✅ Catalog endpoint configured
+- ✅ OAuth server URL configured
+- ✅ Ready to run immediately
+
+### Usage
+
+#### Direct Execution
+
+Simply run the generated SQL script:
+
+```bash
+# Run via task (recommended)
+task catalog:verify:sql
+
+# Or run directly with DuckDB
+duckdb < scripts/explore_catalog.sql
+```
+
+#### Interactive Mode
+
+Start DuckDB with the script loaded, then continue exploring:
+
+```bash
+# Interactive mode via task (recommended)
+task catalog:explore:sql
+
+# Or run directly with DuckDB
+duckdb -init scripts/explore_catalog.sql
+```
+
+### What It Demonstrates
+
+The SQL script performs the same workflow as the Python version:
+
+1. Load DuckDB extensions (iceberg, httpfs)
+2. Create OAuth2 secret for Polaris (credentials pre-configured)
+3. Attach to Polaris REST Catalog
+4. Create `wildlife` schema
+5. Create `penguins` Iceberg table
+6. Load Palmer Penguins CSV (333 rows)
+7. Insert data into Iceberg table
+8. Run analytics queries (species stats, correlations)
+9. Explore Iceberg metadata and snapshots
+10. Cleanup (optional, commented out by default)
+
+### Interactive Exploration
+
+In interactive mode, you can continue exploring:
+
+```sql
+-- List all tables
+SHOW ALL TABLES;
+
+-- Query penguins
+SELECT * FROM polaris_catalog.wildlife.penguins LIMIT 10;
+
+-- Custom analytics
+SELECT species, AVG(body_mass_g) as avg_mass
+FROM polaris_catalog.wildlife.penguins
+GROUP BY species;
+
+-- View metadata
+SELECT * FROM iceberg_metadata('polaris_catalog.wildlife.penguins');
+```
+
 ## explore_catalog.py
 
 A DuckDB-based exploration and verification script that demonstrates Polaris Iceberg REST Catalog functionality using real-world data (Palmer Penguins dataset).
@@ -28,17 +138,12 @@ This will install DuckDB and other required packages from `pyproject.toml`.
 
 **Port Forwarding Required:**
 
-The script needs access to both Polaris and LocalStack from your local machine:
+The script needs access to Polaris from your local machine:
 
 ```bash
-# Terminal 1: Polaris API
+# Polaris API
 kubectl port-forward -n polaris svc/polaris 18181:8181
-
-# Terminal 2: LocalStack S3 (required for data writes and reads)
-kubectl port-forward -n localstack svc/localstack 4566:4566
 ```
-
-**Important:** Due to a [bug in DuckDB Iceberg extension](https://github.com/duckdb/duckdb-iceberg/issues/594), the script uses `ACCESS_DELEGATION_MODE='none'` which means it uses static S3 credentials instead of Polaris vended credentials. This requires direct access to LocalStack S3.
 
 ### Usage
 
@@ -125,8 +230,7 @@ The script performs a complete workflow with real data:
    - Downloads Palmer Penguins CSV dataset (333 rows) from GitHub
    - Loads into in-memory temporary table
    - Inserts from temp table to Polaris Iceberg table
-   - **Uses S3 secret directly** (workaround for [DuckDB bug #594](https://github.com/duckdb/duckdb-iceberg/issues/594))
-   - Writes Parquet files to LocalStack S3
+   - Writes Parquet files to S3 storage via Polaris vended credentials
 8. **Data Analytics**: Performs aggregation queries (species statistics)
 9. **Metadata Operations**: Tests Iceberg-specific functions:
    - `iceberg_metadata()` - retrieves table metadata
@@ -278,12 +382,9 @@ This script follows the DuckDB Iceberg REST Catalog documentation:
 
 **Network connection issues**
 
-- For local development, ensure both port forwardings are active:
+- For local development, ensure port forwarding is active:
 
 ```bash
 # Polaris API
 kubectl port-forward -n polaris svc/polaris 18181:8181
-
-# LocalStack S3 (required due to ACCESS_DELEGATION_MODE='none')
-kubectl port-forward -n localstack svc/localstack 4566:4566
 ```

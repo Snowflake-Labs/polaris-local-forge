@@ -98,17 +98,16 @@
             readOnly: false
             properties:
               default-base-location: "{{ plf_base_s3_location }}"
-              s3.path-style-access: "{{ plf_aws_path_style_access }}"
-              table-default.s3.path-style-access: "{{ plf_aws_path_style_access }}"
-              table-default.s3.endpoint: "{{ plf_aws_endpoint_url }}"
-              s3.endpoint: "{{ plf_aws_endpoint_url }}"
-              s3.region: "{{ plf_aws_region }}"
             storageConfigInfo:
               storageType: "S3"
               allowedLocations:
                 - "{{ plf_base_s3_location }}"
               roleArn: "{{ plf_aws_role_arn }}"
+              endpoint: "{{ plf_aws_endpoint_url }}"
+              region: "{{ plf_aws_region }}"
               pathStyleAccess: "{{ plf_aws_path_style_access }}"
+              # added this for clarity
+              endpointInternal: "{{ plf_aws_endpoint_url }}"
         status_code: [201, 409]
       register: catalog_response
       tags:
@@ -165,7 +164,7 @@
             name: "{{ plf_admin_role }}"
         status_code: [201, 409, 500]
       register: assign_role_response
-      failed_when: 
+      failed_when:
         - assign_role_response.status == 500
         - '"duplicate key" not in assign_role_response.json.error.message | default("")'
       tags:
@@ -231,6 +230,27 @@
         - roles
 
     ## Generate verification Jupyter Notebook
+    - name: Read principal credentials for template generation
+      ansible.builtin.slurp:
+        src: "{{ plf_work_dir }}/principal.txt"
+      register: principal_file
+      tags:
+        - verify
+
+    - name: Parse principal credentials for templates
+      ansible.builtin.set_fact:
+        template_credentials: "{{ (principal_file.content | b64decode).strip().split(',') }}"
+      tags:
+        - verify
+
+    - name: Set template credential variables
+      ansible.builtin.set_fact:
+        template_realm: "{{ template_credentials[0] }}"
+        template_client_id: "{{ template_credentials[1] }}"
+        template_client_secret: "{{ template_credentials[2] }}"
+      tags:
+        - verify
+
     - name: Ensure notebook directory exists
       ansible.builtin.file:
         path: "{{ plf_notebook_dir }}"
@@ -241,7 +261,7 @@
 
     - name: Generate verification notebook from template
       ansible.builtin.template:
-        src: "{{ plf_template_dir }}/verify_setup.ipynb.j2"
+        src: "{{ plf_template_dir }}/notebooks/verify_setup.ipynb.j2"
         dest: "{{ plf_notebook_dir }}/verify_polaris.ipynb"
         mode: "0644"
         variable_start_string: "<<"
@@ -254,5 +274,31 @@
           realm: "{{ plf_realm }}"
           namespace: "{{ plf_demo_db }}"
           table_name: "{{ plf_demo_table }}"
+      tags:
+        - verify
+
+    - name: Ensure scripts directory exists
+      ansible.builtin.file:
+        path: "{{ plf_scripts_dir }}"
+        state: directory
+        mode: "0755"
+      tags:
+        - verify
+
+    - name: Generate SQL exploration script from template
+      ansible.builtin.template:
+        src: "{{ plf_template_dir }}/scripts/explore_catalog.sql.j2"
+        dest: "{{ plf_scripts_dir }}/explore_catalog.sql"
+        mode: "0644"
+        variable_start_string: "<<"
+        variable_end_string: ">>"
+      vars:
+        sql_vars:
+          catalog_name: "{{ plf_catalog_name }}"
+          endpoint: "{{ plf_api_base_url }}/api/catalog"
+          oauth_server: "{{ plf_api_base_url }}/api/catalog/v1/oauth/tokens"
+          realm: "{{ template_realm }}"
+          client_id: "{{ template_client_id }}"
+          client_secret: "{{ template_client_secret }}"
       tags:
         - verify
