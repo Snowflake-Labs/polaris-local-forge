@@ -64,7 +64,7 @@ tasks:
       - sh: test -f .venv/bin/activate || test -f .venv/Scripts/activate
         msg: "Python venv not found. Run 'task setup:python' first."
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/prepare.yml
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/prepare.yml {{if .TAGS}}--tags={{.TAGS}}{{end}}
 
   # ============================================
   # Cluster Management Tasks
@@ -83,13 +83,17 @@ tasks:
 
   cluster:bootstrap-check:
     desc: Wait for bootstrap deployments to be ready
+    vars:
+      TAGS: '{{.TAGS | default "bootstrap"}}'
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=bootstrap
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags={{.TAGS}}
 
   cluster:polaris-check:
     desc: Wait for polaris deployments to be ready
+    vars:
+      TAGS: '{{.TAGS | default "polaris"}}'
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=polaris
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags={{.TAGS}}
 
   cluster:delete:
     desc: Delete the k3d cluster
@@ -122,8 +126,10 @@ tasks:
 
   polaris:check:
     desc: Ensure all Polaris deployments and jobs have succeeded
+    vars:
+      TAGS: '{{.TAGS | default "polaris"}}'
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags=polaris
+      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags={{.TAGS}}
 
   polaris:purge:
     desc: Purge Polaris data
@@ -165,6 +171,8 @@ tasks:
 
   catalog:generate-notebook:
     desc: Generate and prepare verification notebook
+    vars:
+      TAGS: '{{.TAGS | default "verify"}}'
     cmds:
       - |
         export AWS_ENDPOINT_URL=http://localhost:4566
@@ -172,7 +180,7 @@ tasks:
         export AWS_SECRET_ACCESS_KEY=test
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
-        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml --tags=verify
+        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml --tags={{.TAGS}}
       - echo "Run the notebook at {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"
 
   catalog:verify:duckdb:
@@ -292,7 +300,7 @@ tasks:
         export AWS_SECRET_ACCESS_KEY=test
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
-        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_cleanup.yml
+        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_cleanup.yml {{if .TAGS}}--tags={{.TAGS}}{{end}}
 
   catalog:reset:
     desc: Cleanup and recreate catalog (keeps cluster running)
