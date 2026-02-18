@@ -242,6 +242,69 @@ def catalog_generate_notebook(dry_run: bool, verbose: bool):
     sys.exit(exit_code)
 
 
+@catalog.command("verify")
+@click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
+@click.argument("args", nargs=-1)
+def catalog_verify(dry_run: bool, args: tuple):
+    """Verify Polaris catalog using DuckDB Iceberg extension (Python)."""
+    script_path = PROJECT_HOME / "scripts" / "explore_catalog.py"
+    cmd = ["uv", "run", "python", str(script_path)] + list(args)
+
+    env = os.environ.copy()
+    env.update(get_aws_env())
+    env.pop("AWS_PROFILE", None)
+
+    if dry_run:
+        aws_env = get_aws_env()
+        env_str = " ".join(f"{k}={v}" for k, v in aws_env.items())
+        click.echo(f"[DRY RUN] {env_str} {' '.join(cmd)}")
+        sys.exit(0)
+
+    result = subprocess.run(cmd, env=env, cwd=PROJECT_HOME)
+    sys.exit(result.returncode)
+
+
+@catalog.command("verify-sql")
+@click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
+def catalog_verify_sql(dry_run: bool):
+    """Verify Polaris catalog using DuckDB CLI with SQL script."""
+    script_path = PROJECT_HOME / "scripts" / "explore_catalog.sql"
+
+    env = os.environ.copy()
+    env.update(get_aws_env())
+    env.pop("AWS_PROFILE", None)
+
+    if dry_run:
+        aws_env = get_aws_env()
+        env_str = " ".join(f"{k}={v}" for k, v in aws_env.items())
+        click.echo(f"[DRY RUN] {env_str} duckdb < {script_path}")
+        sys.exit(0)
+
+    with open(script_path) as f:
+        result = subprocess.run(["duckdb"], stdin=f, env=env, cwd=PROJECT_HOME)
+    sys.exit(result.returncode)
+
+
+@catalog.command("explore-sql")
+@click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
+def catalog_explore_sql(dry_run: bool):
+    """Explore Polaris catalog with DuckDB CLI in interactive mode."""
+    script_path = PROJECT_HOME / "scripts" / "explore_catalog.sql"
+
+    env = os.environ.copy()
+    env.update(get_aws_env())
+    env.pop("AWS_PROFILE", None)
+
+    if dry_run:
+        aws_env = get_aws_env()
+        env_str = " ".join(f"{k}={v}" for k, v in aws_env.items())
+        click.echo(f"[DRY RUN] {env_str} duckdb -init {script_path}")
+        sys.exit(0)
+
+    result = subprocess.run(["duckdb", "-init", str(script_path)], env=env, cwd=PROJECT_HOME)
+    sys.exit(result.returncode)
+
+
 @cli.group()
 def polaris():
     """Polaris management commands."""

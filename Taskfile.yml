@@ -55,7 +55,7 @@ tasks:
       - sh: test -f .venv/bin/activate || test -f .venv/Scripts/activate
         msg: "Python venv not found. Run 'task setup:python' first."
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/prepare.yml {{if .TAGS}}--tags={{.TAGS}}{{end}}
+      - uv run polaris-forge prepare {{if .TAGS}}--tags={{.TAGS}}{{end}}
 
   # ============================================
   # Cluster Management Tasks
@@ -66,32 +66,22 @@ tasks:
     deps:
       - prepare
     cmds:
-      - |
-        export K3D_CLUSTER_NAME={{.K3D_CLUSTER_NAME}}
-        export K3S_VERSION={{.K3S_VERSION}}
-        export FEATURES_DIR={{.FEATURES_DIR}}
-        {{.PROJECT_HOME}}/bin/setup.sh
+      - uv run polaris-forge cluster create
 
   cluster:bootstrap-check:
     desc: Wait for bootstrap deployments to be ready
-    vars:
-      TAGS: '{{.TAGS | default "bootstrap"}}'
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags={{.TAGS}}
+      - uv run polaris-forge cluster bootstrap-check
 
   cluster:polaris-check:
     desc: Wait for polaris deployments to be ready
-    vars:
-      TAGS: '{{.TAGS | default "polaris"}}'
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags={{.TAGS}}
+      - uv run polaris-forge cluster polaris-check
 
   cluster:delete:
     desc: Delete the k3d cluster
     cmds:
-      - |
-        export K3D_CLUSTER_NAME={{.K3D_CLUSTER_NAME}}
-        {{.PROJECT_HOME}}/bin/cleanup.sh
+      - uv run polaris-forge cluster delete
 
   cluster:reset:
     desc: Delete and recreate cluster with fresh catalog
@@ -113,37 +103,27 @@ tasks:
   polaris:deploy:
     desc: Deploy Polaris to the cluster
     cmds:
-      - kubectl apply -k {{.PROJECT_HOME}}/k8s/polaris
+      - uv run polaris-forge polaris deploy
 
   polaris:check:
     desc: Ensure all Polaris deployments and jobs have succeeded
-    vars:
-      TAGS: '{{.TAGS | default "polaris"}}'
     cmds:
-      - uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/cluster_checks.yml --tags={{.TAGS}}
+      - uv run polaris-forge polaris check
 
   polaris:purge:
     desc: Purge Polaris data
     cmds:
-      - kubectl patch job polaris-purge -n polaris -p '{"spec":{"suspend":false}}'
-      - echo "Waiting for purge to complete..."
-      - kubectl wait --for=condition=complete --timeout=300s job/polaris-purge -n polaris
-      - kubectl logs -n polaris jobs/polaris-purge
+      - uv run polaris-forge polaris purge
 
   polaris:bootstrap:
     desc: Bootstrap Polaris (run after purge)
     cmds:
-      - kubectl delete -k {{.PROJECT_HOME}}/k8s/polaris/job
-      - kubectl apply -k {{.PROJECT_HOME}}/k8s/polaris/job
-      - echo "Waiting for bootstrap to complete..."
-      - kubectl wait --for=condition=complete --timeout=300s job/polaris-bootstrap -n polaris
-      - kubectl logs -n polaris jobs/polaris-bootstrap
+      - uv run polaris-forge polaris bootstrap
 
   polaris:reset:
     desc: Purge and re-bootstrap Polaris
     cmds:
-      - task: polaris:purge
-      - task: polaris:bootstrap
+      - uv run polaris-forge polaris reset
 
   # ============================================
   # Catalog Management Tasks
@@ -152,38 +132,17 @@ tasks:
   catalog:setup:
     desc: Set up demo catalog with s3 bucket, catalog, principal, and roles
     cmds:
-      - |
-        export AWS_ENDPOINT_URL=http://localhost:9000
-        export AWS_ACCESS_KEY_ID=admin
-        export AWS_SECRET_ACCESS_KEY=password
-        export AWS_REGION=us-east-1
-        unset AWS_PROFILE
-        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml {{if .TAGS}}--tags={{.TAGS}}{{end}}
+      - uv run polaris-forge catalog setup {{if .TAGS}}--tags={{.TAGS}}{{end}}
 
   catalog:generate-notebook:
     desc: Generate and prepare verification notebook
-    vars:
-      TAGS: '{{.TAGS | default "verify"}}'
     cmds:
-      - |
-        export AWS_ENDPOINT_URL=http://localhost:9000
-        export AWS_ACCESS_KEY_ID=admin
-        export AWS_SECRET_ACCESS_KEY=password
-        export AWS_REGION=us-east-1
-        unset AWS_PROFILE
-        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml --tags={{.TAGS}}
-      - echo "Run the notebook at {{.PROJECT_HOME}}/notebooks/verify_setup.ipynb"
+      - uv run polaris-forge catalog generate-notebook
 
   catalog:verify:duckdb:
     desc: Verify Polaris catalog using DuckDB Iceberg extension (Python)
     cmds:
-      - |
-        export AWS_ENDPOINT_URL=http://localhost:9000
-        export AWS_ACCESS_KEY_ID=admin
-        export AWS_SECRET_ACCESS_KEY=password
-        export AWS_REGION=us-east-1
-        unset AWS_PROFILE
-        uv run python {{.PROJECT_HOME}}/scripts/explore_catalog.py {{.CLI_ARGS}}
+      - uv run polaris-forge catalog verify {{.CLI_ARGS}}
     preconditions:
       - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
         msg: "Principal credentials not found. Run 'task catalog:setup' first."
@@ -191,13 +150,7 @@ tasks:
   catalog:verify:sql:
     desc: Verify Polaris catalog using DuckDB CLI with SQL script
     cmds:
-      - |
-        export AWS_ENDPOINT_URL=http://localhost:9000
-        export AWS_ACCESS_KEY_ID=admin
-        export AWS_SECRET_ACCESS_KEY=password
-        export AWS_REGION=us-east-1
-        unset AWS_PROFILE
-        duckdb < {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+      - uv run polaris-forge catalog verify-sql
     preconditions:
       - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
         msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
@@ -207,13 +160,7 @@ tasks:
   catalog:explore:sql:
     desc: Explore Polaris catalog with DuckDB CLI in interactive mode
     cmds:
-      - |
-        export AWS_ENDPOINT_URL=http://localhost:9000
-        export AWS_ACCESS_KEY_ID=admin
-        export AWS_SECRET_ACCESS_KEY=password
-        export AWS_REGION=us-east-1
-        unset AWS_PROFILE
-        duckdb -init {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+      - uv run polaris-forge catalog explore-sql
     preconditions:
       - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
         msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
@@ -285,13 +232,7 @@ tasks:
   catalog:cleanup:
     desc: Cleanup Polaris catalog resources
     cmds:
-      - |
-        export AWS_ENDPOINT_URL=http://localhost:9000
-        export AWS_ACCESS_KEY_ID=admin
-        export AWS_SECRET_ACCESS_KEY=password
-        export AWS_REGION=us-east-1
-        unset AWS_PROFILE
-        uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_cleanup.yml {{if .TAGS}}--tags={{.TAGS}}{{end}}
+      - uv run polaris-forge catalog cleanup {{if .TAGS}}--tags={{.TAGS}}{{end}}
 
   catalog:reset:
     desc: Cleanup and recreate catalog (keeps cluster running)
