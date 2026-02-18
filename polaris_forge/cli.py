@@ -1,6 +1,7 @@
 """CLI entry point for Polaris Local Forge."""
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,22 @@ load_dotenv()
 # Project root directory
 PROJECT_HOME = Path(__file__).parent.parent.resolve()
 ANSIBLE_DIR = PROJECT_HOME / "polaris-forge-setup"
+BIN_DIR = PROJECT_HOME / "bin"
+K8S_DIR = PROJECT_HOME / "k8s"
+
+# Default cluster configuration
+DEFAULT_CLUSTER_NAME = "polaris-local-forge"
+DEFAULT_K3S_VERSION = "v1.31.5-k3s1"
+
+
+def get_cluster_env() -> dict:
+    """Get cluster environment variables."""
+    return {
+        "K3D_CLUSTER_NAME": os.getenv("K3D_CLUSTER_NAME", DEFAULT_CLUSTER_NAME),
+        "K3S_VERSION": os.getenv("K3S_VERSION", DEFAULT_K3S_VERSION),
+        "FEATURES_DIR": str(K8S_DIR),
+        "KUBECONFIG": os.getenv("KUBECONFIG", str(PROJECT_HOME / ".kube" / "config")),
+    }
 
 
 def get_aws_env() -> dict:
@@ -99,6 +116,76 @@ def cluster():
     pass
 
 
+@cluster.command("create")
+@click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
+def cluster_create(dry_run: bool):
+    """Create the k3d cluster and deploy initial components.
+
+    This downloads kubectl and creates a k3d cluster using the project's configuration.
+    """
+    cluster_env = get_cluster_env()
+    env = os.environ.copy()
+    env.update(cluster_env)
+
+    if dry_run:
+        click.echo("[DRY RUN] Would execute the following steps:")
+        click.echo(f"  1. Create directory: {Path(cluster_env['KUBECONFIG']).parent}")
+        click.echo(f"  2. Download kubectl for k3s version: {cluster_env['K3S_VERSION']}")
+        click.echo(f"  3. Create k3d cluster: {cluster_env['K3D_CLUSTER_NAME']}")
+        click.echo(f"     Config: {PROJECT_HOME / 'config' / 'cluster-config.yaml'}")
+        sys.exit(0)
+
+    kubeconfig_dir = Path(cluster_env["KUBECONFIG"]).parent
+    kubeconfig_dir.mkdir(parents=True, exist_ok=True)
+
+    setup_script = BIN_DIR / "setup.sh"
+    result = subprocess.run(["bash", str(setup_script)], env=env, cwd=PROJECT_HOME)
+    sys.exit(result.returncode)
+
+
+@cluster.command("delete")
+@click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
+def cluster_delete(dry_run: bool):
+    """Delete the k3d cluster and clean up generated files."""
+    cluster_env = get_cluster_env()
+    env = os.environ.copy()
+    env.update(cluster_env)
+
+    files_to_remove = [
+        K8S_DIR / "features" / "polaris.yaml",
+        K8S_DIR / "features" / "postgresql.yaml",
+        K8S_DIR / "polaris" / "polaris-secrets.yaml",
+        K8S_DIR / "polaris" / ".bootstrap-credentials.env",
+        K8S_DIR / "polaris" / ".polaris.env",
+        K8S_DIR / "polaris" / "rsa_key",
+        K8S_DIR / "polaris" / "rsa_key.pub",
+    ]
+
+    if dry_run:
+        click.echo("[DRY RUN] Would execute the following steps:")
+        click.echo(f"  1. Delete k3d cluster: {cluster_env['K3D_CLUSTER_NAME']}")
+        click.echo("  2. Remove generated files:")
+        for f in files_to_remove:
+            click.echo(f"     - {f}")
+        sys.exit(0)
+
+    result = subprocess.run(
+        ["k3d", "cluster", "delete", cluster_env["K3D_CLUSTER_NAME"]],
+        env=env,
+        cwd=PROJECT_HOME,
+    )
+
+    for f in files_to_remove:
+        if f.exists():
+            if f.is_dir():
+                shutil.rmtree(f)
+            else:
+                f.unlink()
+            click.echo(f"Removed: {f}")
+
+    sys.exit(result.returncode)
+
+
 @cluster.command("bootstrap-check")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
@@ -161,12 +248,89 @@ def polaris():
     pass
 
 
+@polaris.command("deploy")
+@click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
+def polaris_deploy(dry_run: bool):
+    """Deploy Polaris to the cluster."""
+    polaris_dir = K8S_DIR / "polaris"
+    cmd = ["kubectl", "apply", "-k", str(polaris_dir)]
+
+    if dry_run:
+        click.echo(f"[DRY RUN] {' '.join(cmd)}")
+        sys.exit(0)
+
+    result = subprocess.run(cmd, cwd=PROJECT_HOME)
+    sys.exit(result.returncode)
+
+
 @polaris.command("check")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
 def polaris_check(dry_run: bool, verbose: bool):
     """Ensure all Polaris deployments and jobs have succeeded."""
     sys.exit(run_ansible_playbook("cluster_checks.yml", tags="polaris", dry_run=dry_run, verbose=verbose))
+
+
+@polaris.command("purge")
+@click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
+def polaris_purge(dry_run: bool):
+    """Purge Polaris data by running the purge job."""
+    if dry_run:
+        click.echo("[DRY RUN] Would execute the following steps:")
+        click.echo("  1. kubectl patch job polaris-purge -n polaris -p '{\"spec\":{\"suspend\":false}}'")
+        click.echo("  2. kubectl wait --for=condition=complete --timeout=300s job/polaris-purge -n polaris")
+        click.echo("  3. kubectl logs -n polaris jobs/polaris-purge")
+        sys.exit(0)
+
+    subprocess.run(
+        ["kubectl", "patch", "job", "polaris-purge", "-n", "polaris", "-p", '{"spec":{"suspend":false}}'],
+        cwd=PROJECT_HOME,
+    )
+    click.echo("Waiting for purge to complete...")
+    result = subprocess.run(
+        ["kubectl", "wait", "--for=condition=complete", "--timeout=300s", "job/polaris-purge", "-n", "polaris"],
+        cwd=PROJECT_HOME,
+    )
+    subprocess.run(["kubectl", "logs", "-n", "polaris", "jobs/polaris-purge"], cwd=PROJECT_HOME)
+    sys.exit(result.returncode)
+
+
+@polaris.command("bootstrap")
+@click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
+def polaris_bootstrap(dry_run: bool):
+    """Bootstrap Polaris (run after purge)."""
+    job_dir = K8S_DIR / "polaris" / "job"
+
+    if dry_run:
+        click.echo("[DRY RUN] Would execute the following steps:")
+        click.echo(f"  1. kubectl delete -k {job_dir}")
+        click.echo(f"  2. kubectl apply -k {job_dir}")
+        click.echo("  3. kubectl wait --for=condition=complete --timeout=300s job/polaris-bootstrap -n polaris")
+        click.echo("  4. kubectl logs -n polaris jobs/polaris-bootstrap")
+        sys.exit(0)
+
+    subprocess.run(["kubectl", "delete", "-k", str(job_dir)], cwd=PROJECT_HOME)
+    subprocess.run(["kubectl", "apply", "-k", str(job_dir)], cwd=PROJECT_HOME)
+    click.echo("Waiting for bootstrap to complete...")
+    result = subprocess.run(
+        ["kubectl", "wait", "--for=condition=complete", "--timeout=300s", "job/polaris-bootstrap", "-n", "polaris"],
+        cwd=PROJECT_HOME,
+    )
+    subprocess.run(["kubectl", "logs", "-n", "polaris", "jobs/polaris-bootstrap"], cwd=PROJECT_HOME)
+    sys.exit(result.returncode)
+
+
+@polaris.command("reset")
+@click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
+@click.pass_context
+def polaris_reset(ctx: click.Context, dry_run: bool):
+    """Purge and re-bootstrap Polaris."""
+    if dry_run:
+        click.echo("[DRY RUN] Would execute: polaris purge, then polaris bootstrap")
+        sys.exit(0)
+
+    ctx.invoke(polaris_purge, dry_run=False)
+    ctx.invoke(polaris_bootstrap, dry_run=False)
 
 
 if __name__ == "__main__":
