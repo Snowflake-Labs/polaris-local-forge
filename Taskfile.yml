@@ -49,15 +49,6 @@ tasks:
         echo "   source .venv/bin/activate"
         echo ""
 
-  setup:dnsmasq:
-    desc: Configure DNSmasq for .localstack domain (macOS only)
-    cmds:
-      - echo "address=/.localstack/127.0.0.1" >> $(brew --prefix)/etc/dnsmasq.conf
-      - sudo tee /etc/resolver/localstack <<< "nameserver 127.0.0.1"
-    preconditions:
-      - sh: which brew
-        msg: "Homebrew is required for this task"
-
   prepare:
     desc: Generate required sensitive files from templates using Ansible
     preconditions:
@@ -162,9 +153,9 @@ tasks:
     desc: Set up demo catalog with s3 bucket, catalog, principal, and roles
     cmds:
       - |
-        export AWS_ENDPOINT_URL=http://localhost:4566
-        export AWS_ACCESS_KEY_ID=test
-        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_ENDPOINT_URL=http://localhost:9000
+        export AWS_ACCESS_KEY_ID=admin
+        export AWS_SECRET_ACCESS_KEY=password
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
         uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml {{if .TAGS}}--tags={{.TAGS}}{{end}}
@@ -175,9 +166,9 @@ tasks:
       TAGS: '{{.TAGS | default "verify"}}'
     cmds:
       - |
-        export AWS_ENDPOINT_URL=http://localhost:4566
-        export AWS_ACCESS_KEY_ID=test
-        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_ENDPOINT_URL=http://localhost:9000
+        export AWS_ACCESS_KEY_ID=admin
+        export AWS_SECRET_ACCESS_KEY=password
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
         uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_setup.yml --tags={{.TAGS}}
@@ -187,9 +178,9 @@ tasks:
     desc: Verify Polaris catalog using DuckDB Iceberg extension (Python)
     cmds:
       - |
-        export AWS_ENDPOINT_URL=http://localhost:4566
-        export AWS_ACCESS_KEY_ID=test
-        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_ENDPOINT_URL=http://localhost:9000
+        export AWS_ACCESS_KEY_ID=admin
+        export AWS_SECRET_ACCESS_KEY=password
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
         uv run python {{.PROJECT_HOME}}/scripts/explore_catalog.py {{.CLI_ARGS}}
@@ -201,9 +192,9 @@ tasks:
     desc: Verify Polaris catalog using DuckDB CLI with SQL script
     cmds:
       - |
-        export AWS_ENDPOINT_URL=http://localhost:4566
-        export AWS_ACCESS_KEY_ID=test
-        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_ENDPOINT_URL=http://localhost:9000
+        export AWS_ACCESS_KEY_ID=admin
+        export AWS_SECRET_ACCESS_KEY=password
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
         duckdb < {{.PROJECT_HOME}}/scripts/explore_catalog.sql
@@ -217,9 +208,9 @@ tasks:
     desc: Explore Polaris catalog with DuckDB CLI in interactive mode
     cmds:
       - |
-        export AWS_ENDPOINT_URL=http://localhost:4566
-        export AWS_ACCESS_KEY_ID=test
-        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_ENDPOINT_URL=http://localhost:9000
+        export AWS_ACCESS_KEY_ID=admin
+        export AWS_SECRET_ACCESS_KEY=password
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
         duckdb -init {{.PROJECT_HOME}}/scripts/explore_catalog.sql
@@ -295,9 +286,9 @@ tasks:
     desc: Cleanup Polaris catalog resources
     cmds:
       - |
-        export AWS_ENDPOINT_URL=http://localhost:4566
-        export AWS_ACCESS_KEY_ID=test
-        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_ENDPOINT_URL=http://localhost:9000
+        export AWS_ACCESS_KEY_ID=admin
+        export AWS_SECRET_ACCESS_KEY=password
         export AWS_REGION=us-east-1
         unset AWS_PROFILE
         uv run ansible-playbook {{.PROJECT_HOME}}/polaris-forge-setup/catalog_cleanup.yml {{if .TAGS}}--tags={{.TAGS}}{{end}}
@@ -352,10 +343,10 @@ tasks:
     cmds:
       - kubectl logs -f -n polaris statefulset/postgresql
 
-  logs:localstack:
-    desc: Stream LocalStack logs
+  logs:rustfs:
+    desc: Stream RustFS logs
     cmds:
-      - kubectl logs -f -n localstack deployment/localstack
+      - kubectl logs -f -n rustfs deployment/rustfs
 
   # ============================================
   # Troubleshooting Tasks
@@ -372,11 +363,11 @@ tasks:
       - kubectl get events -n polaris --sort-by='.lastTimestamp'
       - kubectl describe pod -n polaris -l app=polaris
 
-  troubleshoot:localstack:
-    desc: Troubleshoot LocalStack connectivity
+  troubleshoot:rustfs:
+    desc: Troubleshoot RustFS connectivity
     cmds:
-      - kubectl get svc -n localstack
-      - kubectl exec -it -n localstack deployment/localstack -- aws --endpoint-url=http://localhost:4566 s3 ls
+      - kubectl get svc -n rustfs
+      - kubectl exec -it -n rustfs deployment/rustfs -- mc ls local
 
   troubleshoot:postgresql:
     desc: Troubleshoot PostgreSQL connectivity
@@ -425,8 +416,8 @@ tasks:
       - echo "=== Polaris Namespace ==="
       - kubectl get all -n polaris
       - echo ""
-      - echo "=== LocalStack Namespace ==="
-      - kubectl get all -n localstack
+      - echo "=== RustFS Namespace ==="
+      - kubectl get all -n rustfs
 
   urls:
     desc: Display service URLs and credentials locations
@@ -438,8 +429,9 @@ tasks:
       - 'echo "  Adminer:     http://localhost:18080"'
       - 'echo "  PostgreSQL:  postgresql.polaris (check {{.FEATURES_DIR}}/postgresql.yaml)"'
       - 'echo ""'
-      - 'echo "  LocalStack:  http://localhost:14566"'
-      - 'echo "  Credentials: test/test"'
+      - 'echo "  RustFS S3:   http://localhost:9000"'
+      - 'echo "  RustFS UI:   http://localhost:9001"'
+      - 'echo "  Credentials: admin/password"'
 
   help:
     desc: Show available tasks with descriptions

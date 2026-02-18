@@ -1,20 +1,22 @@
-# Apache Polaris(Incubating) Starter Kit with LocalStack on k3s
+# Apache Polaris(Incubating) Starter Kit with RustFS on k3s
 
 ![k3d](https://img.shields.io/badge/k3d-v5.6.0-427cc9)
 ![Docker Desktop](https://img.shields.io/badge/Docker%20Desktop-v4.27-0db7ed)
 ![Apache Polaris(Incubating)](https://img.shields.io/badge/Apache%20Polaris-1.2.0-incubating)
-![LocalStack](https://img.shields.io/badge/LocalStack-3.8.1-blue)
+![RustFS](https://img.shields.io/badge/RustFS-1.0.0-orange)
 
-This starter kit provides a complete development environment for Apache Polaris with LocalStack integration running on k3s Kubernetes. It includes automated setup of PostgreSQL metastore, S3 integration via LocalStack, and all necessary configurations for immediate development use.
+This starter kit provides a complete development environment for Apache Polaris with [RustFS](https://rustfs.com/) S3-compatible storage running on k3s Kubernetes. It includes automated setup of PostgreSQL metastore, S3 integration via RustFS, and all necessary configurations for immediate development use.
 
 **Key features:**
 
 - 🚀 Automated k3s cluster setup with k3d
-- ☁️ Integrated LocalStack for AWS S3 emulation
+- ☁️ Integrated RustFS for S3-compatible object storage (high-performance, Rust-based)
 - 🗄️ PostgreSQL metastore configuration
 - 🤖 Task-based automation for easy management
 - 🦆 DuckDB CLI + SQL-first catalog exploration
 - 📓 Jupyter notebook for verification
+
+> **Note**: Looking for LocalStack instead? Check out the [`localstack`](https://github.com/snowflake-labs/polaris-local-forge/tree/localstack) branch.
 
 ## 🚀 Quick Start
 
@@ -70,7 +72,7 @@ This single command will:
 
 - ✅ Generate required configuration files
 - ✅ Create the k3s cluster with k3d
-- ✅ Deploy PostgreSQL and LocalStack
+- ✅ Deploy PostgreSQL and RustFS
 - ✅ Deploy Apache Polaris
 - ✅ Create a demo catalog
 
@@ -93,7 +95,8 @@ Once setup completes, you'll have the following services running:
 | Service    | URL                      | Credentials/Details                                          |
 | ---------- | ------------------------ | ------------------------------------------------------------ |
 | 🌟 **Polaris API** | <http://localhost:18181> | See `k8s/polaris/.bootstrap-credentials.env` for login       |
-| ☁️ **LocalStack** | <http://localhost:14566> | AWS S3 emulator - Use `test/test` for credentials           |
+| ☁️ **RustFS S3 API** | <http://localhost:9000> | S3-compatible storage - Use `admin/password` for credentials |
+| 🖥️ **RustFS Console** | <http://localhost:9001> | Web UI for managing buckets and objects                      |
 
 **Quick access:**
 
@@ -111,7 +114,6 @@ The project uses [Task](https://taskfile.dev) to automate common workflows. Here
 ```bash
 task install:uv      # Install uv Python package manager
 task setup:python    # Setup Python environment (installs uv + creates venv)
-task setup:dnsmasq   # Configure DNSmasq for .localstack domain (macOS only)
 task prepare         # Generate required configuration files
 ```
 
@@ -161,14 +163,14 @@ task catalog:reset        # Cleanup and recreate catalog (keeps cluster running)
 # View logs
 task logs:polaris      # Stream Polaris server logs
 task logs:postgresql   # Stream PostgreSQL logs
-task logs:localstack   # Stream LocalStack logs
+task logs:rustfs       # Stream RustFS logs
 task logs:bootstrap    # View bootstrap job logs
 task logs:purge        # View purge job logs
 
 # Troubleshooting
 task troubleshoot:polaris     # Diagnose Polaris issues
 task troubleshoot:postgresql  # Check database connectivity
-task troubleshoot:localstack  # Verify LocalStack connectivity
+task troubleshoot:rustfs      # Verify RustFS connectivity
 task troubleshoot:events      # Show recent events in polaris namespace
 ```
 
@@ -188,7 +190,6 @@ Before you begin, ensure you have the following tools installed:
 ### Optional Tools
 
 - [DuckDB CLI](https://duckdb.org/docs/installation/) - For SQL-first verification (`task catalog:verify:sql`)
-- [Dnsmasq](https://dnsmasq.org/doc.html) - For wildcard DNS resolution (see [Local DNS Resolution](#local-dns-resolution))
 - [direnv](https://direnv.net) - Automatic environment variable loading
 
 **Install DuckDB CLI:**
@@ -250,47 +251,6 @@ source .venv/bin/activate
 uv sync
 ```
 
-### Local DNS Resolution
-
-For seamless access to services (like `localstack.localstack`), you need to configure local DNS resolution. Choose one of the following options:
-
-#### Option 1: Edit `/etc/hosts` (Simple)
-
-Add the following entries to your `/etc/hosts` file:
-
-```bash
-sudo tee -a /etc/hosts <<EOF
-# Polaris Local Forge
-127.0.0.1 localstack.localstack
-127.0.0.1 polaris.polaris
-EOF
-```
-
-#### Option 2: DNSmasq (Advanced)
-
-For a more flexible setup that handles wildcard domains, configure DNSmasq instead.
-
-**macOS Setup:**
-
-```bash
-# Configure DNSmasq
-echo "address=/.localstack/127.0.0.1" >> $(brew --prefix)/etc/dnsmasq.conf
-
-# Add resolver
-sudo tee /etc/resolver/localstack <<EOF
-nameserver 127.0.0.1
-EOF
-
-# Restart DNSmasq
-sudo brew services restart dnsmasq
-```
-
-**Or use Task:**
-
-```bash
-task setup:dnsmasq  # macOS only
-```
-
 ## ✅ Verification
 
 After running `task setup:all`, verify your setup:
@@ -347,17 +307,11 @@ GROUP BY species;
 SELECT * FROM iceberg_snapshots('polaris_catalog.wildlife.penguins');
 ```
 
-### 3. Check LocalStack Storage
+### 3. Check RustFS Storage
 
-Open <https://app.localstack.cloud/inst/default/resources/s3/polardb> to view your Iceberg files:
+Open the RustFS Console at <http://localhost:9001> to view your Iceberg files. Login with `admin/password`.
 
-![Localstack](./docs/localstack_view.png)
-
-You should see the catalog structure with metadata and data files:
-
-![Catalog](./docs/catalog_storage.png)
-![Catalog Metadata](./docs/catalog_metadata.png)
-![Catalog Data](./docs/catalog_data.png)
+You should see the catalog structure with metadata and data files in the `polardb` bucket.
 
 ### 4. Verify Deployments
 
@@ -367,7 +321,7 @@ task status
 
 # Or manually
 kubectl get all -n polaris
-kubectl get all -n localstack
+kubectl get all -n rustfs
 ```
 
 Expected output in `polaris` namespace:
@@ -398,7 +352,7 @@ task troubleshoot:events
 # Check specific component
 task troubleshoot:polaris
 task troubleshoot:postgresql
-task troubleshoot:localstack
+task troubleshoot:rustfs
 ```
 
 ### Common Issues
@@ -413,14 +367,14 @@ task logs:polaris
 task troubleshoot:polaris
 ```
 
-#### 2. LocalStack Not Accessible
+#### 2. RustFS Not Accessible
 
 ```bash
-# Verify LocalStack is running
-kubectl get pods -n localstack
+# Verify RustFS is running
+kubectl get pods -n rustfs
 
 # Check connectivity
-task troubleshoot:localstack
+task troubleshoot:rustfs
 ```
 
 #### 3. PostgreSQL Connection Issues
@@ -458,18 +412,17 @@ kubectl describe pod -n polaris -l app=polaris
 kubectl logs -f -n polaris deployment/polaris
 kubectl logs -f -n polaris jobs/polaris-bootstrap
 kubectl logs -f -n polaris statefulset/postgresql
-kubectl logs -f -n localstack deployment/localstack
+kubectl logs -f -n rustfs deployment/rustfs
 
 # Check services
 kubectl get svc -n polaris
-kubectl get svc -n localstack
+kubectl get svc -n rustfs
 
 # Verify PostgreSQL
 kubectl exec -it -n polaris postgresql-0 -- pg_isready -h localhost
 
-# Verify LocalStack
-kubectl exec -it -n localstack deployment/localstack -- \
-  aws --endpoint-url=http://localhost:4566 s3 ls
+# Verify RustFS
+kubectl exec -it -n rustfs deployment/rustfs -- mc ls local
 ```
 
 ## 🧹 Cleanup & Reset
@@ -509,7 +462,7 @@ This removes:
 
 - k3d cluster
 - All Kubernetes resources
-- Catalog data in LocalStack
+- Catalog data in RustFS
 - PostgreSQL data
 
 > **Note**: Your configuration files in `k8s/polaris/` (credentials, secrets, keys) are preserved. Run `task prepare` to regenerate them if needed.
@@ -521,7 +474,7 @@ Now that you have Apache Polaris running locally, you can:
 - **Connect query engines**: Use with Apache Spark, Trino, or Risingwave
 - **Explore the API**: Check the [Polaris API documentation](https://polaris.apache.org/)
 - **Create more catalogs**: Run `task catalog:setup` with custom parameters
-- **Develop integrations**: Use the LocalStack S3 endpoint for testing
+- **Develop integrations**: Use the RustFS S3 endpoint for testing
 - **Experiment with Iceberg**: Create tables, partitions, and time-travel queries
 
 ## 📚 Related Projects and Tools
@@ -531,7 +484,7 @@ Now that you have Apache Polaris running locally, you can:
 - [Apache Polaris](https://github.com/apache/polaris) - Data Catalog and Governance Platform
 - [Apache Iceberg](https://iceberg.apache.org/) - Open table format for data lakes
 - [PyIceberg](https://py.iceberg.apache.org/) - Python library to interact with Apache Iceberg
-- [LocalStack](https://github.com/localstack/localstack) - AWS Cloud Service Emulator
+- [RustFS](https://rustfs.com/) - High-performance S3-compatible object storage built with Rust
 - [k3d](https://k3d.io) - k3s in Docker
 - [k3s](https://k3s.io) - Lightweight Kubernetes Distribution
 
@@ -548,7 +501,7 @@ Now that you have Apache Polaris running locally, you can:
 
 - [Polaris Documentation](https://polaris.apache.org/)
 - [Iceberg Documentation](https://iceberg.apache.org/docs/latest/)
-- [LocalStack Documentation](https://docs.localstack.cloud/overview/)
+- [RustFS Documentation](https://docs.rustfs.com/)
 - [k3d Documentation](https://k3d.io/v5.5.1/)
 - [Kubernetes Documentation](https://kubernetes.io/docs/home/)
 - [Task Documentation](https://taskfile.dev/usage/)
@@ -599,10 +552,10 @@ PostgreSQL:
 kubectl get pods,svc -n polaris
 ```
 
-LocalStack:
+RustFS:
 
 ```bash
-kubectl get pods,svc -n localstack
+kubectl get pods,svc -n rustfs
 ```
 
 ### 4. Deploy Polaris
@@ -623,13 +576,13 @@ Export AWS environment variables:
 
 ```bash
 unset AWS_PROFILE
-export AWS_ENDPOINT_URL=http://localhost:14566  # Use localhost for local machine
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
+export AWS_ENDPOINT_URL=http://localhost:9000  # Use localhost for local machine
+export AWS_ACCESS_KEY_ID=admin
+export AWS_SECRET_ACCESS_KEY=password
 export AWS_REGION=us-east-1
 ```
 
-> **Note**: Use `http://localhost:14566` when running from your local machine. The `http://localstack.localstack:4566` endpoint only works from inside the cluster.
+> **Note**: Use `http://localhost:9000` when running from your local machine. The `http://rustfs.rustfs:9000` endpoint only works from inside the cluster.
 
 Create catalog:
 

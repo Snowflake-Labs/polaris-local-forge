@@ -6,8 +6,12 @@ servers: 1
 agents: 1
 image: "rancher/k3s:${K3S_VERSION}"
 ports:
-  # Localstack - 4566 set to nodeport 31566 and it will be accessible from host using 4566
-  - port: 4566:31566
+  # RustFS S3 API - 9000 set to nodeport 31900 and it will be accessible from host using 9000
+  - port: 9000:31900
+    nodeFilters:
+      - loadbalancer
+  # RustFS Console - 9001 set to nodeport 31901 and it will be accessible from host using 9001
+  - port: 9001:31901
     nodeFilters:
       - loadbalancer
   # REST Catalog - polaris 18181 set to port 32181 and it will be accessible via 8181
@@ -25,8 +29,8 @@ volumes:
   - volume: ${FEATURES_DIR}/features/postgresql.yaml:/var/lib/rancher/k3s/server/manifests/postgresql.yaml
     nodeFilters:
       - server:*
-  # Deploy Localstack
-  - volume: ${FEATURES_DIR}/features/localstack.yaml:/var/lib/rancher/k3s/server/manifests/localstack.yaml
+  # Deploy RustFS (S3-compatible object storage)
+  - volume: ${FEATURES_DIR}/features/rustfs.yaml:/var/lib/rancher/k3s/server/manifests/rustfs.yaml
     nodeFilters:
       - server:*
   # Polaris Helm Chart and Secrets

@@ -1,11 +1,11 @@
 # defaults/main.yml
 ---
-# AWS LocalStack Configuration
-plf_aws_endpoint_url: http://localstack.localstack:4566 # LocalStack endpoint in k3s
-plf_aws_region: us-east-1 # AWS region for LocalStack
-plf_aws_role_arn: arn:aws:iam::000000000000:role/Admin # Default role ARN for LocalStack
-plf_aws_access_key_id: test # AWS_ACCESS_KEY_ID
-plf_aws_secret_access_key: test # AWS_SECRET_ACCESS_KEY
+# AWS S3-Compatible Storage Configuration (RustFS)
+plf_aws_endpoint_url: http://rustfs.rustfs:9000 # RustFS S3 API endpoint in k3s
+plf_aws_region: us-east-1 # AWS region for RustFS
+plf_aws_role_arn: arn:aws:iam::000000000000:role/Admin # Default role ARN
+plf_aws_access_key_id: admin # AWS_ACCESS_KEY_ID (RustFS root user)
+plf_aws_secret_access_key: password # AWS_SECRET_ACCESS_KEY (RustFS root password)
 
 # Polaris API Configuration
 plf_api_host: localhost # Polaris API host

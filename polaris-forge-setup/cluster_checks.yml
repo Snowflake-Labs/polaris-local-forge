@@ -32,7 +32,7 @@
       when: "namespace.tags | intersect(ansible_run_tags) or not ansible_run_tags"
       vars:
         namespace_list:
-          - name: localstack
+          - name: rustfs
             tags: ["bootstrap"]
           - name: polaris
             tags: ["bootstrap"]
@@ -60,8 +60,8 @@
       when: "deployment.tags | intersect(ansible_run_tags) or not ansible_run_tags"
       vars:
         deployments_resources_list:
-          - name: localstack
-            namespace: localstack
+          - name: rustfs
+            namespace: rustfs
             kind: Deployment
             tags:
               - bootstrap

@@ -36,7 +36,7 @@ spec:
           protocol: TCP
           nodePort: 32181
 
-    # Environment variables for AWS/LocalStack configuration
+    # Environment variables for AWS S3-compatible storage (RustFS) configuration
     extraEnv:
       - name: AWS_ENDPOINT_URL
         value: "{{ plf_aws_endpoint_url }}"

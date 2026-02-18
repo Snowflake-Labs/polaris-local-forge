@@ -1,0 +1,54 @@
+---
+# https://github.com/rustfs/helm
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: rustfs
+  namespace: kube-system
+spec:
+  repo: https://charts.rustfs.com
+  chart: rustfs
+  createNamespace: true
+  targetNamespace: rustfs
+  valuesContent: |-
+    # Standalone mode for local development
+    mode:
+      standalone:
+        enabled: true
+      distributed:
+        enabled: false
+    
+    # Single replica for local development
+    replicaCount: 1
+    
+    # Credentials - using simple test credentials for local development
+    auth:
+      rootUser: admin
+      rootPassword: password
+    
+    # Service configuration
+    service:
+      type: NodePort
+      port: 9000
+      nodePort: 31900
+      consolePort: 9001
+      consoleNodePort: 31901
+    
+    # Persistence configuration
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: local-path
+    
+    # Resource limits for local development
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 1Gi
+        cpu: 500m
+    
+    # Console/UI enabled
+    console:
+      enabled: true
