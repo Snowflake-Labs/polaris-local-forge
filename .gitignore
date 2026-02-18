@@ -6,15 +6,12 @@ cosign*
 image-refs.txt
 .registry-data
 !.envrc
-!bin/*.sh
 **/.*.env
 **/*.secret
 **/rsa_*
 **/*.key
 **/*.pem
 bin/**
-!bin/*.py
-!bin/*.sh
 kubectl
 .task
 work/**

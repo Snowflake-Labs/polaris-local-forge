@@ -1,9 +1,11 @@
 """CLI entry point for Polaris Local Forge."""
 
 import os
+import platform
 import shutil
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 import click
@@ -12,11 +14,12 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Project root directory
-PROJECT_HOME = Path(__file__).parent.parent.resolve()
+# Project root directory (src/polaris_forge/cli.py -> src/polaris_forge -> src -> project root)
+PROJECT_HOME = Path(__file__).parent.parent.parent.resolve()
 ANSIBLE_DIR = PROJECT_HOME / "polaris-forge-setup"
 BIN_DIR = PROJECT_HOME / "bin"
 K8S_DIR = PROJECT_HOME / "k8s"
+CONFIG_DIR = PROJECT_HOME / "config"
 
 # Default cluster configuration
 DEFAULT_CLUSTER_NAME = "polaris-local-forge"
@@ -116,6 +119,27 @@ def cluster():
     pass
 
 
+def get_kubectl_url(k3s_version: str) -> str:
+    """Get kubectl download URL for current platform."""
+    k8s_version = k3s_version.split("-")[0].split("+")[0]
+    os_name = platform.system().lower()
+    arch = platform.machine()
+    if arch == "x86_64":
+        arch = "amd64"
+    elif arch == "aarch64" or arch == "arm64":
+        arch = "arm64"
+    return f"https://dl.k8s.io/release/{k8s_version}/bin/{os_name}/{arch}/kubectl"
+
+
+def download_kubectl(k3s_version: str, dest: Path) -> None:
+    """Download kubectl binary for the specified k3s version."""
+    url = get_kubectl_url(k3s_version)
+    click.echo(f"Downloading kubectl from {url}...")
+    urllib.request.urlretrieve(url, dest)
+    dest.chmod(0o755)
+    click.echo(f"kubectl downloaded to {dest}")
+
+
 @cluster.command("create")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 def cluster_create(dry_run: bool):
@@ -127,19 +151,30 @@ def cluster_create(dry_run: bool):
     env = os.environ.copy()
     env.update(cluster_env)
 
+    kubectl_path = BIN_DIR / "kubectl"
+    cluster_config = CONFIG_DIR / "cluster-config.yaml"
+
     if dry_run:
         click.echo("[DRY RUN] Would execute the following steps:")
         click.echo(f"  1. Create directory: {Path(cluster_env['KUBECONFIG']).parent}")
         click.echo(f"  2. Download kubectl for k3s version: {cluster_env['K3S_VERSION']}")
+        click.echo(f"     URL: {get_kubectl_url(cluster_env['K3S_VERSION'])}")
+        click.echo(f"     Destination: {kubectl_path}")
         click.echo(f"  3. Create k3d cluster: {cluster_env['K3D_CLUSTER_NAME']}")
-        click.echo(f"     Config: {PROJECT_HOME / 'config' / 'cluster-config.yaml'}")
+        click.echo(f"     Config: {cluster_config}")
         sys.exit(0)
 
     kubeconfig_dir = Path(cluster_env["KUBECONFIG"]).parent
     kubeconfig_dir.mkdir(parents=True, exist_ok=True)
 
-    setup_script = BIN_DIR / "setup.sh"
-    result = subprocess.run(["bash", str(setup_script)], env=env, cwd=PROJECT_HOME)
+    BIN_DIR.mkdir(parents=True, exist_ok=True)
+    download_kubectl(cluster_env["K3S_VERSION"], kubectl_path)
+
+    result = subprocess.run(
+        ["k3d", "cluster", "create", "--config", str(cluster_config)],
+        env=env,
+        cwd=PROJECT_HOME,
+    )
     sys.exit(result.returncode)
 
 
