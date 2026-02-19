@@ -105,14 +105,40 @@ cortex skill add https://github.com/kameshsampath/polaris-local-forge
 
 Say **"get started with apache polaris"** and the skill will guide you step by step:
 
-1. Prerequisites check (`doctor`)
-2. Environment setup (`.env`, Python venv)
-3. Configuration generation (RSA keys, bootstrap creds, k8s manifests)
-4. Cluster creation (k3d with RustFS + PostgreSQL)
-5. Polaris deployment
-6. S3/RustFS configuration
-7. Catalog setup (bucket, catalog, principal, roles)
-8. Verification (DuckDB or notebook)
+1. Workspace init (copy `pyproject.toml` + `.env.example` to your project directory)
+2. Configuration review and confirmation
+3. Prerequisites check (`doctor`)
+4. Environment setup (Python venv with query deps)
+5. Configuration generation (RSA keys, bootstrap creds, k8s manifests)
+6. Cluster creation (k3d with RustFS + PostgreSQL)
+7. Polaris deployment
+8. S3/RustFS configuration
+9. Catalog setup (bucket, catalog, principal, roles)
+10. Verification (DuckDB or notebook)
+
+### CLI Global Options
+
+The CLI supports `--work-dir` to keep the skill directory pristine:
+
+```bash
+uv run --project <SKILL_DIR> polaris-local-forge --work-dir <PROJECT_DIR> <command>
+```
+
+| Option | Description |
+|--------|-------------|
+| `--work-dir PATH` | Working directory for generated files (default: skill directory) |
+| `--env-file PATH` | Path to .env file (default: `<work-dir>/.env`) |
+
+When `--work-dir` is specified, all generated files (k8s manifests, credentials,
+kubeconfig, kubectl, notebooks, scripts) are written to the work directory.
+The skill directory remains read-only.
+
+For a **second cluster**, create a new directory and re-run:
+
+```bash
+mkdir ~/polaris-staging && cd ~/polaris-staging
+# The skill creates a fully independent environment here
+```
 
 ## S3 / RustFS -- Local External Volume Equivalent
 
@@ -151,7 +177,7 @@ No `--endpoint-url` flag needed when `AWS_ENDPOINT_URL` is set.
 
 ### S3 Dependencies
 
-The `pyproject.toml` already includes `boto3>=1.35.0` and `pyiceberg[s3fs]>=0.8.1`. No additional dependencies are needed. The `aws` CLI must be installed separately if you want to use it directly.
+Both the skill's `pyproject.toml` and the lightweight `user-project/pyproject.toml` include `boto3>=1.35.0` and `pyiceberg[s3fs]>=0.8.1`. No additional Python dependencies are needed. The `aws` CLI must be installed separately if you want to use it directly.
 
 ## Consuming Projects -- Minimal Setup
 
@@ -167,21 +193,15 @@ AWS_ENDPOINT_URL=http://localhost:9000
 AWS_ACCESS_KEY_ID=admin
 AWS_SECRET_ACCESS_KEY=password
 AWS_REGION=us-east-1
-# From polaris-local-forge .snow-utils/<cluster>/work/principal.txt:
+# From work/principal.txt in the polaris workspace:
 POLARIS_REALM=default-realm
 CLIENT_ID=<from principal.txt>
 CLIENT_SECRET=<from principal.txt>
 ```
 
-**`pyproject.toml` (query dependencies only):**
-
-```toml
-[project]
-dependencies = [
-    "duckdb>=1.0.0",
-    "pyiceberg[s3fs]>=0.8.1",
-]
-```
+**`pyproject.toml`** -- copy from `user-project/pyproject.toml` in the skill repo.
+It includes `duckdb`, `pyiceberg[s3fs]`, `boto3`, `pandas`, `pyarrow`, and
+optional `[notebook]` extras for Jupyter.
 
 **Notebook or SQL scripts** for querying.
 
@@ -208,24 +228,29 @@ The `.snow-utils/` directory convention and manifest format are shared across al
 
 ## Generated Files
 
-Skill-based setup scopes generated files under `.snow-utils/<cluster-name>/`:
+With `--work-dir`, generated files live directly in the user's project directory:
 
 ```
-.snow-utils/
-├── snow-utils-manifest.md              # Resource tracking manifest
-└── polaris-local-forge/                # Scoped by K3D_CLUSTER_NAME
-    ├── bin/kubectl                     # Version-matched kubectl binary
-    ├── .kube/config                    # Cluster kubeconfig
-    ├── work/
-    │   └── principal.txt              # Catalog credentials (chmod 600)
-    ├── bootstrap-credentials.env
-    ├── polaris-secrets.yaml
-    ├── polaris.yaml
-    ├── postgresql.yaml
-    ├── .polaris.env
-    ├── rsa_key / rsa_key.pub
-    └── explore_catalog.sql
+my-polaris-project/                    # --work-dir
+├── .env                               # Configuration
+├── pyproject.toml                     # Lightweight query deps
+├── .snow-utils/
+│   └── snow-utils-manifest.md         # Resource tracking manifest
+├── .kube/config                       # Cluster kubeconfig (chmod 600)
+├── bin/kubectl                        # Version-matched kubectl
+├── k8s/                               # Generated + copied k8s manifests
+│   ├── features/                      # RustFS, Polaris, PostgreSQL manifests
+│   └── polaris/                       # Secrets, credentials, RSA keys
+├── work/
+│   └── principal.txt                  # Catalog credentials (chmod 600)
+├── notebooks/
+│   └── verify_polaris.ipynb           # Verification notebook
+└── scripts/
+    └── explore_catalog.sql            # SQL verification
 ```
+
+Sensitive directories (`.kube/`, `work/`, `.snow-utils/`) are set to `0700`.
+Sensitive files (`.env`, `principal.txt`, `rsa_key`, credentials) are set to `0600`.
 
 ### File Lifecycle
 
@@ -236,7 +261,22 @@ Skill-based setup scopes generated files under `.snow-utils/<cluster-name>/`:
 **Catalog-level files** (regenerated on catalog reset):
 
 - `work/principal.txt` (new credentials on each catalog setup)
-- `explore_catalog.sql` (re-templated with new credentials)
+- `scripts/explore_catalog.sql` (re-templated with new credentials)
+
+### User Project Template
+
+The skill repo includes `user-project/pyproject.toml` with lightweight dependencies
+for querying and exploration:
+
+| Package | Purpose |
+|---------|---------|
+| `duckdb` | SQL engine with Iceberg extension |
+| `pyiceberg[s3fs]` | PyIceberg with S3 filesystem support |
+| `boto3` | AWS SDK for S3/RustFS operations |
+| `pandas` | Data manipulation |
+| `pyarrow` | Arrow columnar format support |
+| `python-dotenv` | Load `.env` configuration |
+| `ipykernel` + `jupyter` | Optional: notebook support (`[notebook]` extra) |
 
 ## Phase 2: Real AWS S3 Support
 
