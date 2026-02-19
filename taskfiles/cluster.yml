@@ -1,0 +1,42 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+silent: true
+
+tasks:
+  create:
+    desc: Create the k3d cluster and deploy initial components
+    cmds:
+      - uv run polaris-local-forge cluster create
+
+  bootstrap-check:
+    desc: Wait for bootstrap deployments to be ready
+    cmds:
+      - uv run polaris-local-forge cluster bootstrap-check
+
+  polaris-check:
+    desc: Wait for polaris deployments to be ready
+    cmds:
+      - uv run polaris-local-forge cluster polaris-check
+
+  delete:
+    desc: Delete the k3d cluster
+    cmds:
+      - uv run polaris-local-forge cluster delete --yes
+
+  status:
+    desc: Show cluster status
+    cmds:
+      - uv run polaris-local-forge cluster status
+
+  bump-k3s:
+    desc: Update K3S to latest version from Docker Hub
+    cmds:
+      - uv run polaris-local-forge cluster bump-k3s
+
+  bump-k3s:dry-run:
+    desc: Show what K3S version update would do
+    cmds:
+      - uv run polaris-local-forge cluster bump-k3s --dry-run

@@ -1,0 +1,47 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+silent: true
+
+tasks:
+  deploy:
+    desc: Deploy Polaris to the cluster
+    cmds:
+      - uv run polaris-local-forge polaris deploy
+
+  check:
+    desc: Ensure all Polaris deployments and jobs have succeeded
+    cmds:
+      - uv run polaris-local-forge polaris check
+
+  purge:
+    desc: Purge Polaris data
+    cmds:
+      - uv run polaris-local-forge polaris purge
+
+  bootstrap:
+    desc: Bootstrap Polaris (run after purge)
+    cmds:
+      - uv run polaris-local-forge polaris bootstrap
+
+  reset:
+    desc: Purge and re-bootstrap Polaris
+    cmds:
+      - uv run polaris-local-forge polaris reset --yes
+
+  status:
+    desc: Show Polaris status
+    cmds:
+      - uv run polaris-local-forge polaris status
+
+  bump-version:
+    desc: Update Polaris to latest version from Docker Hub
+    cmds:
+      - uv run polaris-local-forge polaris bump-version
+
+  bump-version:dry-run:
+    desc: Show what Polaris version update would do
+    cmds:
+      - uv run polaris-local-forge polaris bump-version --dry-run

@@ -1,0 +1,116 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+silent: true
+
+tasks:
+  setup:
+    desc: Set up demo catalog with s3 bucket, catalog, principal, and roles
+    cmds:
+      - uv run polaris-local-forge catalog setup {{if .TAGS}}--tags={{.TAGS}}{{end}}
+
+  generate-notebook:
+    desc: Generate and prepare verification notebook
+    cmds:
+      - uv run polaris-local-forge catalog generate-notebook
+
+  verify:duckdb:
+    desc: Verify Polaris catalog using DuckDB Iceberg extension (Python)
+    cmds:
+      - uv run polaris-local-forge catalog verify {{.CLI_ARGS}}
+    preconditions:
+      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
+        msg: "Principal credentials not found. Run 'task catalog:setup' first."
+
+  verify:sql:
+    desc: Verify Polaris catalog using DuckDB CLI with SQL script
+    cmds:
+      - uv run polaris-local-forge catalog verify-sql
+    preconditions:
+      - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+        msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
+      - sh: command -v duckdb
+        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+
+  explore:sql:
+    desc: Explore Polaris catalog with DuckDB CLI in interactive mode
+    cmds:
+      - uv run polaris-local-forge catalog explore-sql
+    preconditions:
+      - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+        msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
+      - sh: command -v duckdb
+        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+
+  info:
+    desc: Get catalog configuration details from Polaris API
+    cmds:
+      - |
+        echo "Fetching catalog configuration..."
+        REALM=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f1)
+        CLIENT_ID=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f2)
+        CLIENT_SECRET=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f3)
+
+        # Get access token
+        TOKEN=$(curl -s -X POST "http://localhost:18181/api/catalog/v1/oauth/tokens" \
+          -H "Authorization: Bearer ${CLIENT_ID}:${CLIENT_SECRET}" \
+          -H "Polaris-Realm: ${REALM}" \
+          -H "Content-Type: application/x-www-form-urlencoded" \
+          -d "grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&scope=PRINCIPAL_ROLE:ALL" \
+          | jq -r '.access_token')
+
+        if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+          echo "Error: Failed to get access token"
+          exit 1
+        fi
+
+        echo ""
+        echo "=== Catalog Configuration for 'polardb' ==="
+        echo ""
+
+        # Get catalog configuration
+        curl -s "http://localhost:18181/api/management/v1/catalogs/polardb" \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -H "Polaris-Realm: ${REALM}" \
+          | jq '.'
+
+        echo ""
+        echo "=== Key S3 Configuration ==="
+        echo ""
+        curl -s "http://localhost:18181/api/management/v1/catalogs/polardb" \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -H "Polaris-Realm: ${REALM}" \
+          | jq '{
+              properties: .properties,
+              storageConfigInfo: .storageConfigInfo
+            }'
+    preconditions:
+      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
+        msg: "Credentials file not found. Run 'task catalog:setup' first."
+      - sh: command -v jq
+        msg: "jq is required for this task. Install with: brew install jq"
+
+  cleanup:
+    desc: Cleanup Polaris catalog resources
+    cmds:
+      - uv run polaris-local-forge catalog cleanup --yes {{if .TAGS}}--tags={{.TAGS}}{{end}}
+
+  list:
+    desc: List catalogs in Polaris
+    cmds:
+      - uv run polaris-local-forge catalog list
+
+  reset:
+    desc: Cleanup and recreate catalog (keeps cluster running)
+    cmds:
+      - task: cleanup
+      - task: setup
+      - 'echo ""'
+      - 'echo "Catalog reset complete."'
+      - 'echo ""'
+      - 'echo "Verification options:"'
+      - 'echo "  - Run DuckDB verification: task verify"'
+      - 'echo "  - Generate notebook: task catalog:generate-notebook"'
+

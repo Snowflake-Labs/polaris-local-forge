@@ -66,11 +66,11 @@ class PolarisExplorer:
     def log(self, message: str, level: str = "INFO"):
         """Log a message with formatting."""
         prefixes = {
-            "INFO": "ℹ️ ",
-            "SUCCESS": "✅",
-            "ERROR": "❌",
-            "WARNING": "⚠️ ",
-            "DEBUG": "🔍",
+            "INFO": "  ",
+            "SUCCESS": "OK ",
+            "ERROR": "ERROR ",
+            "WARNING": "WARN ",
+            "DEBUG": "DEBUG ",
         }
         if level == "DEBUG" and not self.verbose:
             return
@@ -323,7 +323,7 @@ class PolarisExplorer:
             self.log("\nExploring Iceberg metadata...")
 
             # Get table metadata
-            self.log("\n📁 Table Metadata Files:", "INFO")
+            self.log("\nTable Metadata Files:", "INFO")
             metadata = self.conn.execute("""
                 SELECT * FROM iceberg_metadata('polaris_catalog.wildlife.penguins')
             """).fetchall()
@@ -337,7 +337,7 @@ class PolarisExplorer:
             self.log(f"\nTotal: {len(metadata)} metadata file(s)", "DEBUG")
 
             # Get snapshots
-            self.log("\n📸 Iceberg Snapshots:", "INFO")
+            self.log("\nIceberg Snapshots:", "INFO")
             snapshots = self.conn.execute("""
                 SELECT 
                     snapshot_id,
@@ -531,7 +531,7 @@ Reference:
             print(f"Loading credentials from: {creds_file}")
             client_id, client_secret = load_credentials(creds_file)
         else:
-            print(f"⚠️  Credentials not found: {creds_file}")
+            print(f"Warning: Credentials not found: {creds_file}")
             print("Run 'task catalog:setup' to generate principal credentials")
 
     # Run explorer

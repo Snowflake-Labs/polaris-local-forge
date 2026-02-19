@@ -17,7 +17,7 @@ notes: |
   To replay: ask "get started with apache polaris using example manifest"
 
 ## prereqs
-- Docker Desktop (>= 4.27) running
+- Podman (default) or Docker Desktop (>= 4.27) running
 - k3d installed
 - Python >= 3.12
 - uv package manager
@@ -30,6 +30,10 @@ polaris-local-forge: https://github.com/kameshsampath/polaris-local-forge
 
 **Created:** 2026-02-19
 **Status:** REMOVED
+
+### Container Runtime
+**PLF_CONTAINER_RUNTIME:** podman
+**PLF_PODMAN_MACHINE:** k3d
 
 ### Cluster
 **K3D_CLUSTER_NAME:** polaris-local-forge  # ADAPT: customizable

@@ -27,10 +27,13 @@ This skill requires the following tools installed on your machine:
 
 | Tool | Purpose | Install |
 |------|---------|---------|
-| Docker | Container runtime | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (>= 4.27) |
-| k3d | k3s-in-Docker | `brew install k3d` or [k3d.io](https://k3d.io/) |
+| Podman (default) | Container runtime (OSS) | `brew install podman` or [podman.io](https://podman.io/) |
+| Docker (alternative) | Container runtime | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (>= 4.27) |
+| k3d | k3s-in-Docker/Podman | `brew install k3d` or [k3d.io](https://k3d.io/) |
 | Python | >= 3.12 | [python.org](https://www.python.org/downloads/) |
 | uv | Python package manager | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+
+**Container Runtime:** Podman is the preferred runtime (fully OSS, shipped with Cortex Code). Auto-detection checks for Podman first, then Docker. Set `PLF_CONTAINER_RUNTIME=docker` in `.env` to use Docker instead. See [docs/podman-setup.md](docs/podman-setup.md) for Podman machine setup.
 
 **Optional:**
 
@@ -157,6 +160,9 @@ Configuration Review
   Config file:                   .env
   Work directory:                $(pwd)
 
+  PLF_CONTAINER_RUNTIME:         ${PLF_CONTAINER_RUNTIME}  # podman (default) or docker
+  PLF_PODMAN_MACHINE:            ${PLF_PODMAN_MACHINE}     # macOS only (default: k3d)
+
   K3D_CLUSTER_NAME:              ${K3D_CLUSTER_NAME}      # ADAPT: customizable
   K3S_VERSION:                   ${K3S_VERSION}
   KUBECONFIG:                    .kube/config
@@ -199,6 +205,14 @@ grep "^tools_verified:" .snow-utils/snow-utils-manifest.md 2>/dev/null
 ```bash
 ${PLF} doctor
 ```
+
+The doctor command checks:
+- Container runtime detection (Podman preferred, Docker fallback)
+- If Podman: machine state, CPUs, memory, cgroup v2, k3d network
+- Required tools: k3d, Python, uv
+- Environment: .env, venv, cluster
+
+If Podman is detected but the machine is missing or under-provisioned, the user should run `task podman:setup` before proceeding.
 
 If any tool is missing, stop and provide installation instructions from the Prerequisites table above.
 
@@ -437,12 +451,14 @@ ${PLF} prepare
 >
 > - **Cluster name:** ${K3D_CLUSTER_NAME}
 > - **K3S version:** ${K3S_VERSION}
+> - **Container runtime:** ${PLF_CONTAINER_RUNTIME} (Podman or Docker)
 > - **RustFS S3:** localhost:9000
 > - **RustFS Console:** localhost:9001
 > - **PostgreSQL:** internal metastore
 > - **Polaris API:** localhost:18181
 >
-> This will create a local Kubernetes cluster running in Docker.
+> This will create a local Kubernetes cluster running in Podman (default) or Docker.
+> When using Podman, k3d runs against the dedicated `${PLF_PODMAN_MACHINE}` machine.
 > kubectl is downloaded to `bin/` and kubeconfig to `.kube/config`
 > within the work directory.
 
@@ -602,6 +618,10 @@ ${PLF} catalog setup
 
 **Created:** {TIMESTAMP}
 **Status:** IN_PROGRESS
+
+### Container Runtime
+**PLF_CONTAINER_RUNTIME:** ${PLF_CONTAINER_RUNTIME}
+**PLF_PODMAN_MACHINE:** ${PLF_PODMAN_MACHINE}
 
 ### Cluster
 **K3D_CLUSTER_NAME:** ${K3D_CLUSTER_NAME}

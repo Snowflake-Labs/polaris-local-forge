@@ -19,12 +19,12 @@ A pure SQL script that demonstrates Polaris Iceberg REST Catalog functionality u
 
 ### Features
 
-- ✅ Pure SQL - no Python required
-- ✅ **Auto-generated with credentials** during setup
-- ✅ Run directly with DuckDB CLI
-- ✅ Same functionality as Python version
-- ✅ Well-commented for learning
-- ✅ Interactive mode available
+- Pure SQL - no Python required
+- **Auto-generated with credentials** during setup
+- Run directly with DuckDB CLI
+- Same functionality as Python version
+- Well-commented for learning
+- Interactive mode available
 
 ### Requirements
 
@@ -46,10 +46,10 @@ task catalog:setup
 ```
 
 This generates `scripts/explore_catalog.sql` from the template `polaris-forge-setup/templates/scripts/explore_catalog.sql.j2` with:
-- ✅ Client ID and secret pre-configured
-- ✅ Catalog endpoint configured
-- ✅ OAuth server URL configured
-- ✅ Ready to run immediately
+- Client ID and secret pre-configured
+- Catalog endpoint configured
+- OAuth server URL configured
+- Ready to run immediately
 
 ### Usage
 
@@ -118,13 +118,13 @@ A DuckDB-based exploration and verification script that demonstrates Polaris Ice
 
 ### Features
 
-- ✅ Connects to Polaris Iceberg REST Catalog using DuckDB
-- ✅ Verifies OAuth2 authentication
-- ✅ Creates schemas and Iceberg tables
-- ✅ Loads real-world CSV data (Palmer Penguins dataset)
-- ✅ Performs analytics queries on Iceberg tables
-- ✅ Tests Iceberg metadata operations (snapshots, metadata)
-- ✅ Automatic cleanup of resources
+- Connects to Polaris Iceberg REST Catalog using DuckDB
+- Verifies OAuth2 authentication
+- Creates schemas and Iceberg tables
+- Loads real-world CSV data (Palmer Penguins dataset)
+- Performs analytics queries on Iceberg tables
+- Tests Iceberg metadata operations (snapshots, metadata)
+- Automatic cleanup of resources
 
 ### Requirements
 
@@ -269,47 +269,47 @@ Schema: wildlife | Table: penguins
 ======================================================================
 
 Connect to DuckDB...
-ℹ️  Creating DuckDB connection...
-✅ DuckDB connection established
+  Creating DuckDB connection...
+OK DuckDB connection established
 
 Create Polaris secret...
-ℹ️  Creating Polaris secret for OAuth2 authentication...
-✅ Polaris secret created successfully
+  Creating Polaris secret for OAuth2 authentication...
+OK Polaris secret created successfully
 
 Attach Polaris catalog...
-ℹ️  Attaching Polaris catalog 'polardb'...
-✅ Polaris catalog attached successfully
+  Attaching Polaris catalog 'polardb'...
+OK Polaris catalog attached successfully
 
 Verify catalog...
-ℹ️  Verifying catalog accessibility...
-✅ Catalog verified successfully
+  Verifying catalog accessibility...
+OK Catalog verified successfully
 
 Create schema...
-ℹ️  Creating schema 'wildlife'...
-✅ Schema 'wildlife' created successfully
+  Creating schema 'wildlife'...
+OK Schema 'wildlife' created successfully
 
 Create table...
-ℹ️  Creating table 'wildlife.penguins'...
-✅ Table 'wildlife.penguins' created successfully
+  Creating table 'wildlife.penguins'...
+OK Table 'wildlife.penguins' created successfully
 
 Load penguins dataset...
-ℹ️  Loading penguins dataset from https://raw.githubusercontent.com/...
-✅ Successfully loaded 333 penguin records
+  Loading penguins dataset from https://raw.githubusercontent.com/...
+OK Successfully loaded 333 penguin records
 
 Query penguin data...
-ℹ️  Querying penguin data...
-✅ Query returned 3 species
+  Querying penguin data...
+OK Query returned 3 species
 
 Test metadata operations...
-ℹ️  Testing Iceberg metadata operations...
-✅ Retrieved snapshots: 1 entries
+  Testing Iceberg metadata operations...
+OK Retrieved snapshots: 1 entries
 
 Cleaning up resources...
-ℹ️  Cleaning up resources...
-✅ Cleanup completed successfully
+  Cleaning up resources...
+OK Cleanup completed successfully
 
 ======================================================================
-✅ All steps completed successfully!
+OK All steps completed successfully!
 ======================================================================
 ```
 
@@ -324,7 +324,7 @@ The Polaris Local Forge project provides two complementary verification approach
 | **Data** | Real dataset (Penguins) | Test data |
 | **Use Case** | Quick verification, CI/CD | Interactive exploration |
 | **Setup** | Lightweight, single script | Notebook environment |
-| **Output** | Terminal with emojis | Notebook cells |
+| **Output** | Terminal | Notebook cells |
 | **Speed** | Very fast | Fast |
 | **Schema** | `wildlife.penguins` | `demo_db.fruits` |
 

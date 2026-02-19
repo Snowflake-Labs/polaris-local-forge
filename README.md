@@ -1,6 +1,7 @@
 # Polaris Local Forge
 
 ![k3d](https://img.shields.io/badge/k3d-v5.8.0-427cc9)
+![Podman](https://img.shields.io/badge/Podman-v4.0+-892CA0)
 ![Docker Desktop](https://img.shields.io/badge/Docker%20Desktop-v4.27+-0db7ed)
 ![Apache Polaris](https://img.shields.io/badge/Apache%20Polaris-1.3.0--incubating-blue)
 ![RustFS](https://img.shields.io/badge/RustFS-1.0.0-orange)
@@ -23,11 +24,18 @@ A complete local development environment for [Apache Polaris (Incubating)](https
 
 | Tool | Version | Install |
 |------|---------|---------|
-| Docker | >= 4.27 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) |
+| Podman (default) | >= 4.0 | `brew install podman` or [podman.io](https://podman.io/) |
+| Docker (alternative) | >= 4.27 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) |
 | k3d | >= 5.0.0 | `brew install k3d` or [k3d.io](https://k3d.io/) |
 | Python | >= 3.12 | [python.org](https://www.python.org/downloads/) |
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | Task | latest | `brew install go-task` or [taskfile.dev](https://taskfile.dev) |
+
+### Container Runtime
+
+Podman is the preferred container runtime (fully open source, shipped with Cortex Code). The CLI auto-detects the available runtime, checking for Podman first, then Docker. Override with `PLF_CONTAINER_RUNTIME=docker` in `.env` to use Docker instead.
+
+**First-time Podman users:** See [docs/podman-setup.md](docs/podman-setup.md) for machine setup, cgroup configuration, and network creation.
 
 ### Optional Tools
 
@@ -43,7 +51,7 @@ A complete local development environment for [Apache Polaris (Incubating)](https
 task doctor
 
 # Or manually verify
-docker --version && docker info > /dev/null && echo "Docker: OK"
+podman --version  # or: docker --version
 k3d version
 python3 --version
 uv --version
@@ -57,12 +65,17 @@ task --version
 git clone https://github.com/kameshsampath/polaris-local-forge
 cd polaris-local-forge
 
+# Podman users: set up the dedicated k3d machine first (one-time)
+task podman:setup
+
 # Setup Python environment
 task setup:python
 
 # Deploy everything (cluster + Polaris + catalog)
 task setup:all
 ```
+
+> **Using Docker instead?** Set `PLF_CONTAINER_RUNTIME=docker` in `.env` and skip the `podman:setup` step.
 
 After setup completes, you'll see:
 
@@ -91,6 +104,16 @@ jupyter notebook notebooks/verify_polaris.ipynb
 ## Task Commands
 
 All operations are available via Task commands:
+
+### Podman Setup (one-time)
+
+| Command | Description |
+|---------|-------------|
+| `task podman:setup` | Full Podman setup (machine + cgroup + network + verify) |
+| `task podman:setup:machine` | macOS: create dedicated `k3d` Podman machine (4 CPUs / 16GB) |
+| `task podman:setup:cgroup` | Configure cgroup v2 delegation for rootless k3d |
+| `task podman:setup:network` | Create DNS-enabled `k3d` network |
+| `task podman:check` | Verify Podman machine is ready with sufficient resources |
 
 ### Setup & Teardown
 
@@ -210,6 +233,8 @@ Key settings:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `PLF_CONTAINER_RUNTIME` | (auto-detect) | `podman` or `docker`; auto-detects Podman first |
+| `PLF_PODMAN_MACHINE` | `k3d` | Podman machine name (macOS only) |
 | `K3D_CLUSTER_NAME` | `polaris-local-forge` | Cluster name |
 | `K3S_VERSION` | `v1.31.5-k3s1` | K3S version |
 | `AWS_ENDPOINT_URL` | `http://localhost:9000` | RustFS S3 endpoint |

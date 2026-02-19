@@ -1,0 +1,90 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+silent: true
+
+tasks:
+  # ============================================
+  # Logging
+  # ============================================
+
+  logs:polaris:
+    desc: Stream Polaris server logs
+    cmds:
+      - kubectl logs -f -n polaris deployment/polaris
+
+  logs:bootstrap:
+    desc: View Polaris bootstrap job logs
+    cmds:
+      - kubectl logs -f -n polaris jobs/polaris-bootstrap
+
+  logs:purge:
+    desc: View Polaris purge job logs
+    cmds:
+      - kubectl logs -f -n polaris jobs/polaris-purge
+
+  logs:postgresql:
+    desc: Stream PostgreSQL logs
+    cmds:
+      - kubectl logs -f -n polaris statefulset/postgresql
+
+  logs:rustfs:
+    desc: Stream RustFS logs
+    cmds:
+      - kubectl logs -f -n rustfs deployment/rustfs
+
+  # ============================================
+  # Troubleshooting
+  # ============================================
+
+  troubleshoot:events:
+    desc: Show recent events in polaris namespace
+    cmds:
+      - kubectl get events -n polaris --sort-by='.lastTimestamp'
+
+  troubleshoot:polaris:
+    desc: Troubleshoot Polaris deployment issues
+    cmds:
+      - kubectl get events -n polaris --sort-by='.lastTimestamp'
+      - kubectl describe pod -n polaris -l app=polaris
+
+  troubleshoot:rustfs:
+    desc: Troubleshoot RustFS connectivity
+    cmds:
+      - kubectl get svc -n rustfs
+      - kubectl exec -it -n rustfs deployment/rustfs -- mc ls local
+
+  troubleshoot:postgresql:
+    desc: Troubleshoot PostgreSQL connectivity
+    cmds:
+      - kubectl get svc -n polaris postgresql-hl
+      - kubectl exec -it -n polaris postgresql-0 -- pg_isready -h localhost
+
+  # ============================================
+  # Status & Info
+  # ============================================
+
+  status:detailed:
+    desc: Show detailed status of all deployments (kubectl)
+    cmds:
+      - echo "=== Polaris Namespace ==="
+      - kubectl get all -n polaris
+      - echo ""
+      - echo "=== RustFS Namespace ==="
+      - kubectl get all -n rustfs
+
+  urls:
+    desc: Display service URLs and credentials locations
+    cmds:
+      - 'echo "Service URLs:"'
+      - 'echo "  Polaris UI:  http://localhost:18181"'
+      - 'echo "  Credentials: {{.PROJECT_HOME}}/k8s/polaris/.bootstrap-credentials.env"'
+      - 'echo ""'
+      - 'echo "  Adminer:     http://localhost:18080"'
+      - 'echo "  PostgreSQL:  postgresql.polaris (check {{.FEATURES_DIR}}/postgresql.yaml)"'
+      - 'echo ""'
+      - 'echo "  RustFS S3:   http://localhost:9000"'
+      - 'echo "  RustFS UI:   http://localhost:9001"'
+      - 'echo "  Credentials: admin/password"'

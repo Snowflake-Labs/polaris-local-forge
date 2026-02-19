@@ -62,7 +62,7 @@
 -- ============================================================================
 -- Step 1: Setup DuckDB Extensions
 -- ============================================================================
-.print '📦 Installing and loading extensions...'
+.print 'Installing and loading extensions...'
 
 INSTALL iceberg;
 LOAD iceberg;
@@ -70,23 +70,23 @@ LOAD iceberg;
 INSTALL httpfs;
 LOAD httpfs;
 
-.print '✅ Extensions loaded successfully'
+.print 'OK: Extensions loaded successfully'
 .print ''
 
 -- ============================================================================
 -- Step 2: Load Penguins CSV Data into Memory
 -- ============================================================================
-.print '📊 Loading Penguins dataset from GitHub...'
+.print 'Loading Penguins dataset from GitHub...'
 
 CREATE TEMP TABLE penguins_staging AS 
 SELECT * FROM read_csv_auto('https://raw.githubusercontent.com/dataprofessor/data/master/penguins_cleaned.csv');
 
-.print '✅ Loaded Penguins data into memory'
+.print 'OK: Loaded Penguins data into memory'
 
 SELECT COUNT(*) as record_count FROM penguins_staging;
 
 .print ''
-.print '📋 Dataset Schema:'
+.print 'Dataset Schema:'
 DESCRIBE penguins_staging;
 
 .print ''
@@ -94,7 +94,7 @@ DESCRIBE penguins_staging;
 -- ============================================================================
 -- Step 3: Connect to Polaris REST Catalog
 -- ============================================================================
-.print '🔗 Connecting to Polaris REST Catalog...'
+.print 'Connecting to Polaris REST Catalog...'
 .print ''
 
 -- Create OAuth2 secret for Polaris authentication
@@ -112,11 +112,11 @@ ATTACH '<< sql_vars.catalog_name >>' AS polaris_catalog (
     ENDPOINT '<< sql_vars.endpoint >>'
 );
 
-.print '✅ Connected to Polaris catalog'
+.print 'OK: Connected to Polaris catalog'
 
 -- Verify connection
 .print ''
-.print '📁 Existing tables in catalog:'
+.print 'Existing tables in catalog:'
 SHOW ALL TABLES;
 
 .print ''
@@ -124,14 +124,14 @@ SHOW ALL TABLES;
 -- ============================================================================
 -- Step 4: Create Schema and Iceberg Table
 -- ============================================================================
-.print '🏗️  Creating wildlife schema...'
+.print 'Creating wildlife schema...'
 
 CREATE SCHEMA IF NOT EXISTS polaris_catalog.wildlife;
 
-.print '✅ Schema created'
+.print 'OK: Schema created'
 .print ''
 
-.print '🏗️  Creating penguins Iceberg table...'
+.print 'Creating penguins Iceberg table...'
 
 CREATE TABLE IF NOT EXISTS polaris_catalog.wildlife.penguins (
     species VARCHAR,
@@ -143,19 +143,19 @@ CREATE TABLE IF NOT EXISTS polaris_catalog.wildlife.penguins (
     sex VARCHAR
 );
 
-.print '✅ Iceberg table created via Polaris'
+.print 'OK: Iceberg table created via Polaris'
 .print ''
 
 -- ============================================================================
 -- Step 5: Insert Data into Iceberg Table
 -- ============================================================================
-.print '💾 Inserting data into Iceberg table...'
+.print 'Inserting data into Iceberg table...'
 .print '    (This writes to S3 via Polaris REST API)'
 
 INSERT INTO polaris_catalog.wildlife.penguins
 SELECT * FROM penguins_staging;
 
-.print '✅ Data inserted successfully'
+.print 'OK: Data inserted successfully'
 
 -- Verify data was written
 SELECT COUNT(*) as iceberg_record_count FROM polaris_catalog.wildlife.penguins;
@@ -168,10 +168,10 @@ DROP TABLE penguins_staging;
 -- ============================================================================
 -- Step 6: Query and Analyze Data
 -- ============================================================================
-.print '🔍 Querying penguin data...'
+.print 'Querying penguin data...'
 .print ''
 
-.print '📊 Species Statistics:'
+.print 'Species Statistics:'
 SELECT 
     species,
     COUNT(*) as count,
@@ -183,7 +183,7 @@ ORDER BY species;
 
 .print ''
 
-.print '🏝️  Island Distribution:'
+.print 'Island Distribution:'
 SELECT 
     island,
     COUNT(*) as penguin_count
@@ -193,7 +193,7 @@ ORDER BY penguin_count DESC;
 
 .print ''
 
-.print '⚥  Sex Distribution by Species:'
+.print 'Sex Distribution by Species:'
 SELECT 
     species,
     sex,
@@ -207,15 +207,15 @@ ORDER BY species, sex;
 -- ============================================================================
 -- Step 7: Explore Iceberg Metadata
 -- ============================================================================
-.print '🔍 Exploring Iceberg Metadata...'
+.print 'Exploring Iceberg Metadata...'
 .print ''
 
-.print '📁 Table Metadata Files:'
+.print 'Table Metadata Files:'
 SELECT * FROM iceberg_metadata('polaris_catalog.wildlife.penguins');
 
 .print ''
 
-.print '📸 Iceberg Snapshots:'
+.print 'Iceberg Snapshots:'
 SELECT 
     snapshot_id,
     sequence_number,
@@ -228,7 +228,7 @@ FROM iceberg_snapshots('polaris_catalog.wildlife.penguins');
 -- ============================================================================
 -- Step 8: Advanced Queries
 -- ============================================================================
-.print '📈 Advanced Analytics:'
+.print 'Advanced Analytics:'
 .print ''
 
 .print 'Average Body Mass by Species and Island:'
@@ -254,20 +254,20 @@ FROM polaris_catalog.wildlife.penguins;
 -- ============================================================================
 -- Step 9: Cleanup (Optional)
 -- ============================================================================
-.print '🧹 Cleanup Section'
+.print 'Cleanup Section'
 .print ''
 .print 'To clean up the test resources, uncomment the following lines:'
 .print ''
 -- DROP TABLE IF EXISTS polaris_catalog.wildlife.penguins;
 -- DROP SCHEMA IF EXISTS polaris_catalog.wildlife;
-.print '✅ Cleanup commands are commented out (table preserved for exploration)'
+.print 'Cleanup commands are commented out (table preserved for exploration)'
 .print ''
 
 -- ============================================================================
 -- Completion
 -- ============================================================================
 .print '============================================================================'
-.print '✅ Exploration Complete!'
+.print 'Exploration Complete!'
 .print '============================================================================'
 .print ''
 .print 'You can now continue exploring the data using SQL queries:'

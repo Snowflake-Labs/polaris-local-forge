@@ -11,6 +11,7 @@ Polaris Local Forge provides a complete local data lakehouse stack:
 | [Apache Polaris (Incubating)](https://polaris.apache.org/releases/1.3.0/) | Iceberg REST Catalog | `http://localhost:18181` |
 | [RustFS](https://docs.rustfs.com/) | S3-compatible object storage | `http://localhost:9000` (API), `:9001` (console) |
 | PostgreSQL | Polaris metastore backend | Internal (via k3d) |
+| [Podman](https://podman.io/) (default) / [Docker](https://www.docker.com/) | Container runtime | Podman preferred (OSS, shipped with Cortex Code) |
 | k3d/k3s | Local Kubernetes cluster | `kubectl` via kubeconfig |
 | [Apache Iceberg](https://iceberg.apache.org/) | Open table format | Via Polaris catalog |
 
@@ -139,6 +140,21 @@ For a **second cluster**, create a new directory and re-run:
 mkdir ~/polaris-staging && cd ~/polaris-staging
 # The skill creates a fully independent environment here
 ```
+
+## Container Runtime
+
+Podman is the preferred and default container runtime. It is fully open source and ships pre-installed with Cortex Code. The CLI auto-detects the available runtime (Podman first, then Docker) and stores the result in `PLF_CONTAINER_RUNTIME`.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `PLF_CONTAINER_RUNTIME` | (auto-detect) | `podman` or `docker` |
+| `PLF_PODMAN_MACHINE` | `k3d` | Dedicated Podman machine name (macOS only) |
+
+On macOS, a dedicated Podman machine named `k3d` is created with 4 CPUs and 16GB RAM, keeping the user's default machine untouched. All k3d operations are pinned to this machine's socket.
+
+For detailed setup instructions (machine creation, cgroup delegation, network), see [docs/podman-setup.md](docs/podman-setup.md).
+
+To use Docker instead, set `PLF_CONTAINER_RUNTIME=docker` in `.env`.
 
 ## S3 / RustFS -- Local External Volume Equivalent
 

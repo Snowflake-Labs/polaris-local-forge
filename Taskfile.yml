@@ -22,13 +22,23 @@ vars:
   K3D_CLUSTER_NAME: polaris-local-forge
   K3S_VERSION: v1.35.1-k3s1
   FEATURES_DIR: "{{.PROJECT_HOME}}/k8s"
+  PODMAN_MACHINE: k3d
+
+silent: true
 
 env:
   KUBECONFIG: "{{.KUBECONFIG}}"
 
+includes:
+  podman: ./taskfiles/podman.yml
+  cluster: ./taskfiles/cluster.yml
+  polaris: ./taskfiles/polaris.yml
+  catalog: ./taskfiles/catalog.yml
+  ops: ./taskfiles/ops.yml
+
 tasks:
   # ============================================
-  # Installation Tasks
+  # Installation
   # ============================================
 
   install:uv:
@@ -45,21 +55,7 @@ tasks:
       - command -v uv
 
   # ============================================
-  # Doctor - System Health Check
-  # ============================================
-
-  doctor:
-    desc: Check system prerequisites and health
-    cmds:
-      - uv run polaris-local-forge doctor
-
-  doctor:json:
-    desc: Check system prerequisites (JSON output for automation)
-    cmds:
-      - uv run polaris-local-forge doctor --output json
-
-  # ============================================
-  # Setup and Initialization Tasks
+  # Setup and Initialization
   # ============================================
 
   setup:python:
@@ -72,10 +68,10 @@ tasks:
       - uv sync
       - |
         echo ""
-        echo "✅ Python environment setup complete!"
+        echo "Python environment setup complete."
         echo ""
-        echo "📌 Next step: Activate the virtual environment in your shell:"
-        echo "   source .venv/bin/activate"
+        echo "Next step: Activate the virtual environment in your shell:"
+        echo "  source .venv/bin/activate"
         echo ""
 
   prepare:
@@ -86,29 +82,48 @@ tasks:
     cmds:
       - uv run polaris-local-forge prepare {{if .TAGS}}--tags={{.TAGS}}{{end}}
 
-  # ============================================
-  # Cluster Management Tasks
-  # ============================================
-
-  cluster:create:
-    desc: Create the k3d cluster and deploy initial components
-    deps:
-      - prepare
+  runtime:setup:
+    desc: Ensure container runtime is ready (Podman machine setup if needed)
     cmds:
-      - uv run polaris-local-forge cluster create
+      - |
+        RUNTIME=$(uv run polaris-local-forge config --output json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('PLF_CONTAINER_RUNTIME',''))" 2>/dev/null || echo "")
+        if [ "$RUNTIME" = "podman" ] && command -v podman > /dev/null 2>&1; then
+          echo "Container runtime: podman"
+          task podman:setup
+        else
+          echo "Container runtime: docker"
+        fi
 
-  cluster:bootstrap-check:
-    desc: Wait for bootstrap deployments to be ready
+  runtime:teardown:
+    desc: Stop container runtime after teardown (Podman machine stop if needed)
     cmds:
-      - uv run polaris-local-forge cluster bootstrap-check
+      - |
+        RUNTIME=$(uv run polaris-local-forge config --output json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('PLF_CONTAINER_RUNTIME',''))" 2>/dev/null || echo "")
+        if [ "$RUNTIME" = "podman" ] && [ "$(uname)" = "Darwin" ] && command -v podman > /dev/null 2>&1; then
+          task podman:stop
+        fi
 
-  cluster:polaris-check:
-    desc: Wait for polaris deployments to be ready
+  setup:all:
+    desc: Complete setup - runtime check, prepare files, create cluster, deploy Polaris, setup catalog, verify
     cmds:
-      - uv run polaris-local-forge cluster polaris-check
+      - task: runtime:setup
+      - uv run polaris-local-forge setup --yes
+      - task: catalog:verify:sql
 
-  cluster:delete:
-    desc: Delete the k3d cluster
+  teardown:
+    desc: Complete teardown - cleanup catalog, delete cluster, stop Podman machine
+    cmds:
+      - uv run polaris-local-forge teardown --yes
+      - task: runtime:teardown
+
+  reset:all:
+    desc: Complete reset - delete cluster, recreate everything with fresh catalog
+    cmds:
+      - task: teardown
+      - task: setup:all
+
+  clean:all:
+    desc: Delete cluster and all resources
     cmds:
       - uv run polaris-local-forge cluster delete --yes
 
@@ -122,79 +137,48 @@ tasks:
       - task: cluster:polaris-check
       - task: catalog:setup
       - 'echo ""'
-      - 'echo "✅ Cluster reset complete!"'
-      - 'echo "All services are running with a fresh catalog"'
+      - 'echo "Cluster reset complete."'
+      - 'echo "All services are running with a fresh catalog."'
+
+  catalog:reset:full:
+    desc: Full reset - purge Polaris database and recreate catalog
+    cmds:
+      - echo "WARNING -- This will purge the entire Polaris database and recreate from scratch."
+      - task: polaris:reset
+      - task: catalog:setup
+      - 'echo ""'
+      - 'echo "Full catalog reset complete."'
+      - 'echo "Polaris database was purged and catalog recreated."'
+      - 'echo ""'
+      - 'echo "Verification options:"'
+      - 'echo "  - Run DuckDB verification: task verify"'
+      - 'echo "  - Generate notebook: task catalog:generate-notebook"'
 
   # ============================================
-  # Polaris Deployment Tasks
+  # Quick Reference / Aliases
   # ============================================
 
-  polaris:deploy:
-    desc: Deploy Polaris to the cluster
+  doctor:
+    desc: Check system prerequisites and health
     cmds:
-      - uv run polaris-local-forge polaris deploy
+      - uv run polaris-local-forge doctor
 
-  polaris:check:
-    desc: Ensure all Polaris deployments and jobs have succeeded
+  doctor:json:
+    desc: Check system prerequisites (JSON output for automation)
     cmds:
-      - uv run polaris-local-forge polaris check
+      - uv run polaris-local-forge doctor --output json
 
-  polaris:purge:
-    desc: Purge Polaris data
+  config:
+    desc: Show current configuration from .env file
     cmds:
-      - uv run polaris-local-forge polaris purge
+      - uv run polaris-local-forge config
 
-  polaris:bootstrap:
-    desc: Bootstrap Polaris (run after purge)
+  status:
+    desc: Show status of cluster and Polaris
     cmds:
-      - uv run polaris-local-forge polaris bootstrap
-
-  polaris:reset:
-    desc: Purge and re-bootstrap Polaris
-    cmds:
-      - uv run polaris-local-forge polaris reset --yes
-
-  # ============================================
-  # Catalog Management Tasks
-  # ============================================
-
-  catalog:setup:
-    desc: Set up demo catalog with s3 bucket, catalog, principal, and roles
-    cmds:
-      - uv run polaris-local-forge catalog setup {{if .TAGS}}--tags={{.TAGS}}{{end}}
-
-  catalog:generate-notebook:
-    desc: Generate and prepare verification notebook
-    cmds:
-      - uv run polaris-local-forge catalog generate-notebook
-
-  catalog:verify:duckdb:
-    desc: Verify Polaris catalog using DuckDB Iceberg extension (Python)
-    cmds:
-      - uv run polaris-local-forge catalog verify {{.CLI_ARGS}}
-    preconditions:
-      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
-        msg: "Principal credentials not found. Run 'task catalog:setup' first."
-
-  catalog:verify:sql:
-    desc: Verify Polaris catalog using DuckDB CLI with SQL script
-    cmds:
-      - uv run polaris-local-forge catalog verify-sql
-    preconditions:
-      - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
-        msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
-      - sh: command -v duckdb
-        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
-
-  catalog:explore:sql:
-    desc: Explore Polaris catalog with DuckDB CLI in interactive mode
-    cmds:
-      - uv run polaris-local-forge catalog explore-sql
-    preconditions:
-      - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
-        msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
-      - sh: command -v duckdb
-        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+      - uv run polaris-local-forge cluster status
+      - echo ""
+      - uv run polaris-local-forge polaris status
 
   verify:
     desc: Verify Polaris catalog setup (alias for catalog:verify:duckdb)
@@ -210,233 +194,26 @@ tasks:
         vars:
           CLI_ARGS: "{{.CLI_ARGS}}"
 
-  catalog:info:
-    desc: Get catalog configuration details from Polaris API
-    cmds:
-      - |
-        echo "Fetching catalog configuration..."
-        REALM=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f1)
-        CLIENT_ID=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f2)
-        CLIENT_SECRET=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f3)
-
-        # Get access token
-        TOKEN=$(curl -s -X POST "http://localhost:18181/api/catalog/v1/oauth/tokens" \
-          -H "Authorization: Bearer ${CLIENT_ID}:${CLIENT_SECRET}" \
-          -H "Polaris-Realm: ${REALM}" \
-          -H "Content-Type: application/x-www-form-urlencoded" \
-          -d "grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&scope=PRINCIPAL_ROLE:ALL" \
-          | jq -r '.access_token')
-
-        if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
-          echo "❌ Failed to get access token"
-          exit 1
-        fi
-
-        echo ""
-        echo "=== Catalog Configuration for 'polardb' ==="
-        echo ""
-
-        # Get catalog configuration
-        curl -s "http://localhost:18181/api/management/v1/catalogs/polardb" \
-          -H "Authorization: Bearer ${TOKEN}" \
-          -H "Polaris-Realm: ${REALM}" \
-          | jq '.'
-
-        echo ""
-        echo "=== Key S3 Configuration ==="
-        echo ""
-        curl -s "http://localhost:18181/api/management/v1/catalogs/polardb" \
-          -H "Authorization: Bearer ${TOKEN}" \
-          -H "Polaris-Realm: ${REALM}" \
-          | jq '{
-              properties: .properties,
-              storageConfigInfo: .storageConfigInfo
-            }'
-    preconditions:
-      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
-        msg: "Credentials file not found. Run 'task catalog:setup' first."
-      - sh: command -v jq
-        msg: "jq is required for this task. Install with: brew install jq"
-
-  catalog:cleanup:
-    desc: Cleanup Polaris catalog resources
-    cmds:
-      - uv run polaris-local-forge catalog cleanup --yes {{if .TAGS}}--tags={{.TAGS}}{{end}}
-
-  catalog:reset:
-    desc: Cleanup and recreate catalog (keeps cluster running)
-    cmds:
-      - task: catalog:cleanup
-      - task: catalog:setup
-      - 'echo ""'
-      - 'echo "✅ Catalog reset complete!"'
-      - 'echo ""'
-      - 'echo "📝 Verification options:"'
-      - 'echo "  - Run DuckDB verification: task verify"'
-      - 'echo "  - Generate notebook: task catalog:generate-notebook"'
-
-  catalog:reset:full:
-    desc: Full reset - purge Polaris database and recreate catalog
-    cmds:
-      - echo "⚠️  This will purge the entire Polaris database and recreate from scratch"
-      - task: polaris:reset
-      - task: catalog:setup
-      - 'echo ""'
-      - 'echo "✅ Full catalog reset complete!"'
-      - 'echo "Polaris database was purged and catalog recreated"'
-      - 'echo ""'
-      - 'echo "📝 Verification options:"'
-      - 'echo "  - Run DuckDB verification: task verify"'
-      - 'echo "  - Generate notebook: task catalog:generate-notebook"'
-
-  # ============================================
-  # Logging and Troubleshooting Tasks
-  # ============================================
-
-  logs:polaris:
-    desc: Stream Polaris server logs
-    cmds:
-      - kubectl logs -f -n polaris deployment/polaris
-
-  logs:bootstrap:
-    desc: View Polaris bootstrap job logs
-    cmds:
-      - kubectl logs -f -n polaris jobs/polaris-bootstrap
-
-  logs:purge:
-    desc: View Polaris purge job logs
-    cmds:
-      - kubectl logs -f -n polaris jobs/polaris-purge
-
-  logs:postgresql:
-    desc: Stream PostgreSQL logs
-    cmds:
-      - kubectl logs -f -n polaris statefulset/postgresql
-
-  logs:rustfs:
-    desc: Stream RustFS logs
-    cmds:
-      - kubectl logs -f -n rustfs deployment/rustfs
-
-  # ============================================
-  # Troubleshooting Tasks
-  # ============================================
-
-  troubleshoot:events:
-    desc: Show recent events in polaris namespace
-    cmds:
-      - kubectl get events -n polaris --sort-by='.lastTimestamp'
-
-  troubleshoot:polaris:
-    desc: Troubleshoot Polaris deployment issues
-    cmds:
-      - kubectl get events -n polaris --sort-by='.lastTimestamp'
-      - kubectl describe pod -n polaris -l app=polaris
-
-  troubleshoot:rustfs:
-    desc: Troubleshoot RustFS connectivity
-    cmds:
-      - kubectl get svc -n rustfs
-      - kubectl exec -it -n rustfs deployment/rustfs -- mc ls local
-
-  troubleshoot:postgresql:
-    desc: Troubleshoot PostgreSQL connectivity
-    cmds:
-      - kubectl get svc -n polaris postgresql-hl
-      - kubectl exec -it -n polaris postgresql-0 -- pg_isready -h localhost
-
-  # ============================================
-  # Convenience Compound Tasks
-  # ============================================
-
-  setup:all:
-    desc: Complete setup - prepare files, create cluster, deploy Polaris, setup catalog
-    cmds:
-      - uv run polaris-local-forge setup --yes
-
-  teardown:
-    desc: Complete teardown - cleanup catalog and delete cluster
-    cmds:
-      - uv run polaris-local-forge teardown --yes
-
-  reset:all:
-    desc: Complete reset - delete cluster, recreate everything with fresh catalog
-    cmds:
-      - task: teardown
-      - task: setup:all
-
-  clean:all:
-    desc: Delete cluster and all resources
-    cmds:
-      - uv run polaris-local-forge cluster delete --yes
-
-  # ============================================
-  # Quick Reference Tasks
-  # ============================================
-
-  config:
-    desc: Show current configuration from .env file
-    cmds:
-      - uv run polaris-local-forge config
-
-  status:
-    desc: Show status of cluster and Polaris
-    cmds:
-      - uv run polaris-local-forge cluster status
-      - echo ""
-      - uv run polaris-local-forge polaris status
-
-  status:detailed:
-    desc: Show detailed status of all deployments (kubectl)
-    cmds:
-      - echo "=== Polaris Namespace ==="
-      - kubectl get all -n polaris
-      - echo ""
-      - echo "=== RustFS Namespace ==="
-      - kubectl get all -n rustfs
-
-  catalog:list:
-    desc: List catalogs in Polaris
-    cmds:
-      - uv run polaris-local-forge catalog list
-
-  urls:
-    desc: Display service URLs and credentials locations
-    cmds:
-      - 'echo "Service URLs:"'
-      - 'echo "  Polaris UI:  http://localhost:18181"'
-      - 'echo "  Credentials: {{.PROJECT_HOME}}/k8s/polaris/.bootstrap-credentials.env"'
-      - 'echo ""'
-      - 'echo "  Adminer:     http://localhost:18080"'
-      - 'echo "  PostgreSQL:  postgresql.polaris (check {{.FEATURES_DIR}}/postgresql.yaml)"'
-      - 'echo ""'
-      - 'echo "  RustFS S3:   http://localhost:9000"'
-      - 'echo "  RustFS UI:   http://localhost:9001"'
-      - 'echo "  Credentials: admin/password"'
-
-  # ============================================
-  # Version Management Tasks
-  # ============================================
-
+  # Version bumps (aliases for discoverability)
   bump:polaris:
     desc: Update Polaris to latest version from Docker Hub
     cmds:
-      - uv run polaris-local-forge polaris bump-version
+      - task: polaris:bump-version
 
   bump:polaris:dry-run:
     desc: Show what Polaris version update would do
     cmds:
-      - uv run polaris-local-forge polaris bump-version --dry-run
+      - task: polaris:bump-version:dry-run
 
   bump:k3s:
     desc: Update K3S to latest version from Docker Hub
     cmds:
-      - uv run polaris-local-forge cluster bump-k3s
+      - task: cluster:bump-k3s
 
   bump:k3s:dry-run:
     desc: Show what K3S version update would do
     cmds:
-      - uv run polaris-local-forge cluster bump-k3s --dry-run
+      - task: cluster:bump-k3s:dry-run
 
   help:
     desc: Show available tasks with descriptions

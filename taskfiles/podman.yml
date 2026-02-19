@@ -1,0 +1,128 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+silent: true
+
+tasks:
+  setup:
+    desc: Full Podman setup for k3d (machine + cgroup + network + verify)
+    cmds:
+      - task: setup:machine
+      - task: setup:cgroup
+      - task: setup:network
+      - task: check
+
+  setup:machine:
+    desc: Create and start dedicated '{{.PODMAN_MACHINE}}' Podman machine (macOS, 4 CPUs / 16GB)
+    platforms: [darwin]
+    cmds:
+      - |
+        if podman machine inspect {{.PODMAN_MACHINE}} > /dev/null 2>&1; then
+          echo "Podman machine '{{.PODMAN_MACHINE}}' already exists"
+          STATE=$(podman machine inspect {{.PODMAN_MACHINE}} --format '{{`{{.State}}`}}')
+          if [ "$STATE" != "running" ]; then
+            echo "Starting machine..."
+            podman machine start {{.PODMAN_MACHINE}}
+          fi
+        else
+          echo "Creating Podman machine '{{.PODMAN_MACHINE}}' (4 CPUs, 16GB RAM)..."
+          podman machine init {{.PODMAN_MACHINE}} --cpus 4 --memory 16384 --now
+        fi
+      - podman system connection default {{.PODMAN_MACHINE}}
+      - |
+        IDENTITY=$(podman system connection ls --format json | python3 -c "
+        import sys, json
+        for c in json.load(sys.stdin):
+            if c['Name'] == '{{.PODMAN_MACHINE}}-root':
+                print(c.get('Identity', ''))
+                break
+        " 2>/dev/null)
+        if [ -n "$IDENTITY" ] && [ -f "$IDENTITY" ]; then
+          ssh-add "$IDENTITY" 2>/dev/null || true
+          echo "SSH key added to agent"
+          MARKER="# polaris-local-forge podman machine"
+          SSH_CONFIG="$HOME/.ssh/config"
+          mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+          if ! grep -q "$MARKER" "$SSH_CONFIG" 2>/dev/null; then
+            printf '\n%s\nHost 127.0.0.1\n    IdentityFile %s\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n' "$MARKER" "$IDENTITY" >> "$SSH_CONFIG"
+            chmod 600 "$SSH_CONFIG"
+            echo "SSH config updated for Podman VM access"
+          fi
+        fi
+    status:
+      - podman machine inspect {{.PODMAN_MACHINE}} --format '{{`{{.State}}`}}' 2>/dev/null | grep -q running
+
+  setup:cgroup:
+    desc: Configure cgroup v2 delegation for rootless k3d
+    cmds:
+      - |
+        if [ "$(uname)" = "Darwin" ]; then
+          echo "Configuring cgroup delegation inside Podman machine '{{.PODMAN_MACHINE}}'..."
+          podman machine ssh {{.PODMAN_MACHINE}} bash -e <<'CGROUP'
+            sudo mkdir -p /etc/systemd/system/user@.service.d
+            printf '[Service]\nDelegate=cpuset\n' | sudo tee /etc/systemd/system/user@.service.d/k3d.conf
+            sudo systemctl daemon-reload
+            sudo systemctl restart "user@${UID}"
+        CGROUP
+        else
+          echo "Enabling Podman user socket..."
+          systemctl --user enable --now podman.socket
+          echo "Configuring cgroup delegation on host..."
+          sudo mkdir -p /etc/systemd/system/user@.service.d
+          printf '[Service]\nDelegate=cpu cpuset io memory pids\n' | sudo tee /etc/systemd/system/user@.service.d/delegate.conf
+          sudo systemctl daemon-reload
+          echo "Disabling Podman service timeout..."
+          sudo mkdir -p /etc/containers/containers.conf.d
+          echo 'service_timeout=0' | sudo tee /etc/containers/containers.conf.d/timeout.conf
+          echo "Log out and back in for cgroup changes to take effect."
+        fi
+
+  setup:network:
+    desc: Create DNS-enabled k3d network for Podman
+    cmds:
+      - |
+        if [ "$(uname)" = "Darwin" ]; then
+          podman --connection {{.PODMAN_MACHINE}} network create k3d 2>/dev/null || echo "Network 'k3d' already exists"
+        else
+          podman network create k3d 2>/dev/null || echo "Network 'k3d' already exists"
+        fi
+    status:
+      - |
+        if [ "$(uname)" = "Darwin" ]; then
+          podman --connection {{.PODMAN_MACHINE}} network inspect k3d > /dev/null 2>&1
+        else
+          podman network inspect k3d > /dev/null 2>&1
+        fi
+
+  check:
+    desc: Verify Podman machine is ready with sufficient resources for k3d
+    cmds:
+      - |
+        echo "Podman Machine Check"
+        echo "===================="
+        if [ "$(uname)" = "Darwin" ]; then
+          echo "Machine:  {{.PODMAN_MACHINE}}"
+          echo "State:    $(podman machine inspect {{.PODMAN_MACHINE}} --format '{{`{{.State}}`}}')"
+          echo "CPUs:     $(podman machine inspect {{.PODMAN_MACHINE}} --format '{{`{{.Resources.CPUs}}`}}')"
+          echo "Memory:   $(podman machine inspect {{.PODMAN_MACHINE}} --format '{{`{{.Resources.Memory}}`}}') MB"
+          echo ""
+          echo "cgroup:   $(podman --connection {{.PODMAN_MACHINE}} info --format '{{`{{.Host.CgroupsVersion}}`}}')"
+          echo "k3d net:  $(podman --connection {{.PODMAN_MACHINE}} network inspect k3d -f '{{`{{ .DNSEnabled }}`}}' 2>/dev/null && echo 'DNS enabled' || echo 'NOT FOUND - run: task podman:setup:network')"
+        else
+          echo "Runtime:  native (no machine)"
+          echo "cgroup:   $(podman info --format '{{`{{.Host.CgroupsVersion}}`}}')"
+          echo "k3d net:  $(podman network inspect k3d -f '{{`{{ .DNSEnabled }}`}}' 2>/dev/null && echo 'DNS enabled' || echo 'NOT FOUND - run: task podman:setup:network')"
+        fi
+
+  stop:
+    desc: Stop the dedicated Podman machine and restore default connection
+    cmds:
+      - uv run polaris-local-forge podman stop
+
+  destroy:
+    desc: Remove the dedicated Podman machine entirely
+    prompt: "This will permanently delete the '{{.PODMAN_MACHINE}}' Podman machine and all its data. Continue?"
+    cmds:
+      - uv run polaris-local-forge podman destroy --yes

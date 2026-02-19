@@ -25,6 +25,7 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 import click
 import requests
@@ -60,6 +61,12 @@ _SENSITIVE_FILES = [
 ]
 
 
+_DEFAULT_PODMAN_MACHINE = "k3d"
+_MIN_PODMAN_CPUS = 2
+_MIN_PODMAN_MEMORY_MB = 4096
+_RECOMMENDED_PODMAN_MEMORY_MB = 8192
+
+
 def get_config(work_dir: Path) -> dict:
     """Get all configuration from environment variables.
 
@@ -69,7 +76,10 @@ def get_config(work_dir: Path) -> dict:
     Args:
         work_dir: Working directory for path-based defaults (KUBECONFIG).
     """
-    return {
+    cfg = {
+        # Container Runtime
+        "PLF_CONTAINER_RUNTIME": os.getenv("PLF_CONTAINER_RUNTIME", ""),
+        "PLF_PODMAN_MACHINE": os.getenv("PLF_PODMAN_MACHINE", _DEFAULT_PODMAN_MACHINE),
         # Cluster Configuration
         "K3D_CLUSTER_NAME": os.getenv("K3D_CLUSTER_NAME", "polaris-local-forge"),
         "K3S_VERSION": os.getenv("K3S_VERSION", "v1.31.5-k3s1"),
@@ -88,11 +98,30 @@ def get_config(work_dir: Path) -> dict:
         "PLF_POLARIS_CATALOG_NAME": os.getenv("PLF_POLARIS_CATALOG_NAME", "polardb"),
         "PLF_POLARIS_PRINCIPAL_NAME": os.getenv("PLF_POLARIS_PRINCIPAL_NAME", "iceberg"),
     }
+    if not cfg["PLF_CONTAINER_RUNTIME"]:
+        cfg["PLF_CONTAINER_RUNTIME"] = detect_container_runtime()
+    return cfg
 
 
-def check_prerequisites() -> list[str]:
+def detect_container_runtime() -> str:
+    """Auto-detect container runtime, preferring Podman (OSS-first).
+
+    Returns "podman" or "docker". Raises click.ClickException if neither found.
+    """
+    if shutil.which("podman"):
+        return "podman"
+    if shutil.which("docker"):
+        return "docker"
+    raise click.ClickException(
+        "No container runtime found. Install Podman (preferred) or Docker.\n"
+        "  Podman: brew install podman   (https://podman.io/)\n"
+        "  Docker: https://www.docker.com/products/docker-desktop/"
+    )
+
+
+def check_prerequisites(runtime: str) -> list[str]:
     """Check for required binaries, return list of missing ones."""
-    required = ["docker", "k3d"]
+    required = [runtime, "k3d"]
     missing = [cmd for cmd in required if shutil.which(cmd) is None]
     return missing
 
@@ -108,24 +137,266 @@ def check_docker_running() -> bool:
         return False
 
 
+def check_podman_running(machine_name: str) -> bool:
+    """Check if the named Podman machine is running (macOS) or socket is alive (Linux)."""
+    if platform.system() == "Darwin":
+        try:
+            result = subprocess.run(
+                ["podman", "machine", "inspect", machine_name],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                info = data[0] if isinstance(data, list) else data
+                return info.get("State", "").lower() == "running"
+        except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError, IndexError):
+            pass
+        return False
+    else:
+        try:
+            result = subprocess.run(
+                ["podman", "info"], capture_output=True, timeout=10,
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+
+
+def check_runtime_running(cfg: dict) -> bool:
+    """Check if the configured container runtime is running."""
+    runtime = cfg["PLF_CONTAINER_RUNTIME"]
+    if runtime == "podman":
+        return check_podman_running(cfg["PLF_PODMAN_MACHINE"])
+    return check_docker_running()
+
+
+def get_podman_machine_info(machine_name: str) -> dict | None:
+    """Get Podman machine details: state, CPUs, memory, disk, socket.
+
+    Returns None if the machine doesn't exist or inspection fails.
+    On Linux (no machine concept), returns info from `podman info`.
+    """
+    if platform.system() == "Darwin":
+        try:
+            result = subprocess.run(
+                ["podman", "machine", "inspect", machine_name],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return None
+            data = json.loads(result.stdout)
+            info = data[0] if isinstance(data, list) else data
+            resources = info.get("Resources", {})
+            conn_info = info.get("ConnectionInfo", {})
+            sock_path = conn_info.get("PodmanSocket", {}).get("Path", "")
+            return {
+                "state": info.get("State", "unknown"),
+                "cpus": resources.get("CPUs", 0),
+                "memory_mb": resources.get("Memory", 0),
+                "disk_gb": round(resources.get("DiskSize", 0) / (1024**3), 1) if resources.get("DiskSize") else 0,
+                "socket": sock_path,
+            }
+        except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError, IndexError):
+            return None
+    else:
+        try:
+            result = subprocess.run(
+                ["podman", "info", "--format", "json"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return None
+            data = json.loads(result.stdout)
+            host = data.get("host", {})
+            xdg = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+            return {
+                "state": "running",
+                "cpus": host.get("cpus", 0),
+                "memory_mb": round(host.get("memTotal", 0) / (1024**2)),
+                "disk_gb": 0,
+                "socket": f"{xdg}/podman/podman.sock",
+            }
+        except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+            return None
+
+
+def get_podman_socket(machine_name: str) -> str | None:
+    """Return the Podman socket path for the named machine.
+
+    macOS: parsed from `podman machine inspect <name>`.
+    Linux: $XDG_RUNTIME_DIR/podman/podman.sock.
+    """
+    info = get_podman_machine_info(machine_name)
+    if info:
+        return info.get("socket")
+    return None
+
+
+def get_podman_memory(machine_name: str) -> str | None:
+    """Get Podman memory allocation as human-readable string."""
+    info = get_podman_machine_info(machine_name)
+    if info and info.get("memory_mb"):
+        mem_gb = info["memory_mb"] / 1024
+        return f"{mem_gb:.1f}GB"
+    return None
+
+
+def get_podman_connection_uri(machine_name: str) -> dict | None:
+    """Get the SSH connection URI for a Podman machine (macOS only).
+
+    Parses `podman system connection ls --format json` to find the root
+    connection for the named machine.  k3d on macOS must use an SSH-based
+    DOCKER_HOST (not a local unix socket) to avoid volume-mount failures
+    inside the Podman VM.
+
+    Returns dict with keys: ssh_uri, socket_path, identity (or None).
+    """
+    try:
+        result = subprocess.run(
+            ["podman", "system", "connection", "ls", "--format", "json"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return None
+        connections = json.loads(result.stdout)
+        root_name = f"{machine_name}-root"
+        for conn in connections:
+            if conn.get("Name") == root_name:
+                uri = conn.get("URI", "")
+                identity = conn.get("Identity", "")
+                # URI format: ssh://root@127.0.0.1:PORT/run/podman/podman.sock
+                # Split into ssh_uri (scheme+authority) and socket_path
+                parsed = urlparse(uri)
+                ssh_uri = f"ssh://{parsed.username}@{parsed.hostname}:{parsed.port}"
+                socket_path = parsed.path or "/run/podman/podman.sock"
+                return {
+                    "ssh_uri": ssh_uri,
+                    "socket_path": socket_path,
+                    "identity": identity,
+                }
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+        pass
+    return None
+
+
+_SSH_CONFIG_MARKER = "# polaris-local-forge podman machine"
+
+
+def _ensure_ssh_config(identity: str) -> None:
+    """Ensure ~/.ssh/config allows passwordless access to the Podman VM.
+
+    k3d shells out to `ssh` to reach the Podman VM at 127.0.0.1.  Podman
+    machine host keys change on recreation, so we disable strict checking
+    for localhost and point at the machine's identity file.
+    """
+    ssh_dir = Path.home() / ".ssh"
+    ssh_dir.mkdir(mode=0o700, exist_ok=True)
+    config_path = ssh_dir / "config"
+
+    if config_path.exists():
+        contents = config_path.read_text()
+        if _SSH_CONFIG_MARKER in contents:
+            return
+    else:
+        contents = ""
+
+    block = (
+        f"\n{_SSH_CONFIG_MARKER}\n"
+        "Host 127.0.0.1\n"
+        f"    IdentityFile {identity}\n"
+        "    StrictHostKeyChecking no\n"
+        "    UserKnownHostsFile /dev/null\n"
+    )
+    with config_path.open("a") as f:
+        f.write(block)
+    config_path.chmod(0o600)
+
+
+def _ensure_podman_ssh_key(identity: str) -> None:
+    """Add the Podman machine SSH key to the agent and ensure SSH config."""
+    if not identity or not Path(identity).exists():
+        return
+    _ensure_ssh_config(identity)
+    subprocess.run(
+        ["ssh-add", identity],
+        capture_output=True, timeout=5,
+    )
+
+
+def get_runtime_env(cfg: dict) -> dict:
+    """Return env vars needed to point k3d at the correct container runtime.
+
+    macOS/Podman: uses SSH-based DOCKER_HOST so k3d communicates with the
+    Podman VM over SSH, avoiding local socket volume-mount failures.
+    Linux/Podman: uses unix socket (no VM indirection).
+    Docker: returns empty dict (no override needed).
+    """
+    if cfg["PLF_CONTAINER_RUNTIME"] != "podman":
+        return {}
+    if platform.system() == "Darwin":
+        conn = get_podman_connection_uri(cfg["PLF_PODMAN_MACHINE"])
+        if not conn:
+            return {}
+        _ensure_podman_ssh_key(conn["identity"])
+        return {
+            "DOCKER_HOST": conn["ssh_uri"],
+            "DOCKER_SOCK": conn["socket_path"],
+        }
+    sock = get_podman_socket(cfg["PLF_PODMAN_MACHINE"])
+    if not sock:
+        return {}
+    return {
+        "DOCKER_HOST": f"unix://{sock}",
+        "DOCKER_SOCK": sock,
+    }
+
+
+def _podman_cmd(cfg: dict, *args: str) -> list[str]:
+    """Build a podman command, adding --connection on macOS."""
+    cmd = ["podman"]
+    if platform.system() == "Darwin":
+        cmd += ["--connection", cfg["PLF_PODMAN_MACHINE"]]
+    cmd.extend(args)
+    return cmd
+
+
+def ensure_podman_network(cfg: dict) -> None:
+    """Create DNS-enabled 'k3d' network in Podman if it doesn't exist."""
+    if cfg["PLF_CONTAINER_RUNTIME"] != "podman":
+        return
+    result = subprocess.run(
+        _podman_cmd(cfg, "network", "inspect", "k3d"),
+        capture_output=True, timeout=10,
+    )
+    if result.returncode == 0:
+        return
+    click.echo("Creating DNS-enabled 'k3d' network for Podman...")
+    subprocess.run(_podman_cmd(cfg, "network", "create", "k3d"))
+
+
 def get_cluster_env(cfg: dict, k8s_dir: Path) -> dict:
     """Get cluster environment variables from config.
+
+    Includes DOCKER_HOST/DOCKER_SOCK when Podman is the runtime so k3d
+    talks to the correct Podman machine socket.
 
     Args:
         cfg: Configuration dict from get_config().
         k8s_dir: Path to k8s manifests directory (in WORK_DIR).
     """
-    return {
+    env = {
         "K3D_CLUSTER_NAME": cfg["K3D_CLUSTER_NAME"],
         "K3S_VERSION": cfg["K3S_VERSION"],
         "FEATURES_DIR": str(k8s_dir),
         "KUBECONFIG": cfg["KUBECONFIG"],
     }
+    env.update(get_runtime_env(cfg))
+    return env
 
 
-def get_aws_env() -> dict:
+def get_aws_env(work_dir: Path) -> dict:
     """Get AWS environment variables for RustFS S3 from config."""
-    cfg = get_config()
+    cfg = get_config(work_dir)
     return {
         "AWS_ENDPOINT_URL": cfg["AWS_ENDPOINT_URL"],
         "AWS_ACCESS_KEY_ID": cfg["AWS_ACCESS_KEY_ID"],
@@ -175,13 +446,13 @@ def run_ansible_playbook(
 
     env = os.environ.copy()
     if with_aws_env:
-        env.update(get_aws_env())
+        env.update(get_aws_env(work_dir))
         env.pop("AWS_PROFILE", None)
 
     if dry_run:
         env_str = ""
         if with_aws_env:
-            aws_env = get_aws_env()
+            aws_env = get_aws_env(work_dir)
             env_str = " ".join(f"{k}={v}" for k, v in aws_env.items()) + " "
         click.echo(f"[DRY RUN] {env_str}{' '.join(cmd)}")
         return 0
@@ -266,6 +537,11 @@ def config(ctx, output: str):
         click.echo(f"  Config file: {ctx.obj['ENV_FILE']}")
         click.echo(f"  Work dir:    {work_dir}")
         click.echo()
+        click.secho("Container Runtime:", bold=True)
+        click.echo(f"  PLF_CONTAINER_RUNTIME: {cfg['PLF_CONTAINER_RUNTIME']}")
+        if cfg["PLF_CONTAINER_RUNTIME"] == "podman":
+            click.echo(f"  PLF_PODMAN_MACHINE:    {cfg['PLF_PODMAN_MACHINE']}")
+        click.echo()
         click.secho("Cluster:", bold=True)
         click.echo(f"  K3D_CLUSTER_NAME:  {cfg['K3D_CLUSTER_NAME']}")
         click.echo(f"  K3S_VERSION:       {cfg['K3S_VERSION']}")
@@ -314,12 +590,15 @@ def get_docker_memory() -> str | None:
     return None
 
 
-def check_cluster_exists(cluster_name: str) -> bool:
+def check_cluster_exists(cluster_name: str, runtime_env: dict | None = None) -> bool:
     """Check if a k3d cluster exists."""
     try:
+        env = os.environ.copy()
+        if runtime_env:
+            env.update(runtime_env)
         result = subprocess.run(
             ["k3d", "cluster", "list", "-o", "json"],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10, env=env,
         )
         if result.returncode == 0:
             clusters = json.loads(result.stdout)
@@ -335,37 +614,77 @@ def check_cluster_exists(cluster_name: str) -> bool:
 def doctor(ctx, output: str):
     """Check system prerequisites and health.
 
-    Verifies all required tools are installed, Docker is running,
-    and the environment is ready for setup.
+    Verifies all required tools are installed, the container runtime is
+    running, and the environment is ready for setup. Supports both
+    Podman (preferred) and Docker.
     """
     work_dir = ctx.obj["WORK_DIR"]
     env_file = ctx.obj["ENV_FILE"]
     cfg = get_config(work_dir)
+    runtime = cfg["PLF_CONTAINER_RUNTIME"]
+    machine_name = cfg["PLF_PODMAN_MACHINE"]
     checks = {
+        "container_runtime": runtime,
         "required": {},
         "optional": {},
         "environment": {},
     }
     all_required_ok = True
 
-    # Required: Docker
-    docker_path = shutil.which("docker")
-    if docker_path:
-        docker_version = get_tool_version(["docker", "--version"])
-        docker_running = check_docker_running()
-        docker_memory = get_docker_memory() if docker_running else None
-        checks["required"]["docker"] = {
-            "installed": True,
-            "version": docker_version,
-            "running": docker_running,
-            "memory": docker_memory,
-            "path": docker_path,
-        }
-        if not docker_running:
+    # Required: Container runtime (Podman or Docker)
+    if runtime == "podman":
+        podman_path = shutil.which("podman")
+        if podman_path:
+            podman_version = get_tool_version(["podman", "--version"])
+            podman_running = check_podman_running(machine_name)
+            podman_memory = get_podman_memory(machine_name) if podman_running else None
+            machine_info = get_podman_machine_info(machine_name) if podman_path else None
+            checks["required"]["podman"] = {
+                "installed": True,
+                "version": podman_version,
+                "running": podman_running,
+                "memory": podman_memory,
+                "path": podman_path,
+            }
+            if machine_info:
+                checks["required"]["podman"]["machine"] = {
+                    "name": machine_name,
+                    "state": machine_info["state"],
+                    "cpus": machine_info["cpus"],
+                    "memory_mb": machine_info["memory_mb"],
+                    "disk_gb": machine_info["disk_gb"],
+                    "socket": machine_info["socket"],
+                    "cpus_ok": machine_info["cpus"] >= _MIN_PODMAN_CPUS,
+                    "memory_ok": machine_info["memory_mb"] >= _MIN_PODMAN_MEMORY_MB,
+                }
+            elif platform.system() == "Darwin":
+                checks["required"]["podman"]["machine"] = {
+                    "name": machine_name,
+                    "state": "not found",
+                }
+            if not podman_running:
+                all_required_ok = False
+        else:
+            checks["required"]["podman"] = {"installed": False}
             all_required_ok = False
     else:
-        checks["required"]["docker"] = {"installed": False}
-        all_required_ok = False
+        docker_path = shutil.which("docker")
+        if docker_path:
+            docker_version = get_tool_version(["docker", "--version"])
+            docker_running = check_docker_running()
+            docker_memory = get_docker_memory() if docker_running else None
+            checks["required"]["docker"] = {
+                "installed": True,
+                "version": docker_version,
+                "running": docker_running,
+                "memory": docker_memory,
+                "path": docker_path,
+            }
+            if not docker_running:
+                all_required_ok = False
+        else:
+            checks["required"]["docker"] = {"installed": False}
+            all_required_ok = False
 
     # Required: k3d
     k3d_path = shutil.which("k3d")
@@ -465,8 +784,21 @@ def doctor(ctx, output: str):
     # Environment: Cluster
     cluster_name = cfg["K3D_CLUSTER_NAME"]
     cluster_exists = False
-    if checks["required"]["k3d"].get("installed") and checks["required"]["docker"].get("running"):
-        cluster_exists = check_cluster_exists(cluster_name)
+    runtime_info = checks["required"].get(runtime, {})
+    runtime_is_running = runtime_info.get("running", False)
+    if checks["required"]["k3d"].get("installed") and runtime_is_running:
+        env = os.environ.copy()
+        env.update(get_runtime_env(cfg))
+        try:
+            result = subprocess.run(
+                ["k3d", "cluster", "list", "-o", "json"],
+                capture_output=True, text=True, timeout=10, env=env,
+            )
+            if result.returncode == 0:
+                clusters = json.loads(result.stdout)
+                cluster_exists = any(c.get("name") == cluster_name for c in clusters)
+        except (subprocess.TimeoutExpired, json.JSONDecodeError):
+            pass
     checks["environment"]["cluster"] = {
         "name": cluster_name,
         "exists": cluster_exists,
@@ -485,14 +817,18 @@ def doctor(ctx, output: str):
         click.echo("=" * 42)
         click.echo()
 
+        click.secho(f"Container Runtime: {runtime}", bold=True)
+        click.echo()
+
         click.secho("Required Tools:", bold=True)
         for tool, info in checks["required"].items():
             if info.get("installed"):
-                status = "✓" if tool != "docker" or info.get("running") else "✗"
+                is_runtime = tool in ("docker", "podman")
+                status = "✓" if not is_runtime or info.get("running") else "✗"
                 color = "green" if status == "✓" else "red"
                 version = info.get("version", "").split("\n")[0]
                 extra = ""
-                if tool == "docker":
+                if is_runtime:
                     if info.get("running"):
                         mem = info.get("memory", "")
                         extra = f" (running, {mem})" if mem else " (running)"
@@ -504,7 +840,9 @@ def doctor(ctx, output: str):
                 click.secho(f"  {status} {tool}: {version}{extra}", fg=color)
             else:
                 click.secho(f"  ✗ {tool}: not installed", fg="red")
-                if tool == "docker":
+                if tool == "podman":
+                    click.echo("    -> Install: brew install podman  (https://podman.io/)")
+                elif tool == "docker":
                     click.echo("    -> Install: https://www.docker.com/products/docker-desktop/")
                 elif tool == "k3d":
                     click.echo("    -> Install: brew install k3d")
@@ -512,6 +850,54 @@ def doctor(ctx, output: str):
                     click.echo("    -> Install: https://www.python.org/downloads/")
                 elif tool == "uv":
                     click.echo("    -> Install: curl -LsSf https://astral.sh/uv/install.sh | sh")
+
+        # Podman machine capacity (macOS)
+        if runtime == "podman":
+            podman_info = checks["required"].get("podman", {})
+            machine = podman_info.get("machine")
+            if machine:
+                click.echo()
+                click.secho(f"Podman Machine '{machine_name}':", bold=True)
+                state = machine.get("state", "unknown")
+                if state == "running":
+                    click.secho(f"  ✓ State: {state}", fg="green")
+                elif state == "not found":
+                    click.secho(f"  ✗ State: {state}", fg="red")
+                    click.echo(f"    -> Run: task podman:setup")
+                    all_required_ok = False
+                else:
+                    click.secho(f"  ✗ State: {state}", fg="red")
+                    click.echo(f"    -> Run: podman machine start {machine_name}")
+                    all_required_ok = False
+
+                if state != "not found":
+                    cpus = machine.get("cpus", 0)
+                    mem_mb = machine.get("memory_mb", 0)
+                    cpus_ok = machine.get("cpus_ok", False)
+                    mem_ok = machine.get("memory_ok", False)
+
+                    if cpus_ok:
+                        click.secho(f"  ✓ CPUs: {cpus} (min: {_MIN_PODMAN_CPUS})", fg="green")
+                    else:
+                        click.secho(f"  ✗ CPUs: {cpus} (min: {_MIN_PODMAN_CPUS})", fg="red")
+                        all_required_ok = False
+
+                    mem_gb = mem_mb / 1024
+                    if mem_ok:
+                        color = "green" if mem_mb >= _RECOMMENDED_PODMAN_MEMORY_MB else "yellow"
+                        extra = "" if mem_mb >= _RECOMMENDED_PODMAN_MEMORY_MB else f" (recommended: {_RECOMMENDED_PODMAN_MEMORY_MB // 1024}GB+)"
+                        click.secho(f"  ✓ Memory: {mem_gb:.1f}GB (min: {_MIN_PODMAN_MEMORY_MB // 1024}GB){extra}", fg=color)
+                    else:
+                        click.secho(f"  ✗ Memory: {mem_gb:.1f}GB (min: {_MIN_PODMAN_MEMORY_MB // 1024}GB)", fg="red")
+                        all_required_ok = False
+
+                    if not cpus_ok or not mem_ok:
+                        click.echo(f"    -> Resize: podman machine rm {machine_name} && "
+                                   f"podman machine init {machine_name} --cpus 4 --memory 16384")
+
+                    sock = machine.get("socket", "")
+                    if sock:
+                        click.echo(f"  Socket: {sock}")
 
         click.echo()
         click.secho("Optional Tools:", bold=True)
@@ -600,16 +986,23 @@ def setup(ctx: click.Context, dry_run: bool, yes: bool):
     """
     work_dir = ctx.obj["WORK_DIR"]
     k8s_dir = ctx.obj["K8S_DIR"]
+    cfg = get_config(work_dir)
+    runtime = cfg["PLF_CONTAINER_RUNTIME"]
     start_time = time.time()
 
-    missing = check_prerequisites()
+    missing = check_prerequisites(runtime)
     if missing:
         click.secho(f"Error: Missing required tools: {', '.join(missing)}", fg="red")
         click.echo("Please install them before running setup.")
         sys.exit(1)
 
-    if not check_docker_running():
-        click.secho("Error: Docker is not running. Please start Docker first.", fg="red")
+    if not check_runtime_running(cfg):
+        if runtime == "podman":
+            machine = cfg["PLF_PODMAN_MACHINE"]
+            click.secho(f"Error: Podman machine '{machine}' is not running.", fg="red")
+            click.echo(f"  -> Run: task podman:setup")
+        else:
+            click.secho("Error: Docker is not running. Please start Docker first.", fg="red")
         sys.exit(1)
 
     steps = [
@@ -846,10 +1239,11 @@ def cluster_create(ctx, dry_run: bool):
     bin_dir.mkdir(parents=True, exist_ok=True)
     ensure_kubectl(cluster_env["K3S_VERSION"], kubectl_path)
 
+    ensure_podman_network(cfg)
+
     check_result = subprocess.run(
         ["k3d", "cluster", "list", "-o", "json"],
-        capture_output=True,
-        text=True,
+        capture_output=True, text=True, env=env,
     )
     if check_result.returncode == 0:
         try:
@@ -861,11 +1255,10 @@ def cluster_create(ctx, dry_run: bool):
         except json.JSONDecodeError:
             pass
 
-    result = subprocess.run(
-        ["k3d", "cluster", "create", "--config", str(cluster_config)],
-        env=env,
-        cwd=work_dir,
-    )
+    create_cmd = ["k3d", "cluster", "create", "--config", str(cluster_config)]
+    if cfg["PLF_CONTAINER_RUNTIME"] == "podman":
+        create_cmd += ["--network", "k3d"]
+    result = subprocess.run(create_cmd, env=env, cwd=work_dir)
     if result.returncode == 0:
         kubeconfig_path = Path(cluster_env["KUBECONFIG"])
         if kubeconfig_path.exists():
@@ -886,6 +1279,7 @@ def cluster_delete(ctx, dry_run: bool, yes: bool):
     cluster_env = get_cluster_env(cfg, k8s_dir)
     env = os.environ.copy()
     env.update(cluster_env)
+    env.update(get_runtime_env(cfg))
 
     files_to_remove = [
         k8s_dir / "features" / "polaris.yaml",
@@ -1011,11 +1405,11 @@ def catalog_verify(ctx, dry_run: bool, args: tuple):
            "--credentials-file", str(credentials_file)] + list(args)
 
     env = os.environ.copy()
-    env.update(get_aws_env())
+    env.update(get_aws_env(work_dir))
     env.pop("AWS_PROFILE", None)
 
     if dry_run:
-        aws_env = get_aws_env()
+        aws_env = get_aws_env(work_dir)
         env_str = " ".join(f"{k}={v}" for k, v in aws_env.items())
         click.echo(f"[DRY RUN] {env_str} {' '.join(cmd)}")
         sys.exit(0)
@@ -1033,11 +1427,11 @@ def catalog_verify_sql(ctx, dry_run: bool):
     script_path = work_dir / "scripts" / "explore_catalog.sql"
 
     env = os.environ.copy()
-    env.update(get_aws_env())
+    env.update(get_aws_env(work_dir))
     env.pop("AWS_PROFILE", None)
 
     if dry_run:
-        aws_env = get_aws_env()
+        aws_env = get_aws_env(work_dir)
         env_str = " ".join(f"{k}={v}" for k, v in aws_env.items())
         click.echo(f"[DRY RUN] {env_str} duckdb < {script_path}")
         sys.exit(0)
@@ -1056,11 +1450,11 @@ def catalog_explore_sql(ctx, dry_run: bool):
     script_path = work_dir / "scripts" / "explore_catalog.sql"
 
     env = os.environ.copy()
-    env.update(get_aws_env())
+    env.update(get_aws_env(work_dir))
     env.pop("AWS_PROFILE", None)
 
     if dry_run:
-        aws_env = get_aws_env()
+        aws_env = get_aws_env(work_dir)
         env_str = " ".join(f"{k}={v}" for k, v in aws_env.items())
         click.echo(f"[DRY RUN] {env_str} duckdb -init {script_path}")
         sys.exit(0)
@@ -1177,6 +1571,99 @@ def polaris_reset(ctx: click.Context, dry_run: bool, yes: bool):
 
 
 # =============================================================================
+# Podman Machine Management
+# =============================================================================
+
+
+@cli.group()
+def podman():
+    """Podman machine management commands (macOS)."""
+    pass
+
+
+@podman.command("stop")
+@click.pass_context
+def podman_stop(ctx):
+    """Stop the dedicated Podman machine and restore default connection."""
+    work_dir = ctx.obj["WORK_DIR"]
+    cfg = get_config(work_dir)
+    machine = cfg["PLF_PODMAN_MACHINE"]
+
+    if platform.system() != "Darwin":
+        click.echo("Podman machine management is macOS only (Linux uses native Podman).")
+        return
+
+    info = get_podman_machine_info(machine)
+    if info is None:
+        click.secho(f"Podman machine '{machine}' does not exist.", fg="yellow")
+    elif info["state"] == "running":
+        click.echo(f"Stopping Podman machine '{machine}'...")
+        result = subprocess.run(
+            ["podman", "machine", "stop", machine],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            click.secho(f"Podman machine '{machine}' stopped.", fg="green")
+        else:
+            click.secho(f"Failed to stop machine: {result.stderr.strip()}", fg="red")
+            sys.exit(result.returncode)
+    else:
+        click.echo(f"Podman machine '{machine}' is already stopped.")
+
+    # Restore default connection if podman-machine-default exists
+    try:
+        result = subprocess.run(
+            ["podman", "system", "connection", "ls", "--format", "json"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            connections = json.loads(result.stdout)
+            names = [c.get("Name") for c in connections]
+            if "podman-machine-default" in names:
+                subprocess.run(
+                    ["podman", "system", "connection", "default", "podman-machine-default"],
+                    capture_output=True, timeout=10,
+                )
+                click.echo("Default connection restored to podman-machine-default.")
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        pass
+
+
+@podman.command("destroy")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def podman_destroy(ctx, yes: bool):
+    """Permanently remove the dedicated Podman machine."""
+    work_dir = ctx.obj["WORK_DIR"]
+    cfg = get_config(work_dir)
+    machine = cfg["PLF_PODMAN_MACHINE"]
+
+    if platform.system() != "Darwin":
+        click.echo("Podman machine management is macOS only (Linux uses native Podman).")
+        return
+
+    if not yes:
+        click.secho(f"This will permanently delete Podman machine '{machine}' and all its data.", fg="yellow")
+        if not click.confirm("Continue?"):
+            click.echo("Aborted.")
+            return
+
+    ctx.invoke(podman_stop)
+
+    click.echo(f"Removing Podman machine '{machine}'...")
+    result = subprocess.run(
+        ["podman", "machine", "rm", "-f", machine],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        click.secho(f"Podman machine '{machine}' removed.", fg="green")
+        click.echo("To recreate, run: task podman:setup")
+    else:
+        click.secho(f"Failed to remove machine: {result.stderr.strip()}", fg="red")
+        sys.exit(result.returncode)
+
+
+# =============================================================================
 # Status Commands (with JSON output)
 # =============================================================================
 
@@ -1191,10 +1678,11 @@ def cluster_status(ctx, output: str):
     cluster_env = get_cluster_env(cfg, ctx.obj["K8S_DIR"])
     cluster_name = cluster_env["K3D_CLUSTER_NAME"]
 
+    env = os.environ.copy()
+    env.update(get_runtime_env(cfg))
     result = subprocess.run(
         ["k3d", "cluster", "list", "-o", "json"],
-        capture_output=True,
-        text=True,
+        capture_output=True, text=True, env=env,
     )
 
     running = False
