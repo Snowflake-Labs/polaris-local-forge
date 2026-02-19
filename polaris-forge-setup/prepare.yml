@@ -37,6 +37,10 @@
         template: "templates/polaris-secrets.yaml.j2"
       - file: "{{ plf_polaris_dir }}/.polaris.env"
         template: "templates/polaris.env.j2"
+      - file: "{{ plf_output_base }}/.aws/config"
+        template: "templates/aws-config.j2"
+      - file: "{{ plf_output_base }}/.aws/credentials"
+        template: "templates/aws-credentials.j2"
   pre_tasks:
     - name: Install required collections
       ansible.builtin.command: ansible-galaxy collection install community.crypto
@@ -51,6 +55,7 @@
       loop:
         - "{{ plf_work_dir }}"
         - "{{ plf_polaris_dir }}"
+        - "{{ plf_output_base }}/.aws"
       tags:
         - rsa
         - setup

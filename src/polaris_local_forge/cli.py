@@ -45,10 +45,12 @@ STATIC_K8S_FILES = [
 ]
 
 # Directories that hold sensitive content (mode 0700)
-_SENSITIVE_DIRS = ["work", ".snow-utils", ".kube"]
+_SENSITIVE_DIRS = ["work", ".snow-utils", ".kube", ".aws"]
 # Files that contain credentials or keys (mode 0600)
 _SENSITIVE_FILES = [
     ".env",
+    ".aws/config",
+    ".aws/credentials",
     "work/principal.txt",
     "k8s/polaris/rsa_key",
     "k8s/polaris/.bootstrap-credentials.env",

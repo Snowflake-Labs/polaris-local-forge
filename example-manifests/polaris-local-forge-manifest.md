@@ -1,4 +1,4 @@
-<!-- COCO_INSTRUCTION: This is a polaris-local-forge manifest.
+<!-- CORTEX_CODE_INSTRUCTION: This is a polaris-local-forge manifest.
      project_name: polaris-local-forge
      setup_steps:
        1. Check if required skills are installed: cortex skill list

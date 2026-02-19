@@ -258,7 +258,7 @@ if [ -f .snow-utils/snow-utils-manifest.md ]; then
 fi
 
 for f in *-manifest.md; do
-  [ -f "$f" ] && grep -q "## shared_info\|COCO_INSTRUCTION" "$f" 2>/dev/null && {
+  [ -f "$f" ] && grep -q "## shared_info\|CORTEX_CODE_INSTRUCTION" "$f" 2>/dev/null && {
     SHARED_MANIFEST="$f"
     echo "Shared manifest: $f"
   }
@@ -471,7 +471,7 @@ kubectl get nodes
 **SUMMARIZE:**
 
 > k3d cluster `${K3D_CLUSTER_NAME}` created. Kubeconfig at `.kube/config`,
-> kubectl at `bin/kubectl`. Cluster is starting up.
+> kubectl at `bin/kubectl`.
 
 ### Step 4: Wait for Bootstrap
 
@@ -539,21 +539,37 @@ ${PLF} cluster polaris-check
 > roles needed, no External Volume SQL. Polaris catalog config points to
 > `s3://bucket` with the RustFS endpoint.
 
-**DO -- verify RustFS is accessible (if AWS CLI is installed):**
+**DO -- configure AWS CLI for RustFS:**
+
+The `prepare` step generated project-local AWS config files at `.aws/config`
+and `.aws/credentials`. The `.env` file points the AWS CLI to them via
+`AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE`. To activate:
 
 ```bash
-aws s3 ls --endpoint-url http://localhost:9000
+set -a && source .env && set +a
 ```
+
+This exports all `.env` variables into the current shell session.
+The AWS CLI will now use the local RustFS config -- no changes to `~/.aws/`.
+
+**Verify RustFS is accessible (if AWS CLI is installed):**
+
+```bash
+aws s3 ls
+```
+
+No `--endpoint-url` flag needed -- the local `.aws/config` has the endpoint.
 
 **Create additional S3 buckets (optional):**
 
 ```bash
-aws s3 mb s3://my-bucket --endpoint-url http://localhost:9000
+aws s3 mb s3://my-bucket
 ```
 
 **SUMMARIZE:**
 
 > RustFS S3 is accessible at `http://localhost:9000`. Credentials: `admin`/`password`.
+> Project-local `.aws/config` + `.aws/credentials` configured -- no changes to `~/.aws/`.
 > AWS CLI and S3 SDKs work with these local settings.
 
 ### Step 8: Catalog Setup
@@ -697,10 +713,12 @@ Next steps:
   ${PLF} catalog verify-sql                        # Re-run verification
   ${PLF} catalog explore-sql                       # Interactive DuckDB SQL
 
-Scoped kubectl (for direct cluster queries):
+Shell setup:
   export KUBECONFIG=$(pwd)/.kube/config
   export PATH=$(pwd)/bin:$PATH
+  set -a && source .env && set +a   # AWS config for RustFS
   kubectl get pods -n polaris
+  aws s3 ls
 
 Manifest: .snow-utils/snow-utils-manifest.md
 ```

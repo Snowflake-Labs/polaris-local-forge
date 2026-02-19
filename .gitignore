@@ -2,6 +2,7 @@ dist
 .direnv
 .env*
 !.env.example
+.aws/
 cosign*
 image-refs.txt
 .registry-data
