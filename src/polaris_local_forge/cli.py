@@ -30,28 +30,48 @@ import click
 import requests
 from dotenv import load_dotenv
 
-# Project root directory (src/polaris_forge/cli.py -> src/polaris_forge -> src -> project root)
-PROJECT_HOME = Path(__file__).parent.parent.parent.resolve()
-ANSIBLE_DIR = PROJECT_HOME / "polaris-forge-setup"
-BIN_DIR = PROJECT_HOME / "bin"
-K8S_DIR = PROJECT_HOME / "k8s"
-CONFIG_DIR = PROJECT_HOME / "config"
+# Skill directory: where the source repo lives (read-only for --work-dir mode)
+SKILL_DIR = Path(__file__).parent.parent.parent.resolve()
+ANSIBLE_DIR = SKILL_DIR / "polaris-forge-setup"
+CONFIG_DIR = SKILL_DIR / "config"
 
-# Load environment variables from project .env file (single source of truth)
-load_dotenv(PROJECT_HOME / ".env")
+# Static k8s files that must be copied to WORK_DIR when it differs from SKILL_DIR
+STATIC_K8S_FILES = [
+    "k8s/features/rustfs.yaml",
+    "k8s/polaris/kustomization.yaml",
+    "k8s/polaris/jobs/kustomization.yaml",
+    "k8s/polaris/jobs/job-bootstrap.yaml",
+    "k8s/polaris/jobs/job-purge.yaml",
+]
+
+# Directories that hold sensitive content (mode 0700)
+_SENSITIVE_DIRS = ["work", ".snow-utils", ".kube"]
+# Files that contain credentials or keys (mode 0600)
+_SENSITIVE_FILES = [
+    ".env",
+    "work/principal.txt",
+    "k8s/polaris/rsa_key",
+    "k8s/polaris/.bootstrap-credentials.env",
+    "k8s/polaris/.polaris.env",
+    "k8s/polaris/polaris-secrets.yaml",
+    ".kube/config",
+]
 
 
-def get_config() -> dict:
+def get_config(work_dir: Path) -> dict:
     """Get all configuration from environment variables.
 
     All defaults are defined here and should match .env.example.
     The .env file is the single source of truth for configuration.
+
+    Args:
+        work_dir: Working directory for path-based defaults (KUBECONFIG).
     """
     return {
         # Cluster Configuration
         "K3D_CLUSTER_NAME": os.getenv("K3D_CLUSTER_NAME", "polaris-local-forge"),
         "K3S_VERSION": os.getenv("K3S_VERSION", "v1.31.5-k3s1"),
-        "KUBECONFIG": os.getenv("KUBECONFIG", str(PROJECT_HOME / ".kube" / "config")),
+        "KUBECONFIG": os.getenv("KUBECONFIG", str(work_dir / ".kube" / "config")),
         # RustFS S3 Configuration
         "AWS_ENDPOINT_URL": os.getenv("AWS_ENDPOINT_URL", "http://localhost:9000"),
         "RUSTFS_CONSOLE_URL": os.getenv("RUSTFS_CONSOLE_URL", "http://localhost:9001"),
@@ -86,13 +106,17 @@ def check_docker_running() -> bool:
         return False
 
 
-def get_cluster_env() -> dict:
-    """Get cluster environment variables from config."""
-    cfg = get_config()
+def get_cluster_env(cfg: dict, k8s_dir: Path) -> dict:
+    """Get cluster environment variables from config.
+
+    Args:
+        cfg: Configuration dict from get_config().
+        k8s_dir: Path to k8s manifests directory (in WORK_DIR).
+    """
     return {
         "K3D_CLUSTER_NAME": cfg["K3D_CLUSTER_NAME"],
         "K3S_VERSION": cfg["K3S_VERSION"],
-        "FEATURES_DIR": str(K8S_DIR),
+        "FEATURES_DIR": str(k8s_dir),
         "KUBECONFIG": cfg["KUBECONFIG"],
     }
 
@@ -110,6 +134,7 @@ def get_aws_env() -> dict:
 
 def run_ansible_playbook(
     playbook: str,
+    work_dir: Path,
     tags: str | None = None,
     extra_vars: dict | None = None,
     dry_run: bool = False,
@@ -120,6 +145,7 @@ def run_ansible_playbook(
 
     Args:
         playbook: Path to playbook relative to ANSIBLE_DIR
+        work_dir: Working directory for generated output
         tags: Comma-separated list of tags to run
         extra_vars: Dictionary of extra variables to pass
         dry_run: If True, print command without executing
@@ -130,14 +156,17 @@ def run_ansible_playbook(
         Exit code from ansible-playbook
     """
     playbook_path = ANSIBLE_DIR / playbook
-    cmd = ["uv", "run", "ansible-playbook", str(playbook_path)]
+    cmd = ["uv", "run", "--project", str(SKILL_DIR), "ansible-playbook", str(playbook_path)]
+
+    merged_vars = dict(extra_vars) if extra_vars else {}
+    if work_dir != SKILL_DIR:
+        merged_vars["plf_output_base"] = str(work_dir)
 
     if tags:
         cmd.extend(["--tags", tags])
 
-    if extra_vars:
-        for key, value in extra_vars.items():
-            cmd.extend(["-e", f"{key}={value}"])
+    for key, value in merged_vars.items():
+        cmd.extend(["-e", f"{key}={value}"])
 
     if verbose:
         cmd.append("-v")
@@ -155,28 +184,85 @@ def run_ansible_playbook(
         click.echo(f"[DRY RUN] {env_str}{' '.join(cmd)}")
         return 0
 
-    result = subprocess.run(cmd, env=env, cwd=PROJECT_HOME)
+    result = subprocess.run(cmd, env=env, cwd=work_dir)
     return result.returncode
+
+
+def copy_static_files(work_dir: Path) -> None:
+    """Copy static k8s files from SKILL_DIR to WORK_DIR.
+
+    Only needed when WORK_DIR differs from SKILL_DIR.
+    """
+    if work_dir == SKILL_DIR:
+        return
+    for rel_path in STATIC_K8S_FILES:
+        src = SKILL_DIR / rel_path
+        dst = work_dir / rel_path
+        if src.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+
+
+def secure_work_dir(work_dir: Path) -> None:
+    """Set restrictive permissions on sensitive directories and files."""
+    if work_dir == SKILL_DIR:
+        return
+    for d in _SENSITIVE_DIRS:
+        p = work_dir / d
+        if p.exists():
+            p.chmod(0o700)
+    for f in _SENSITIVE_FILES:
+        p = work_dir / f
+        if p.exists():
+            p.chmod(0o600)
 
 
 @click.group()
 @click.version_option()
-def cli():
+@click.option(
+    "--work-dir",
+    type=click.Path(exists=True, file_okay=False, resolve_path=True),
+    default=None,
+    help="Working directory for generated files (default: skill directory).",
+)
+@click.option(
+    "--env-file",
+    type=click.Path(dir_okay=False, resolve_path=True),
+    default=None,
+    help="Path to .env file (default: <work-dir>/.env).",
+)
+@click.pass_context
+def cli(ctx, work_dir: str | None, env_file: str | None):
     """Polaris Local Forge - Manage your local Apache Polaris environment."""
-    pass
+    ctx.ensure_object(dict)
+    work = Path(work_dir) if work_dir else SKILL_DIR
+    env_path = Path(env_file) if env_file else work / ".env"
+
+    ctx.obj["SKILL_DIR"] = SKILL_DIR
+    ctx.obj["WORK_DIR"] = work
+    ctx.obj["ENV_FILE"] = env_path
+    ctx.obj["BIN_DIR"] = work / "bin"
+    ctx.obj["K8S_DIR"] = work / "k8s"
+    ctx.obj["WORK_OUTPUT_DIR"] = work / "work"
+
+    if env_path.exists():
+        load_dotenv(env_path, override=True)
 
 
 @cli.command()
 @click.option("--output", "-o", type=click.Choice(["text", "json"]), default="text", help="Output format")
-def config(output: str):
+@click.pass_context
+def config(ctx, output: str):
     """Show current configuration from .env file."""
-    cfg = get_config()
+    work_dir = ctx.obj["WORK_DIR"]
+    cfg = get_config(work_dir)
 
     if output == "json":
         click.echo(json.dumps(cfg, indent=2))
     else:
         click.echo("Current Configuration:")
-        click.echo(f"  Config file: {PROJECT_HOME / '.env'}")
+        click.echo(f"  Config file: {ctx.obj['ENV_FILE']}")
+        click.echo(f"  Work dir:    {work_dir}")
         click.echo()
         click.secho("Cluster:", bold=True)
         click.echo(f"  K3D_CLUSTER_NAME:  {cfg['K3D_CLUSTER_NAME']}")
@@ -243,13 +329,16 @@ def check_cluster_exists(cluster_name: str) -> bool:
 
 @cli.command()
 @click.option("--output", "-o", type=click.Choice(["text", "json"]), default="text", help="Output format")
-def doctor(output: str):
+@click.pass_context
+def doctor(ctx, output: str):
     """Check system prerequisites and health.
 
     Verifies all required tools are installed, Docker is running,
     and the environment is ready for setup.
     """
-    cfg = get_config()
+    work_dir = ctx.obj["WORK_DIR"]
+    env_file = ctx.obj["ENV_FILE"]
+    cfg = get_config(work_dir)
     checks = {
         "required": {},
         "optional": {},
@@ -321,18 +410,17 @@ def doctor(output: str):
         checks["required"]["uv"] = {"installed": False}
         all_required_ok = False
 
-    # Required: Task
+    # Optional: Task
     task_path = shutil.which("task")
     if task_path:
         task_version = get_tool_version(["task", "--version"])
-        checks["required"]["task"] = {
+        checks["optional"]["task"] = {
             "installed": True,
             "version": task_version,
             "path": task_path,
         }
     else:
-        checks["required"]["task"] = {"installed": False}
-        all_required_ok = False
+        checks["optional"]["task"] = {"installed": False}
 
     # Optional: DuckDB CLI
     duckdb_path = shutil.which("duckdb")
@@ -359,17 +447,17 @@ def doctor(output: str):
         checks["optional"]["direnv"] = {"installed": False}
 
     # Environment: Python venv
-    venv_exists = (PROJECT_HOME / ".venv").exists()
+    venv_exists = (work_dir / ".venv").exists()
     checks["environment"]["venv"] = {
         "exists": venv_exists,
-        "path": str(PROJECT_HOME / ".venv"),
+        "path": str(work_dir / ".venv"),
     }
 
     # Environment: .env file
-    env_exists = (PROJECT_HOME / ".env").exists()
+    env_exists = env_file.exists()
     checks["environment"]["env_file"] = {
         "exists": env_exists,
-        "path": str(PROJECT_HOME / ".env"),
+        "path": str(env_file),
     }
 
     # Environment: Cluster
@@ -391,7 +479,7 @@ def doctor(output: str):
     if output == "json":
         click.echo(json.dumps(checks, indent=2))
     else:
-        click.secho("🩺 Polaris Local Forge - System Doctor", bold=True)
+        click.secho("Polaris Local Forge - System Doctor", bold=True)
         click.echo("=" * 42)
         click.echo()
 
@@ -415,15 +503,13 @@ def doctor(output: str):
             else:
                 click.secho(f"  ✗ {tool}: not installed", fg="red")
                 if tool == "docker":
-                    click.echo("    → Install: https://www.docker.com/products/docker-desktop/")
+                    click.echo("    -> Install: https://www.docker.com/products/docker-desktop/")
                 elif tool == "k3d":
-                    click.echo("    → Install: brew install k3d")
+                    click.echo("    -> Install: brew install k3d")
                 elif tool == "python":
-                    click.echo("    → Install: https://www.python.org/downloads/")
+                    click.echo("    -> Install: https://www.python.org/downloads/")
                 elif tool == "uv":
-                    click.echo("    → Install: curl -LsSf https://astral.sh/uv/install.sh | sh")
-                elif tool == "task":
-                    click.echo("    → Install: brew install go-task")
+                    click.echo("    -> Install: curl -LsSf https://astral.sh/uv/install.sh | sh")
 
         click.echo()
         click.secho("Optional Tools:", bold=True)
@@ -432,11 +518,13 @@ def doctor(output: str):
                 version = info.get("version", "")
                 click.secho(f"  ✓ {tool}: {version}", fg="green")
             else:
-                click.echo(f"  ℹ {tool}: not installed")
-                if tool == "duckdb":
-                    click.echo("    → Install: brew install duckdb")
+                click.echo(f"  - {tool}: not installed")
+                if tool == "task":
+                    click.echo("    -> Install: brew install go-task")
+                elif tool == "duckdb":
+                    click.echo("    -> Install: brew install duckdb")
                 elif tool == "direnv":
-                    click.echo("    → Install: brew install direnv")
+                    click.echo("    -> Install: brew install direnv")
 
         click.echo()
         click.secho("Environment:", bold=True)
@@ -444,20 +532,20 @@ def doctor(output: str):
         if env_info["venv"]["exists"]:
             click.secho("  ✓ Python venv: exists", fg="green")
         else:
-            click.echo("  ℹ Python venv: not created")
-            click.echo("    → Run: task setup:python")
+            click.echo("  - Python venv: not created")
+            click.echo("    -> Run: uv sync")
 
         if env_info["env_file"]["exists"]:
             click.secho("  ✓ Configuration: .env exists", fg="green")
         else:
-            click.echo("  ℹ Configuration: .env not found")
-            click.echo("    → Run: cp .env.example .env")
+            click.echo("  - Configuration: .env not found")
+            click.echo("    -> Run: cp .env.example .env")
 
         if env_info["cluster"]["exists"]:
             click.secho(f"  ✓ Cluster '{cluster_name}': exists", fg="green")
         else:
-            click.echo(f"  ℹ Cluster '{cluster_name}': not created")
-            click.echo("    → Run: task setup:all")
+            click.echo(f"  - Cluster '{cluster_name}': not created")
+            click.echo("    -> Run: polaris-local-forge setup")
 
         click.echo()
         click.echo("=" * 42)
@@ -465,13 +553,13 @@ def doctor(output: str):
             click.secho("✓ All required prerequisites installed!", fg="green")
             click.echo()
             click.echo("Next steps:")
-            if not env_info["venv"]["exists"]:
-                click.echo("  1. task setup:python   # Setup Python environment")
-                click.echo("  2. task setup:all      # Deploy everything")
+            if not env_info["env_file"]["exists"]:
+                click.echo("  1. cp .env.example .env")
+                click.echo("  2. polaris-local-forge setup")
             elif not env_info["cluster"]["exists"]:
-                click.echo("  1. task setup:all      # Deploy everything")
+                click.echo("  1. polaris-local-forge setup")
             else:
-                click.echo("  Environment ready! Run 'task status' to check services.")
+                click.echo("  Environment ready! Run 'polaris-local-forge cluster status'.")
         else:
             click.secho("✗ Some prerequisites missing. Install them first.", fg="red")
 
@@ -482,9 +570,15 @@ def doctor(output: str):
 @click.option("--tags", "-t", help="Ansible tags to run (comma-separated)")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def prepare(tags: str | None, dry_run: bool, verbose: bool):
+@click.pass_context
+def prepare(ctx, tags: str | None, dry_run: bool, verbose: bool):
     """Generate required sensitive files from templates."""
-    sys.exit(run_ansible_playbook("prepare.yml", tags=tags, dry_run=dry_run, verbose=verbose))
+    work_dir = ctx.obj["WORK_DIR"]
+    exit_code = run_ansible_playbook("prepare.yml", work_dir, tags=tags, dry_run=dry_run, verbose=verbose)
+    if exit_code == 0 and not dry_run:
+        copy_static_files(work_dir)
+        secure_work_dir(work_dir)
+    sys.exit(exit_code)
 
 
 @cli.command()
@@ -502,6 +596,8 @@ def setup(ctx: click.Context, dry_run: bool, yes: bool):
     5. polaris check - Wait for Polaris to be ready
     6. catalog setup - Setup demo catalog
     """
+    work_dir = ctx.obj["WORK_DIR"]
+    k8s_dir = ctx.obj["K8S_DIR"]
     start_time = time.time()
 
     missing = check_prerequisites()
@@ -526,7 +622,7 @@ def setup(ctx: click.Context, dry_run: bool, yes: bool):
     if dry_run:
         click.echo("[DRY RUN] Setup plan:")
         for i, (cmd, desc) in enumerate(steps, 1):
-            click.echo(f"  {i}. {desc} (polaris-forge {cmd})")
+            click.echo(f"  {i}. {desc} (polaris-local-forge {cmd})")
         click.echo("\nRun without --dry-run to execute.")
         sys.exit(0)
 
@@ -541,15 +637,17 @@ def setup(ctx: click.Context, dry_run: bool, yes: bool):
 
     click.secho("\n=== Starting Polaris Local Forge Setup ===\n", fg="cyan", bold=True)
 
-    if run_ansible_playbook("prepare.yml") != 0:
+    if run_ansible_playbook("prepare.yml", work_dir) != 0:
         click.secho("Error: prepare failed", fg="red")
         sys.exit(1)
+    copy_static_files(work_dir)
+    secure_work_dir(work_dir)
     click.secho("✓ Configuration files generated", fg="green")
 
     ctx.invoke(cluster_create, dry_run=False)
     click.secho("✓ Cluster created", fg="green")
 
-    if run_ansible_playbook("cluster_checks.yml", tags="bootstrap") != 0:
+    if run_ansible_playbook("cluster_checks.yml", work_dir, tags="bootstrap") != 0:
         click.secho("Error: bootstrap-check failed", fg="red")
         sys.exit(1)
     click.secho("✓ Bootstrap deployments ready", fg="green")
@@ -557,20 +655,21 @@ def setup(ctx: click.Context, dry_run: bool, yes: bool):
     ctx.invoke(polaris_deploy, dry_run=False)
     click.secho("✓ Polaris deployed", fg="green")
 
-    if run_ansible_playbook("cluster_checks.yml", tags="polaris") != 0:
+    if run_ansible_playbook("cluster_checks.yml", work_dir, tags="polaris") != 0:
         click.secho("Error: polaris-check failed", fg="red")
         sys.exit(1)
     click.secho("✓ Polaris ready", fg="green")
 
-    if run_ansible_playbook("catalog_setup.yml", with_aws_env=True) != 0:
+    if run_ansible_playbook("catalog_setup.yml", work_dir, with_aws_env=True) != 0:
         click.secho("Error: catalog setup failed", fg="red")
         sys.exit(1)
+    secure_work_dir(work_dir)
     click.secho("✓ Catalog setup complete", fg="green")
 
     elapsed = time.time() - start_time
     click.secho(f"\n=== Setup Complete ({elapsed:.1f}s) ===", fg="green", bold=True)
 
-    cfg = get_config()
+    cfg = get_config(work_dir)
     click.echo("\nService URLs:")
     click.echo(f"  Polaris UI:     {cfg['POLARIS_URL']}")
     click.echo(f"  RustFS S3 API:  {cfg['AWS_ENDPOINT_URL']}")
@@ -581,12 +680,12 @@ def setup(ctx: click.Context, dry_run: bool, yes: bool):
     click.echo(f"  Secret Key: {cfg['AWS_SECRET_ACCESS_KEY']}")
 
     click.echo("\nPolaris Credentials:")
-    click.echo(f"  See: {K8S_DIR / 'polaris' / '.bootstrap-credentials.env'}")
+    click.echo(f"  See: {k8s_dir / 'polaris' / '.bootstrap-credentials.env'}")
 
     click.echo("\nNext steps:")
-    click.echo("  - Verify:  polaris-forge catalog verify")
-    click.echo("  - Explore: polaris-forge catalog explore-sql")
-    click.echo("  - Config:  polaris-forge config")
+    click.echo("  - Verify:  polaris-local-forge catalog verify")
+    click.echo("  - Explore: polaris-local-forge catalog explore-sql")
+    click.echo("  - Config:  polaris-local-forge config")
 
 
 @cli.command()
@@ -626,7 +725,7 @@ def teardown(ctx: click.Context, dry_run: bool, yes: bool):
 
     click.secho("\n=== Starting Teardown ===\n", fg="cyan", bold=True)
 
-    run_ansible_playbook("catalog_cleanup.yml", with_aws_env=True)
+    run_ansible_playbook("catalog_cleanup.yml", ctx.obj["WORK_DIR"], with_aws_env=True)
     click.secho("✓ Catalog cleanup complete", fg="green")
 
     ctx.invoke(cluster_delete, dry_run=False, yes=True)
@@ -706,16 +805,21 @@ def ensure_kubectl(k3s_version: str, dest: Path) -> None:
 
 @cluster.command("create")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
-def cluster_create(dry_run: bool):
+@click.pass_context
+def cluster_create(ctx, dry_run: bool):
     """Create the k3d cluster and deploy initial components.
 
     This downloads kubectl and creates a k3d cluster using the project's configuration.
     """
-    cluster_env = get_cluster_env()
+    work_dir = ctx.obj["WORK_DIR"]
+    bin_dir = ctx.obj["BIN_DIR"]
+    k8s_dir = ctx.obj["K8S_DIR"]
+    cfg = get_config(work_dir)
+    cluster_env = get_cluster_env(cfg, k8s_dir)
     env = os.environ.copy()
     env.update(cluster_env)
 
-    kubectl_path = BIN_DIR / "kubectl"
+    kubectl_path = bin_dir / "kubectl"
     cluster_config = CONFIG_DIR / "cluster-config.yaml"
 
     required_k8s_version = get_k8s_version_from_k3s(cluster_env["K3S_VERSION"])
@@ -737,10 +841,9 @@ def cluster_create(dry_run: bool):
     kubeconfig_dir = Path(cluster_env["KUBECONFIG"]).parent
     kubeconfig_dir.mkdir(parents=True, exist_ok=True)
 
-    BIN_DIR.mkdir(parents=True, exist_ok=True)
+    bin_dir.mkdir(parents=True, exist_ok=True)
     ensure_kubectl(cluster_env["K3S_VERSION"], kubectl_path)
 
-    # Check if cluster already exists
     check_result = subprocess.run(
         ["k3d", "cluster", "list", "-o", "json"],
         capture_output=True,
@@ -759,29 +862,37 @@ def cluster_create(dry_run: bool):
     result = subprocess.run(
         ["k3d", "cluster", "create", "--config", str(cluster_config)],
         env=env,
-        cwd=PROJECT_HOME,
+        cwd=work_dir,
     )
-    if result.returncode != 0:
+    if result.returncode == 0:
+        kubeconfig_path = Path(cluster_env["KUBECONFIG"])
+        if kubeconfig_path.exists():
+            kubeconfig_path.chmod(0o600)
+    else:
         sys.exit(result.returncode)
 
 
 @cluster.command("delete")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-def cluster_delete(dry_run: bool, yes: bool):
+@click.pass_context
+def cluster_delete(ctx, dry_run: bool, yes: bool):
     """Delete the k3d cluster and clean up generated files."""
-    cluster_env = get_cluster_env()
+    work_dir = ctx.obj["WORK_DIR"]
+    k8s_dir = ctx.obj["K8S_DIR"]
+    cfg = get_config(work_dir)
+    cluster_env = get_cluster_env(cfg, k8s_dir)
     env = os.environ.copy()
     env.update(cluster_env)
 
     files_to_remove = [
-        K8S_DIR / "features" / "polaris.yaml",
-        K8S_DIR / "features" / "postgresql.yaml",
-        K8S_DIR / "polaris" / "polaris-secrets.yaml",
-        K8S_DIR / "polaris" / ".bootstrap-credentials.env",
-        K8S_DIR / "polaris" / ".polaris.env",
-        K8S_DIR / "polaris" / "rsa_key",
-        K8S_DIR / "polaris" / "rsa_key.pub",
+        k8s_dir / "features" / "polaris.yaml",
+        k8s_dir / "features" / "postgresql.yaml",
+        k8s_dir / "polaris" / "polaris-secrets.yaml",
+        k8s_dir / "polaris" / ".bootstrap-credentials.env",
+        k8s_dir / "polaris" / ".polaris.env",
+        k8s_dir / "polaris" / "rsa_key",
+        k8s_dir / "polaris" / "rsa_key.pub",
     ]
 
     if dry_run:
@@ -801,7 +912,7 @@ def cluster_delete(dry_run: bool, yes: bool):
     result = subprocess.run(
         ["k3d", "cluster", "delete", cluster_env["K3D_CLUSTER_NAME"]],
         env=env,
-        cwd=PROJECT_HOME,
+        cwd=work_dir,
     )
 
     for f in files_to_remove:
@@ -818,17 +929,19 @@ def cluster_delete(dry_run: bool, yes: bool):
 @cluster.command("bootstrap-check")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def cluster_bootstrap_check(dry_run: bool, verbose: bool):
+@click.pass_context
+def cluster_bootstrap_check(ctx, dry_run: bool, verbose: bool):
     """Wait for bootstrap deployments to be ready."""
-    sys.exit(run_ansible_playbook("cluster_checks.yml", tags="bootstrap", dry_run=dry_run, verbose=verbose))
+    sys.exit(run_ansible_playbook("cluster_checks.yml", ctx.obj["WORK_DIR"], tags="bootstrap", dry_run=dry_run, verbose=verbose))
 
 
 @cluster.command("polaris-check")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def cluster_polaris_check(dry_run: bool, verbose: bool):
+@click.pass_context
+def cluster_polaris_check(ctx, dry_run: bool, verbose: bool):
     """Wait for Polaris deployments to be ready."""
-    sys.exit(run_ansible_playbook("cluster_checks.yml", tags="polaris", dry_run=dry_run, verbose=verbose))
+    sys.exit(run_ansible_playbook("cluster_checks.yml", ctx.obj["WORK_DIR"], tags="polaris", dry_run=dry_run, verbose=verbose))
 
 
 @cli.group()
@@ -841,11 +954,14 @@ def catalog():
 @click.option("--tags", "-t", help="Ansible tags to run (comma-separated)")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def catalog_setup(tags: str | None, dry_run: bool, verbose: bool):
+@click.pass_context
+def catalog_setup(ctx, tags: str | None, dry_run: bool, verbose: bool):
     """Set up demo catalog with S3 bucket, catalog, principal, and roles."""
-    sys.exit(
-        run_ansible_playbook("catalog_setup.yml", tags=tags, dry_run=dry_run, verbose=verbose, with_aws_env=True)
-    )
+    work_dir = ctx.obj["WORK_DIR"]
+    exit_code = run_ansible_playbook("catalog_setup.yml", work_dir, tags=tags, dry_run=dry_run, verbose=verbose, with_aws_env=True)
+    if exit_code == 0 and not dry_run:
+        secure_work_dir(work_dir)
+    sys.exit(exit_code)
 
 
 @catalog.command("cleanup")
@@ -853,7 +969,8 @@ def catalog_setup(tags: str | None, dry_run: bool, verbose: bool):
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-def catalog_cleanup(tags: str | None, dry_run: bool, verbose: bool, yes: bool):
+@click.pass_context
+def catalog_cleanup(ctx, tags: str | None, dry_run: bool, verbose: bool, yes: bool):
     """Cleanup Polaris catalog resources."""
     if not dry_run and not yes:
         click.secho("Warning: This will remove catalog resources!", fg="yellow")
@@ -861,18 +978,20 @@ def catalog_cleanup(tags: str | None, dry_run: bool, verbose: bool, yes: bool):
             click.echo("Aborted.")
             sys.exit(0)
     sys.exit(
-        run_ansible_playbook("catalog_cleanup.yml", tags=tags, dry_run=dry_run, verbose=verbose, with_aws_env=True)
+        run_ansible_playbook("catalog_cleanup.yml", ctx.obj["WORK_DIR"], tags=tags, dry_run=dry_run, verbose=verbose, with_aws_env=True)
     )
 
 
 @catalog.command("generate-notebook")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def catalog_generate_notebook(dry_run: bool, verbose: bool):
+@click.pass_context
+def catalog_generate_notebook(ctx, dry_run: bool, verbose: bool):
     """Generate and prepare verification notebook."""
-    exit_code = run_ansible_playbook("catalog_setup.yml", tags="verify", dry_run=dry_run, verbose=verbose, with_aws_env=True)
+    work_dir = ctx.obj["WORK_DIR"]
+    exit_code = run_ansible_playbook("catalog_setup.yml", work_dir, tags="verify", dry_run=dry_run, verbose=verbose, with_aws_env=True)
     if exit_code == 0 and not dry_run:
-        notebook_path = PROJECT_HOME / "notebooks" / "verify_setup.ipynb"
+        notebook_path = work_dir / "notebooks" / "verify_polaris.ipynb"
         click.echo(f"\nRun the notebook at: {notebook_path}")
     sys.exit(exit_code)
 
@@ -880,10 +999,14 @@ def catalog_generate_notebook(dry_run: bool, verbose: bool):
 @catalog.command("verify")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 @click.argument("args", nargs=-1)
-def catalog_verify(dry_run: bool, args: tuple):
+@click.pass_context
+def catalog_verify(ctx, dry_run: bool, args: tuple):
     """Verify Polaris catalog using DuckDB Iceberg extension (Python)."""
-    script_path = PROJECT_HOME / "scripts" / "explore_catalog.py"
-    cmd = ["uv", "run", "python", str(script_path)] + list(args)
+    work_dir = ctx.obj["WORK_DIR"]
+    script_path = SKILL_DIR / "scripts" / "explore_catalog.py"
+    credentials_file = ctx.obj["WORK_OUTPUT_DIR"] / "principal.txt"
+    cmd = ["uv", "run", "--project", str(SKILL_DIR), "python", str(script_path),
+           "--credentials-file", str(credentials_file)] + list(args)
 
     env = os.environ.copy()
     env.update(get_aws_env())
@@ -895,15 +1018,17 @@ def catalog_verify(dry_run: bool, args: tuple):
         click.echo(f"[DRY RUN] {env_str} {' '.join(cmd)}")
         sys.exit(0)
 
-    result = subprocess.run(cmd, env=env, cwd=PROJECT_HOME)
+    result = subprocess.run(cmd, env=env, cwd=work_dir)
     sys.exit(result.returncode)
 
 
 @catalog.command("verify-sql")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
-def catalog_verify_sql(dry_run: bool):
+@click.pass_context
+def catalog_verify_sql(ctx, dry_run: bool):
     """Verify Polaris catalog using DuckDB CLI with SQL script."""
-    script_path = PROJECT_HOME / "scripts" / "explore_catalog.sql"
+    work_dir = ctx.obj["WORK_DIR"]
+    script_path = work_dir / "scripts" / "explore_catalog.sql"
 
     env = os.environ.copy()
     env.update(get_aws_env())
@@ -916,15 +1041,17 @@ def catalog_verify_sql(dry_run: bool):
         sys.exit(0)
 
     with open(script_path) as f:
-        result = subprocess.run(["duckdb"], stdin=f, env=env, cwd=PROJECT_HOME)
+        result = subprocess.run(["duckdb"], stdin=f, env=env, cwd=work_dir)
     sys.exit(result.returncode)
 
 
 @catalog.command("explore-sql")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
-def catalog_explore_sql(dry_run: bool):
+@click.pass_context
+def catalog_explore_sql(ctx, dry_run: bool):
     """Explore Polaris catalog with DuckDB CLI in interactive mode."""
-    script_path = PROJECT_HOME / "scripts" / "explore_catalog.sql"
+    work_dir = ctx.obj["WORK_DIR"]
+    script_path = work_dir / "scripts" / "explore_catalog.sql"
 
     env = os.environ.copy()
     env.update(get_aws_env())
@@ -936,7 +1063,7 @@ def catalog_explore_sql(dry_run: bool):
         click.echo(f"[DRY RUN] {env_str} duckdb -init {script_path}")
         sys.exit(0)
 
-    result = subprocess.run(["duckdb", "-init", str(script_path)], env=env, cwd=PROJECT_HOME)
+    result = subprocess.run(["duckdb", "-init", str(script_path)], env=env, cwd=work_dir)
     sys.exit(result.returncode)
 
 
@@ -948,16 +1075,18 @@ def polaris():
 
 @polaris.command("deploy")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
-def polaris_deploy(dry_run: bool):
+@click.pass_context
+def polaris_deploy(ctx, dry_run: bool):
     """Deploy Polaris to the cluster."""
-    polaris_dir = K8S_DIR / "polaris"
+    k8s_dir = ctx.obj["K8S_DIR"]
+    polaris_dir = k8s_dir / "polaris"
     cmd = ["kubectl", "apply", "-k", str(polaris_dir)]
 
     if dry_run:
         click.echo(f"[DRY RUN] {' '.join(cmd)}")
         return
 
-    result = subprocess.run(cmd, cwd=PROJECT_HOME)
+    result = subprocess.run(cmd, cwd=ctx.obj["WORK_DIR"])
     if result.returncode != 0:
         sys.exit(result.returncode)
 
@@ -965,15 +1094,18 @@ def polaris_deploy(dry_run: bool):
 @polaris.command("check")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
-def polaris_check(dry_run: bool, verbose: bool):
+@click.pass_context
+def polaris_check(ctx, dry_run: bool, verbose: bool):
     """Ensure all Polaris deployments and jobs have succeeded."""
-    sys.exit(run_ansible_playbook("cluster_checks.yml", tags="polaris", dry_run=dry_run, verbose=verbose))
+    sys.exit(run_ansible_playbook("cluster_checks.yml", ctx.obj["WORK_DIR"], tags="polaris", dry_run=dry_run, verbose=verbose))
 
 
 @polaris.command("purge")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
-def polaris_purge(dry_run: bool):
+@click.pass_context
+def polaris_purge(ctx, dry_run: bool):
     """Purge Polaris data by running the purge job."""
+    work_dir = ctx.obj["WORK_DIR"]
     if dry_run:
         click.echo("[DRY RUN] Would execute the following steps:")
         click.echo("  1. kubectl patch job polaris-purge -n polaris -p '{\"spec\":{\"suspend\":false}}'")
@@ -983,22 +1115,25 @@ def polaris_purge(dry_run: bool):
 
     subprocess.run(
         ["kubectl", "patch", "job", "polaris-purge", "-n", "polaris", "-p", '{"spec":{"suspend":false}}'],
-        cwd=PROJECT_HOME,
+        cwd=work_dir,
     )
     click.echo("Waiting for purge to complete...")
     result = subprocess.run(
         ["kubectl", "wait", "--for=condition=complete", "--timeout=300s", "job/polaris-purge", "-n", "polaris"],
-        cwd=PROJECT_HOME,
+        cwd=work_dir,
     )
-    subprocess.run(["kubectl", "logs", "-n", "polaris", "jobs/polaris-purge"], cwd=PROJECT_HOME)
+    subprocess.run(["kubectl", "logs", "-n", "polaris", "jobs/polaris-purge"], cwd=work_dir)
     sys.exit(result.returncode)
 
 
 @polaris.command("bootstrap")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")
-def polaris_bootstrap(dry_run: bool):
+@click.pass_context
+def polaris_bootstrap(ctx, dry_run: bool):
     """Bootstrap Polaris (run after purge)."""
-    job_dir = K8S_DIR / "polaris" / "job"
+    work_dir = ctx.obj["WORK_DIR"]
+    k8s_dir = ctx.obj["K8S_DIR"]
+    job_dir = k8s_dir / "polaris" / "jobs"
 
     if dry_run:
         click.echo("[DRY RUN] Would execute the following steps:")
@@ -1008,14 +1143,14 @@ def polaris_bootstrap(dry_run: bool):
         click.echo("  4. kubectl logs -n polaris jobs/polaris-bootstrap")
         sys.exit(0)
 
-    subprocess.run(["kubectl", "delete", "-k", str(job_dir)], cwd=PROJECT_HOME)
-    subprocess.run(["kubectl", "apply", "-k", str(job_dir)], cwd=PROJECT_HOME)
+    subprocess.run(["kubectl", "delete", "-k", str(job_dir)], cwd=work_dir)
+    subprocess.run(["kubectl", "apply", "-k", str(job_dir)], cwd=work_dir)
     click.echo("Waiting for bootstrap to complete...")
     result = subprocess.run(
         ["kubectl", "wait", "--for=condition=complete", "--timeout=300s", "job/polaris-bootstrap", "-n", "polaris"],
-        cwd=PROJECT_HOME,
+        cwd=work_dir,
     )
-    subprocess.run(["kubectl", "logs", "-n", "polaris", "jobs/polaris-bootstrap"], cwd=PROJECT_HOME)
+    subprocess.run(["kubectl", "logs", "-n", "polaris", "jobs/polaris-bootstrap"], cwd=work_dir)
     sys.exit(result.returncode)
 
 
@@ -1046,9 +1181,12 @@ def polaris_reset(ctx: click.Context, dry_run: bool, yes: bool):
 
 @cluster.command("status")
 @click.option("--output", "-o", type=click.Choice(["text", "json"]), default="text", help="Output format")
-def cluster_status(output: str):
+@click.pass_context
+def cluster_status(ctx, output: str):
     """Show cluster status."""
-    cluster_env = get_cluster_env()
+    work_dir = ctx.obj["WORK_DIR"]
+    cfg = get_config(work_dir)
+    cluster_env = get_cluster_env(cfg, ctx.obj["K8S_DIR"])
     cluster_name = cluster_env["K3D_CLUSTER_NAME"]
 
     result = subprocess.run(
@@ -1140,9 +1278,10 @@ def polaris_status(output: str):
 
 @catalog.command("list")
 @click.option("--output", "-o", type=click.Choice(["text", "json"]), default="text", help="Output format")
-def catalog_list(output: str):
+@click.pass_context
+def catalog_list(ctx, output: str):
     """List catalogs in Polaris."""
-    principal_file = PROJECT_HOME / "work" / "principal.txt"
+    principal_file = ctx.obj["WORK_OUTPUT_DIR"] / "principal.txt"
 
     if not principal_file.exists():
         if output == "json":
@@ -1268,11 +1407,12 @@ def polaris_bump_version(dry_run: bool):
 
     click.echo(f"Latest Polaris version: {latest}")
 
+    static_k8s = SKILL_DIR / "k8s"
     files_to_update = [
         (ANSIBLE_DIR / "templates" / "polaris.yaml.j2", r"(version:\s*)[\d.]+-incubating", rf"\g<1>{latest}"),
         (ANSIBLE_DIR / "templates" / "polaris.yaml.j2", r"(tag:\s*)[\d.]+-incubating", rf"\g<1>{latest}"),
-        (K8S_DIR / "polaris" / "jobs" / "job-bootstrap.yaml", r"(apache/polaris-admin-tool:)[\d.]+-incubating", rf"\g<1>{latest}"),
-        (K8S_DIR / "polaris" / "jobs" / "job-purge.yaml", r"(apache/polaris-admin-tool:)[\d.]+-incubating", rf"\g<1>{latest}"),
+        (static_k8s / "polaris" / "jobs" / "job-bootstrap.yaml", r"(apache/polaris-admin-tool:)[\d.]+-incubating", rf"\g<1>{latest}"),
+        (static_k8s / "polaris" / "jobs" / "job-purge.yaml", r"(apache/polaris-admin-tool:)[\d.]+-incubating", rf"\g<1>{latest}"),
     ]
 
     if dry_run:
@@ -1309,8 +1449,8 @@ def cluster_bump_k3s(dry_run: bool):
 
     click.echo(f"Latest K3S version: {latest}")
 
-    env_example_path = PROJECT_HOME / ".env.example"
-    taskfile_path = PROJECT_HOME / "Taskfile.yml"
+    env_example_path = SKILL_DIR / ".env.example"
+    taskfile_path = SKILL_DIR / "Taskfile.yml"
 
     files_to_update = [
         (env_example_path, r"(K3S_VERSION=)v[\d.]+-k3s\d+", rf"\g<1>{latest}"),
