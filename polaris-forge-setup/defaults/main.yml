@@ -43,13 +43,18 @@ plf_admin_role: admin # Admin role name
 plf_catalog_role: sudo # Catalog role name
 
 # File System Configuration
-plf_work_dir: "{{ playbook_dir }}/../work" # Work directory for storing credentials
-plf_k8s_dir: "{{ playbook_dir }}/../k8s" # Kubernetes manifests directory
-plf_polaris_dir: "{{ plf_k8s_dir }}/polaris" # Directory where polaris manifests are stored
-plf_features_dir: "{{ plf_k8s_dir }}/features" # Directory where cluster feature manifests are stored
-plf_credentials_file: "{{ plf_k8s_dir }}/polaris/.bootstrap-credentials.env" # Bootstrap credentials location
-plf_notebook_dir: "{{ playbook_dir }}/../notebooks"
-plf_scripts_dir: "{{ playbook_dir }}/../scripts"
+# plf_output_base controls where generated files are written.
+# Override with -e plf_output_base=/path/to/work/dir to redirect output
+# away from the source tree (used by --work-dir in the CLI).
+plf_output_base: "{{ playbook_dir }}/.." # default: repo root (backward compatible)
+plf_work_dir: "{{ plf_output_base }}/work"
+plf_k8s_dir: "{{ plf_output_base }}/k8s"
+plf_polaris_dir: "{{ plf_k8s_dir }}/polaris"
+plf_features_dir: "{{ plf_k8s_dir }}/features"
+plf_credentials_file: "{{ plf_k8s_dir }}/polaris/.bootstrap-credentials.env"
+plf_notebook_dir: "{{ plf_output_base }}/notebooks"
+plf_scripts_dir: "{{ plf_output_base }}/scripts"
+# Template dir always points to the skill repo (read-only source)
 plf_template_dir: "{{ playbook_dir }}/templates"
 
 # Polaris Metastore configuration
