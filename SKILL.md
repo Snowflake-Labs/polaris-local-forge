@@ -51,8 +51,8 @@ This skill requires the following tools installed on your machine:
 - NEVER use `sed/awk/bash` to edit manifest files -- use the file editing tool (Edit/StrReplace)
 - NEVER run destructive commands (`teardown`, `cluster:delete`, `polaris:purge`) without explicit user confirmation
 - NEVER expose `principal.txt` contents in output -- show only the realm. Mask client_id: show `****` + last 4 chars. NEVER show client_secret at all. Example: `realm: default-realm, client_id: ****a1b2, client_secret: ********`
-- NEVER modify files under `k8s/`, `polaris-forge-setup/`, or `src/` -- those are infrastructure code, not skill artifacts
-- NEVER guess or invent CLI options -- ONLY use options from the CLI Reference tables below. If a command fails with "No such option", run `uv run polaris-local-forge <command> --help` and use ONLY the options shown there
+- NEVER modify files in the skill directory (`<SKILL_DIR>`) -- `k8s/`, `polaris-forge-setup/`, `src/` are read-only source. Only the user's `--work-dir` is writable
+- NEVER guess or invent CLI options -- ONLY use options from the CLI Reference tables below. If a command fails with "No such option", run `${PLF} <command> --help` and use ONLY the options shown there
 
 **INTERACTIVE PRINCIPLE:** This skill is designed to be interactive. At every decision point, ASK the user and WAIT for their response before proceeding.
 
@@ -96,39 +96,36 @@ Pattern for file edits:
 > **Note:** This skill configures Polaris with local RustFS (S3-compatible) storage only.
 > For real AWS S3 support, see Phase 2 in [SKILL_README.md](SKILL_README.md).
 
-### Step 0: Detect or Create Project Directory
+### Step 0: Initialize Project Directory
 
-**First, check if already in the polaris-local-forge project directory:**
+**Detect if user already has a workspace set up:**
 
 ```bash
-if [ -f pyproject.toml ] && grep -q "polaris-local-forge" pyproject.toml 2>/dev/null; then
-  echo "Detected polaris-local-forge project: $(pwd)"
-  [ -f .env ] && echo "  Found: .env"
+if [ -f .env ] && [ -f pyproject.toml ]; then
+  echo "Existing workspace detected: $(pwd)"
   [ -d .snow-utils ] && echo "  Found: .snow-utils/"
 fi
 ```
 
-**If existing project detected -> go to Step 0a (Prerequisites Check).**
+**If existing workspace detected -> go to Step 0a (Prerequisites Check).**
 
-**If NOT in polaris-local-forge project, ask user:**
+**If NOT in an existing workspace, ask user:**
 
 ```
-polaris-local-forge project not detected in current directory.
+Where would you like to create your Polaris workspace?
 
 Options:
-  1. Clone to ./polaris-local-forge (recommended)
-  2. Clone to a custom directory name
-  3. I already have it cloned -- let me navigate there
+  1. Use current directory: $(pwd)
+  2. Create a new directory (e.g., polaris-dev)
 ```
 
 **STOP**: Wait for user input.
 
-**If clone requested:**
+**Initialize the workspace with lightweight project files:**
 
 ```bash
-PROJECT_DIR="${PROJECT_DIR:-polaris-local-forge}"
-git clone https://github.com/kameshsampath/polaris-local-forge "${PROJECT_DIR}"
-cd "${PROJECT_DIR}"
+cp <SKILL_DIR>/user-project/pyproject.toml .
+cp <SKILL_DIR>/.env.example .env
 ```
 
 **Infer PROJECT_NAME from directory:**
@@ -138,9 +135,56 @@ PROJECT_NAME=$(basename $(pwd))
 echo "Project: ${PROJECT_NAME}"
 ```
 
-> **IMPORTANT:** All subsequent steps run within the `polaris-local-forge` project directory. The manifest, `.env`, and all artifacts live here.
+> **IMPORTANT:** All subsequent CLI commands use `--work-dir` to point generated files here.
+> The skill directory (`<SKILL_DIR>`) stays read-only. For a second cluster, create another
+> directory and re-run the skill.
 
-### Step 0a: Prerequisites Check
+**Define the CLI shorthand used throughout this skill:**
+
+```bash
+PLF="uv run --project <SKILL_DIR> polaris-local-forge --work-dir ."
+```
+
+All subsequent `${PLF} <command>` invocations use this pattern.
+
+### Step 0a: Configuration Review and Confirmation
+
+**Display current configuration for user review:**
+
+```
+Configuration Review
+────────────────────
+  Config file:                   .env
+  Work directory:                $(pwd)
+
+  K3D_CLUSTER_NAME:              ${K3D_CLUSTER_NAME}      # ADAPT: customizable
+  K3S_VERSION:                   ${K3S_VERSION}
+  KUBECONFIG:                    .kube/config
+
+  AWS_ENDPOINT_URL:              http://localhost:9000
+  AWS_REGION:                    us-east-1
+  AWS_ACCESS_KEY_ID:             admin
+
+  POLARIS_URL:                   http://localhost:18181
+  POLARIS_REALM:                 ${POLARIS_REALM}
+
+  PLF_POLARIS_S3_BUCKET:         ${PLF_POLARIS_S3_BUCKET}    # ADAPT: customizable
+  PLF_POLARIS_CATALOG_NAME:      ${PLF_POLARIS_CATALOG_NAME} # ADAPT: customizable
+  PLF_POLARIS_PRINCIPAL_NAME:    ${PLF_POLARIS_PRINCIPAL_NAME} # ADAPT: customizable
+
+Review the configuration above. Would you like to change any values?
+  1. Accept all (recommended for first-time setup)
+  2. Edit a specific value
+  3. Cancel
+```
+
+**STOP**: Wait for user input.
+
+**If user edits values:** Update `.env`, re-display, and confirm again.
+
+**After confirmation, proceed to prerequisites check.**
+
+### Step 0b: Prerequisites Check
 
 **Check manifest for cached tool verification:**
 
@@ -148,12 +192,12 @@ echo "Project: ${PROJECT_NAME}"
 grep "^tools_verified:" .snow-utils/snow-utils-manifest.md 2>/dev/null
 ```
 
-**If `tools_verified:` exists with a date:** Skip tool checks, continue to Step 0b.
+**If `tools_verified:` exists with a date:** Skip tool checks, continue to Step 0c.
 
 **Otherwise, run prerequisite check:**
 
 ```bash
-uv run polaris-local-forge doctor
+${PLF} doctor
 ```
 
 If any tool is missing, stop and provide installation instructions from the Prerequisites table above.
@@ -167,7 +211,7 @@ grep -q "^tools_verified:" .snow-utils/snow-utils-manifest.md 2>/dev/null || \
   echo "tools_verified: $(date +%Y-%m-%d)" >> .snow-utils/snow-utils-manifest.md 2>/dev/null || true
 ```
 
-### Step 0b: Detect or Initialize Manifest
+### Step 0c: Detect or Initialize Manifest
 
 #### Remote Manifest URL Detection
 
@@ -225,8 +269,8 @@ done
 
 | Working Manifest | Shared Manifest | Action |
 |-----------------|-----------------|--------|
-| None | None | Fresh start -> Step 0d |
-| None | Exists | Copy shared to `.snow-utils/` -> Step 0c |
+| None | None | Fresh start -> Step 0e |
+| None | Exists | Copy shared to `.snow-utils/` -> Step 0d |
 | Exists (REMOVED) | None | Replay Flow (reuse existing config) |
 | Exists (COMPLETE) | None | Ask user: re-run, reset, or skip |
 | Exists (IN_PROGRESS) | None | Resume Flow (continue from last step) |
@@ -259,9 +303,9 @@ cp example-manifests/polaris-local-forge-manifest.md .snow-utils/snow-utils-mani
 chmod 600 .snow-utils/snow-utils-manifest.md
 ```
 
-Then proceed to **Step 0c** to check for adaptive markers.
+Then proceed to **Step 0d** to check for adaptive markers.
 
-### Step 0c: Shared Manifest Adapt-Check
+### Step 0d: Shared Manifest Adapt-Check
 
 **ALWAYS run this step when using a shared or example manifest. Prompt user ONLY if `# ADAPT:` markers are found.**
 
@@ -306,7 +350,7 @@ Options:
 
 **If `ADAPT_COUNT` = 0 (no markers):** Proceed silently with values as-is.
 
-### Step 0d: Initialize Manifest
+### Step 0e: Initialize Manifest
 
 ```bash
 mkdir -p .snow-utils && chmod 700 .snow-utils
@@ -334,24 +378,24 @@ chmod 600 .snow-utils/snow-utils-manifest.md
 
 **SHOW -- what we're about to do:**
 
-> Set up Python environment and install all dependencies.
-> This creates a virtual environment, pins Python 3.12, and installs
-> packages defined in `pyproject.toml` (including `boto3`, `pyiceberg[s3fs]`, `duckdb`).
+> Set up the lightweight Python environment for querying and exploration.
+> This creates a virtual environment and installs query dependencies
+> (`duckdb`, `pyiceberg`, `boto3`, `pandas`) from the workspace `pyproject.toml`.
+> The infrastructure CLI runs from the skill directory separately.
 
 **STOP**: Wait for user confirmation before proceeding.
 
 **DO:**
 
 ```bash
-[ -f .env ] && echo "Existing .env found -- keeping it." || cp .env.example .env
 uv python pin 3.12
 uv venv
-uv sync
+uv sync --all-extras
 ```
 
 **SUMMARIZE:**
 
-> Environment ready. Python venv created, all dependencies installed.
+> Environment ready. Python venv created with query/notebook dependencies.
 > Configuration loaded from `.env`.
 
 ### Step 2: Generate Configuration Files
@@ -365,43 +409,25 @@ uv sync
 > - PostgreSQL Helm chart values
 > - Polaris Helm chart values with S3 endpoint configuration
 > - Kubernetes secrets manifest
+>
+> Files are generated directly in the work directory. Static k8s
+> manifests are copied from the skill repo and permissions are secured.
 
 **STOP**: Wait for user confirmation before proceeding.
 
 **DO:**
 
 ```bash
-uv run polaris-local-forge prepare
-```
-
-**Post-step -- copy cluster-level files to scoped directory:**
-
-```bash
-CLUSTER_NAME=$(grep K3D_CLUSTER_NAME .env | cut -d= -f2)
-CLUSTER_NAME=${CLUSTER_NAME:-polaris-local-forge}
-SCOPE_DIR=".snow-utils/${CLUSTER_NAME}"
-
-mkdir -p "${SCOPE_DIR}/work" "${SCOPE_DIR}/bin" "${SCOPE_DIR}/.kube"
-chmod 700 "${SCOPE_DIR}"
-
-cp k8s/polaris/.bootstrap-credentials.env "${SCOPE_DIR}/"
-cp k8s/polaris/polaris-secrets.yaml "${SCOPE_DIR}/" 2>/dev/null || true
-cp k8s/polaris/rsa_key "${SCOPE_DIR}/" 2>/dev/null || true
-cp k8s/polaris/rsa_key.pub "${SCOPE_DIR}/" 2>/dev/null || true
-cp k8s/features/polaris.yaml "${SCOPE_DIR}/" 2>/dev/null || true
-cp k8s/features/postgresql.yaml "${SCOPE_DIR}/" 2>/dev/null || true
-cp k8s/polaris/.polaris.env "${SCOPE_DIR}/" 2>/dev/null || true
-cp bin/kubectl "${SCOPE_DIR}/bin/" 2>/dev/null || true
-
-chmod 600 "${SCOPE_DIR}"/*
+${PLF} prepare
 ```
 
 **Update manifest:** Record tools_verified date and K3S/kubectl versions.
 
 **SUMMARIZE:**
 
-> Configuration files generated and copied to `.snow-utils/${CLUSTER_NAME}/`.
+> Configuration files generated in work directory.
 > RSA keys, bootstrap credentials, and Helm chart values are ready.
+> Sensitive files secured (0600/0700).
 
 ### Step 3: Create Cluster
 
@@ -417,35 +443,25 @@ chmod 600 "${SCOPE_DIR}"/*
 > - **Polaris API:** localhost:18181
 >
 > This will create a local Kubernetes cluster running in Docker.
+> kubectl is downloaded to `bin/` and kubeconfig to `.kube/config`
+> within the work directory.
 
 **STOP**: Wait for user confirmation before proceeding.
 
 **DO:**
 
 ```bash
-uv run polaris-local-forge cluster create
-```
-
-**Post-step -- copy kubeconfig and activate scoped environment:**
-
-```bash
-cp .kube/config "${SCOPE_DIR}/.kube/config"
-chmod 600 "${SCOPE_DIR}/.kube/config"
+${PLF} cluster create
 ```
 
 **Set the scoped cluster environment for this session:**
 
 ```bash
-export KUBECONFIG="${SCOPE_DIR}/.kube/config"
-export PATH="${SCOPE_DIR}/bin:$PATH"
+export KUBECONFIG="$(pwd)/.kube/config"
+export PATH="$(pwd)/bin:$PATH"
 ```
 
-This ensures:
-- `kubectl` resolves to the version-matched binary in `.snow-utils/<cluster-name>/bin/`
-- `KUBECONFIG` points to the scoped kubeconfig in `.snow-utils/<cluster-name>/.kube/config`
-- All subsequent `kubectl` and `uv run polaris-local-forge` commands use the correct cluster
-
-**Verify scoped kubectl works:**
+**Verify kubectl works:**
 
 ```bash
 kubectl version --client
@@ -454,8 +470,8 @@ kubectl get nodes
 
 **SUMMARIZE:**
 
-> k3d cluster `${K3D_CLUSTER_NAME}` created. Kubeconfig and kubectl
-> scoped to `.snow-utils/${CLUSTER_NAME}/`. Cluster is starting up.
+> k3d cluster `${K3D_CLUSTER_NAME}` created. Kubeconfig at `.kube/config`,
+> kubectl at `bin/kubectl`. Cluster is starting up.
 
 ### Step 4: Wait for Bootstrap
 
@@ -467,7 +483,7 @@ kubectl get nodes
 **DO:**
 
 ```bash
-uv run polaris-local-forge cluster bootstrap-check
+${PLF} cluster bootstrap-check
 ```
 
 **SUMMARIZE:**
@@ -484,7 +500,7 @@ uv run polaris-local-forge cluster bootstrap-check
 **DO:**
 
 ```bash
-uv run polaris-local-forge polaris deploy
+${PLF} polaris deploy
 ```
 
 **SUMMARIZE:**
@@ -496,7 +512,7 @@ uv run polaris-local-forge polaris deploy
 **DO:**
 
 ```bash
-uv run polaris-local-forge cluster polaris-check
+${PLF} cluster polaris-check
 ```
 
 **SUMMARIZE:**
@@ -559,15 +575,7 @@ aws s3 mb s3://my-bucket --endpoint-url http://localhost:9000
 **DO:**
 
 ```bash
-uv run polaris-local-forge catalog setup
-```
-
-**Post-step -- copy catalog-level files to scoped directory:**
-
-```bash
-cp work/principal.txt "${SCOPE_DIR}/work/principal.txt"
-chmod 600 "${SCOPE_DIR}/work/principal.txt"
-cp scripts/explore_catalog.sql "${SCOPE_DIR}/" 2>/dev/null || true
+${PLF} catalog setup
 ```
 
 **Update manifest -- set Status: IN_PROGRESS and mark each resource DONE as created:**
@@ -612,8 +620,8 @@ cp scripts/explore_catalog.sql "${SCOPE_DIR}/" 2>/dev/null || true
 **SUMMARIZE:**
 
 > Catalog `${PLF_POLARIS_CATALOG_NAME}` created with principal `${PLF_POLARIS_PRINCIPAL_NAME}`.
-> Credentials saved to `.snow-utils/${CLUSTER_NAME}/work/principal.txt`
-> (realm shown, client_id/secret masked).
+> Credentials saved to `work/principal.txt` (realm shown, client_id/secret masked).
+> Sensitive files permissions secured (0600).
 
 ### Step 9: Verification
 
@@ -631,7 +639,7 @@ cp scripts/explore_catalog.sql "${SCOPE_DIR}/" 2>/dev/null || true
 **DO:**
 
 ```bash
-uv run polaris-local-forge catalog verify-sql
+${PLF} catalog verify-sql
 ```
 
 **Check the result:**
@@ -654,13 +662,7 @@ uv run polaris-local-forge catalog verify-sql
 **DO:**
 
 ```bash
-uv run polaris-local-forge catalog generate-notebook
-```
-
-**Post-step -- copy notebook to scoped directory:**
-
-```bash
-cp notebooks/verify_polaris.ipynb "${SCOPE_DIR}/" 2>/dev/null || true
+${PLF} catalog generate-notebook
 ```
 
 **SUMMARIZE:**
@@ -687,17 +689,17 @@ Catalog:
 
 Credentials:
   RustFS:    admin / password
-  Polaris:   See .snow-utils/${CLUSTER_NAME}/work/principal.txt
-  Bootstrap: See .snow-utils/${CLUSTER_NAME}/bootstrap-credentials.env
+  Polaris:   See work/principal.txt
+  Bootstrap: See k8s/polaris/.bootstrap-credentials.env
 
 Next steps:
-  jupyter notebook notebooks/verify_polaris.ipynb   # Interactive exploration
-  uv run polaris-local-forge catalog verify-sql      # Re-run verification
-  uv run polaris-local-forge catalog explore-sql     # Interactive DuckDB SQL
+  jupyter notebook notebooks/verify_polaris.ipynb  # Interactive exploration
+  ${PLF} catalog verify-sql                        # Re-run verification
+  ${PLF} catalog explore-sql                       # Interactive DuckDB SQL
 
 Scoped kubectl (for direct cluster queries):
-  export KUBECONFIG=.snow-utils/${CLUSTER_NAME}/.kube/config
-  export PATH=.snow-utils/${CLUSTER_NAME}/bin:$PATH
+  export KUBECONFIG=$(pwd)/.kube/config
+  export PATH=$(pwd)/bin:$PATH
   kubectl get pods -n polaris
 
 Manifest: .snow-utils/snow-utils-manifest.md
@@ -714,7 +716,7 @@ These flows operate on the catalog without rebuilding the cluster.
 **Trigger:** "setup catalog only", "create catalog"
 
 ```bash
-uv run polaris-local-forge catalog setup
+${PLF} catalog setup
 ```
 
 ### Catalog Cleanup
@@ -724,10 +726,10 @@ uv run polaris-local-forge catalog setup
 **STOP**: Confirm with user before executing.
 
 ```bash
-uv run polaris-local-forge catalog cleanup --yes
+${PLF} catalog cleanup --yes
 ```
 
-Updates manifest status to REMOVED. Generated files in `.snow-utils/<cluster-name>/` are preserved.
+Updates manifest status to REMOVED. Generated files in `work/` are preserved.
 
 ### Catalog Reset
 
@@ -736,11 +738,11 @@ Updates manifest status to REMOVED. Generated files in `.snow-utils/<cluster-nam
 **STOP**: Confirm with user before executing.
 
 ```bash
-uv run polaris-local-forge catalog cleanup --yes
-uv run polaris-local-forge catalog setup
+${PLF} catalog cleanup --yes
+${PLF} catalog setup
 ```
 
-Runs cleanup + setup. Generates new `principal.txt` (new credentials). Copies fresh catalog-level files to `.snow-utils/<cluster-name>/work/`.
+Runs cleanup + setup. Generates new `principal.txt` (new credentials).
 
 ### Full Catalog Reset
 
@@ -749,8 +751,8 @@ Runs cleanup + setup. Generates new `principal.txt` (new credentials). Copies fr
 **STOP**: This is destructive. Confirm with user.
 
 ```bash
-uv run polaris-local-forge polaris reset --yes
-uv run polaris-local-forge catalog setup
+${PLF} polaris reset --yes
+${PLF} catalog setup
 ```
 
 Purges the entire Polaris database and recreates from scratch.
@@ -762,10 +764,10 @@ Purges the entire Polaris database and recreates from scratch.
 **STOP**: This is destructive. Confirm with user.
 
 ```bash
-uv run polaris-local-forge teardown --yes
+${PLF} teardown --yes
 ```
 
-Updates manifest status to REMOVED. Files in `.snow-utils/<cluster-name>/` are **preserved** for future replay.
+Updates manifest status to REMOVED. Generated files are preserved in the work directory for future replay.
 
 ### Explicit Purge
 
@@ -774,8 +776,8 @@ Updates manifest status to REMOVED. Files in `.snow-utils/<cluster-name>/` are *
 **STOP**: This is irreversible. Confirm with user.
 
 ```bash
-uv run polaris-local-forge teardown --yes
-rm -rf .snow-utils/${CLUSTER_NAME}
+${PLF} teardown --yes
+rm -rf work/ k8s/ bin/ .kube/ notebooks/ scripts/
 ```
 
 Only offered when user explicitly asks to wipe everything.
@@ -789,14 +791,14 @@ When manifest has `Status: REMOVED`:
 1. Read config values from manifest
 2. Show replay plan to user
 3. On confirmation, execute Steps 1-10
-4. Reuse cluster-level files from `.snow-utils/<cluster-name>/` (RSA keys, manifests)
+4. Reuse existing `.env` and work directory layout
 5. Re-activate scoped environment (`KUBECONFIG`, `PATH` for kubectl)
 6. Regenerate catalog-level files (new principal credentials)
 7. Update manifest to COMPLETE
 
 ## Consuming Projects: Minimal Setup
 
-A separate project using polaris-local-forge as infrastructure needs only:
+A separate project that wants to query the Polaris catalog needs only:
 
 **In the project directory:**
 
@@ -808,38 +810,52 @@ AWS_ENDPOINT_URL=http://localhost:9000
 AWS_ACCESS_KEY_ID=admin
 AWS_SECRET_ACCESS_KEY=password
 AWS_REGION=us-east-1
-# From .snow-utils/<cluster-name>/work/principal.txt:
+# From work/principal.txt in the polaris workspace:
 POLARIS_REALM=POLARIS
 CLIENT_ID=<from principal.txt>
 CLIENT_SECRET=<from principal.txt>
 ```
 
 - A notebook (`.ipynb`) or SQL scripts for querying
-- `pyproject.toml` with query deps (`duckdb`, `pyiceberg[s3fs]`)
+- `pyproject.toml` with query deps (copy `user-project/pyproject.toml` from the skill repo)
 
 **NOT needed:** k8s manifests, ansible, polaris-local-forge CLI source.
 
 ## Stopping Points
 
-1. Step 0: Ask for project directory (if not detected)
-2. Step 0a: If prerequisites missing
-3. Step 0b: Manifest detection (ask which to use if conflict)
-4. Step 0c: Adapt-check (if shared manifest has `# ADAPT:` markers)
-5. Step 1: Before environment setup
-6. Step 2: Before generating config files
-7. Step 3: Before cluster creation
-8. Step 8: Before catalog setup
-9. Catalog-only flows: Before cleanup/reset
-10. Teardown: Before destructive operations
+1. Step 0: Ask for workspace directory (if not detected)
+2. Step 0a: Configuration review -- wait for user confirmation
+3. Step 0b: If prerequisites missing
+4. Step 0c: Manifest detection (ask which to use if conflict)
+5. Step 0d: Adapt-check (if shared manifest has `# ADAPT:` markers)
+6. Step 1: Before environment setup
+7. Step 2: Before generating config files
+8. Step 3: Before cluster creation
+9. Step 8: Before catalog setup
+10. Catalog-only flows: Before cleanup/reset
+11. Teardown: Before destructive operations
 
 ## CLI Reference
 
-All commands use `uv run polaris-local-forge` (aliased as `plf` below for brevity).
+All commands use:
+
+```bash
+PLF="uv run --project <SKILL_DIR> polaris-local-forge --work-dir <PROJECT_DIR>"
+```
+
+Aliased as `plf` in tables below for brevity.
+
+**Global options (before any subcommand):**
+
+| Option | Description |
+|--------|-------------|
+| `--work-dir PATH` | Working directory for generated files (default: skill directory) |
+| `--env-file PATH` | Path to .env file (default: `<work-dir>/.env`) |
 
 **OPTION NAMES (NEVER guess or invent options):**
 
 > ONLY use options listed in the tables below. If a command fails with "No such option",
-> run `uv run polaris-local-forge <command> --help` to see actual available options and
+> run `${PLF} <command> --help` to see actual available options and
 > use ONLY those. NEVER invent, abbreviate, or rename options.
 
 **`--yes` is REQUIRED** when executing destructive commands after user has approved (CLIs prompt interactively which does not work in Cortex Code's non-interactive shell). All destructive commands support `--dry-run` to preview and `--yes` to skip interactive confirmation.
@@ -909,7 +925,7 @@ All commands use `uv run polaris-local-forge` (aliased as `plf` below for brevit
 ```bash
 kubectl get events -n polaris --sort-by='.lastTimestamp'
 kubectl describe pod -n polaris -l app=polaris
-uv run polaris-local-forge polaris deploy
+${PLF} polaris deploy
 ```
 
 **RustFS not accessible:**
@@ -923,15 +939,15 @@ aws s3 ls --endpoint-url http://localhost:9000
 
 ```bash
 kubectl logs -f -n polaris jobs/polaris-bootstrap
-uv run polaris-local-forge polaris reset --yes
+${PLF} polaris reset --yes
 ```
 
 **Catalog setup fails (S3 bucket error):**
 
 ```bash
 aws s3 ls --endpoint-url http://localhost:9000
-uv run polaris-local-forge catalog cleanup --yes
-uv run polaris-local-forge catalog setup
+${PLF} catalog cleanup --yes
+${PLF} catalog setup
 ```
 
 **DuckDB verification fails:**
@@ -939,7 +955,7 @@ uv run polaris-local-forge catalog setup
 Ensure the catalog is set up and principal credentials are valid:
 
 ```bash
-uv run polaris-local-forge catalog list
+${PLF} catalog list
 cat work/principal.txt
 ```
 
@@ -953,33 +969,54 @@ cat work/principal.txt
 
 ## Directory Structure
 
-After skill-based setup:
+### User Workspace (--work-dir)
+
+After skill-based setup, the user's project directory contains:
 
 ```
-polaris-local-forge/
-├── .env                              # Environment configuration
+my-polaris-project/                   # User's --work-dir
+├── .env                              # Environment configuration (from .env.example)
+├── pyproject.toml                    # Lightweight query deps (from user-project/)
+├── .venv/                            # Python virtual environment (uv sync)
 ├── .snow-utils/
-│   ├── snow-utils-manifest.md        # Resource tracking manifest
-│   └── polaris-local-forge/          # Scoped by cluster name
-│       ├── bin/kubectl               # Version-matched kubectl
-│       ├── .kube/config              # Cluster kubeconfig
-│       ├── work/
-│       │   └── principal.txt         # Catalog credentials (chmod 600)
-│       ├── bootstrap-credentials.env
-│       ├── polaris-secrets.yaml
-│       ├── polaris.yaml
-│       ├── postgresql.yaml
+│   └── snow-utils-manifest.md        # Resource tracking manifest
+├── .kube/
+│   └── config                        # Cluster kubeconfig (chmod 600)
+├── bin/
+│   └── kubectl                       # Version-matched kubectl binary
+├── k8s/                              # Generated + copied k8s manifests
+│   ├── features/
+│   │   ├── rustfs.yaml               # RustFS deployment (copied from skill)
+│   │   ├── polaris.yaml              # Generated Polaris Helm values
+│   │   └── postgresql.yaml           # Generated PostgreSQL Helm values
+│   └── polaris/
+│       ├── kustomization.yaml        # Copied from skill
+│       ├── polaris-secrets.yaml      # Generated secrets
+│       ├── .bootstrap-credentials.env
 │       ├── .polaris.env
-│       ├── rsa_key / rsa_key.pub
-│       └── explore_catalog.sql
-├── config/cluster-config.yaml
-├── k8s/                              # Kubernetes manifests (infra)
-├── notebooks/verify_polaris.ipynb
-├── polaris-forge-setup/              # Ansible playbooks (infra)
-├── scripts/explore_catalog.sql
-├── src/polaris_local_forge/          # CLI source (infra)
-├── pyproject.toml
-├── Taskfile.yml                      # Optional: task runner (not required by skill)
+│       ├── rsa_key / rsa_key.pub     # RSA key pair
+│       └── jobs/                     # Bootstrap/purge jobs (copied from skill)
+├── work/
+│   └── principal.txt                 # Catalog credentials (chmod 600)
+├── notebooks/
+│   └── verify_polaris.ipynb          # Generated verification notebook
+└── scripts/
+    └── explore_catalog.sql           # Generated SQL verification script
+```
+
+### Skill Repository (read-only source)
+
+```
+polaris-local-forge/                  # SKILL_DIR -- read-only
+├── .env.example                      # Template copied to user workspace
+├── config/cluster-config.yaml        # k3d cluster configuration
+├── k8s/                              # Static k8s manifests (source of truth)
+├── polaris-forge-setup/              # Ansible playbooks + templates
+├── scripts/explore_catalog.py        # Python verification script
+├── src/polaris_local_forge/          # CLI source
+├── user-project/
+│   └── pyproject.toml                # Lightweight deps template
+├── pyproject.toml                    # Full CLI + infrastructure deps
 ├── SKILL.md                          # This file
 ├── SKILL_README.md                   # Skills documentation
 └── example-manifests/
