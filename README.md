@@ -307,6 +307,22 @@ polaris-local-forge/
 └── Taskfile.yml
 ```
 
+## Using with Cortex Code
+
+This repo includes a [Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) skill that automates the full setup interactively.
+
+**Install the skill:**
+
+```bash
+cortex skill add https://github.com/kameshsampath/polaris-local-forge
+```
+
+**Then say:** "get started with apache polaris" or "setup from example manifest"
+
+The skill wraps all Task/CLI commands, manages a `.snow-utils/` manifest for tracking resources, and supports catalog-only resets without rebuilding the cluster.
+
+See [SKILL_README.md](SKILL_README.md) for full details on triggers, example manifests, S3/RustFS configuration, and consuming project setup.
+
 ## Related Projects
 
 - [Apache Polaris](https://polaris.apache.org/) - Iceberg REST Catalog
