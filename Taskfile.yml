@@ -20,7 +20,7 @@ vars:
     sh: pwd
   KUBECONFIG: "{{.PROJECT_HOME}}/.kube/config"
   K3D_CLUSTER_NAME: polaris-local-forge
-  K3S_VERSION: v1.31.5-k3s1
+  K3S_VERSION: v1.35.1-k3s1
   FEATURES_DIR: "{{.PROJECT_HOME}}/k8s"
 
 env:
