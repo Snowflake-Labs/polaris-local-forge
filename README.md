@@ -319,7 +319,9 @@ cortex skill add https://github.com/kameshsampath/polaris-local-forge
 
 **Then say:** "get started with apache polaris" or "setup from example manifest"
 
-The skill wraps all Task/CLI commands, manages a `.snow-utils/` manifest for tracking resources, and supports catalog-only resets without rebuilding the cluster.
+The skill wraps all CLI commands, manages a `.snow-utils/` manifest for tracking resources, and supports catalog-only resets without rebuilding the cluster.
+
+The CLI supports `--work-dir` to keep the skill repo pristine -- generated files (k8s manifests, credentials, kubeconfig, notebooks) go to a user project directory. A lightweight `user-project/pyproject.toml` template is included for query-only workspaces.
 
 See [SKILL_README.md](SKILL_README.md) for full details on triggers, example manifests, S3/RustFS configuration, and consuming project setup.
 
