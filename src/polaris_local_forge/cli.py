@@ -199,6 +199,285 @@ def config(output: str):
         click.echo(f"  PLF_POLARIS_PRINCIPAL_NAME: {cfg['PLF_POLARIS_PRINCIPAL_NAME']}")
 
 
+def get_tool_version(cmd: list[str]) -> str | None:
+    """Get version string from a command, return None if not found."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            return result.stdout.strip().split("\n")[0]
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return None
+
+
+def get_docker_memory() -> str | None:
+    """Get Docker total memory allocation."""
+    try:
+        result = subprocess.run(
+            ["docker", "info", "--format", "{{.MemTotal}}"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            mem_bytes = int(result.stdout.strip())
+            mem_gb = mem_bytes / (1024**3)
+            return f"{mem_gb:.1f}GB"
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        pass
+    return None
+
+
+def check_cluster_exists(cluster_name: str) -> bool:
+    """Check if a k3d cluster exists."""
+    try:
+        result = subprocess.run(
+            ["k3d", "cluster", "list", "-o", "json"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            clusters = json.loads(result.stdout)
+            return any(c.get("name") == cluster_name for c in clusters)
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+        pass
+    return False
+
+
+@cli.command()
+@click.option("--output", "-o", type=click.Choice(["text", "json"]), default="text", help="Output format")
+def doctor(output: str):
+    """Check system prerequisites and health.
+
+    Verifies all required tools are installed, Docker is running,
+    and the environment is ready for setup.
+    """
+    cfg = get_config()
+    checks = {
+        "required": {},
+        "optional": {},
+        "environment": {},
+    }
+    all_required_ok = True
+
+    # Required: Docker
+    docker_path = shutil.which("docker")
+    if docker_path:
+        docker_version = get_tool_version(["docker", "--version"])
+        docker_running = check_docker_running()
+        docker_memory = get_docker_memory() if docker_running else None
+        checks["required"]["docker"] = {
+            "installed": True,
+            "version": docker_version,
+            "running": docker_running,
+            "memory": docker_memory,
+            "path": docker_path,
+        }
+        if not docker_running:
+            all_required_ok = False
+    else:
+        checks["required"]["docker"] = {"installed": False}
+        all_required_ok = False
+
+    # Required: k3d
+    k3d_path = shutil.which("k3d")
+    if k3d_path:
+        k3d_version = get_tool_version(["k3d", "version"])
+        checks["required"]["k3d"] = {
+            "installed": True,
+            "version": k3d_version,
+            "path": k3d_path,
+        }
+    else:
+        checks["required"]["k3d"] = {"installed": False}
+        all_required_ok = False
+
+    # Required: Python
+    python_path = shutil.which("python3") or shutil.which("python")
+    if python_path:
+        python_version = get_tool_version(["python3", "--version"]) or get_tool_version(["python", "--version"])
+        version_parts = python_version.replace("Python ", "").split(".") if python_version else []
+        meets_requirement = len(version_parts) >= 2 and int(version_parts[0]) >= 3 and int(version_parts[1]) >= 12
+        checks["required"]["python"] = {
+            "installed": True,
+            "version": python_version,
+            "meets_requirement": meets_requirement,
+            "required_version": ">=3.12",
+            "path": python_path,
+        }
+        if not meets_requirement:
+            all_required_ok = False
+    else:
+        checks["required"]["python"] = {"installed": False, "required_version": ">=3.12"}
+        all_required_ok = False
+
+    # Required: uv
+    uv_path = shutil.which("uv")
+    if uv_path:
+        uv_version = get_tool_version(["uv", "--version"])
+        checks["required"]["uv"] = {
+            "installed": True,
+            "version": uv_version,
+            "path": uv_path,
+        }
+    else:
+        checks["required"]["uv"] = {"installed": False}
+        all_required_ok = False
+
+    # Required: Task
+    task_path = shutil.which("task")
+    if task_path:
+        task_version = get_tool_version(["task", "--version"])
+        checks["required"]["task"] = {
+            "installed": True,
+            "version": task_version,
+            "path": task_path,
+        }
+    else:
+        checks["required"]["task"] = {"installed": False}
+        all_required_ok = False
+
+    # Optional: DuckDB CLI
+    duckdb_path = shutil.which("duckdb")
+    if duckdb_path:
+        duckdb_version = get_tool_version(["duckdb", "--version"])
+        checks["optional"]["duckdb"] = {
+            "installed": True,
+            "version": duckdb_version,
+            "path": duckdb_path,
+        }
+    else:
+        checks["optional"]["duckdb"] = {"installed": False}
+
+    # Optional: direnv
+    direnv_path = shutil.which("direnv")
+    if direnv_path:
+        direnv_version = get_tool_version(["direnv", "--version"])
+        checks["optional"]["direnv"] = {
+            "installed": True,
+            "version": direnv_version,
+            "path": direnv_path,
+        }
+    else:
+        checks["optional"]["direnv"] = {"installed": False}
+
+    # Environment: Python venv
+    venv_exists = (PROJECT_HOME / ".venv").exists()
+    checks["environment"]["venv"] = {
+        "exists": venv_exists,
+        "path": str(PROJECT_HOME / ".venv"),
+    }
+
+    # Environment: .env file
+    env_exists = (PROJECT_HOME / ".env").exists()
+    checks["environment"]["env_file"] = {
+        "exists": env_exists,
+        "path": str(PROJECT_HOME / ".env"),
+    }
+
+    # Environment: Cluster
+    cluster_name = cfg["K3D_CLUSTER_NAME"]
+    cluster_exists = False
+    if checks["required"]["k3d"].get("installed") and checks["required"]["docker"].get("running"):
+        cluster_exists = check_cluster_exists(cluster_name)
+    checks["environment"]["cluster"] = {
+        "name": cluster_name,
+        "exists": cluster_exists,
+    }
+
+    # Summary
+    checks["summary"] = {
+        "all_required_ok": all_required_ok,
+        "ready_for_setup": all_required_ok and env_exists,
+    }
+
+    if output == "json":
+        click.echo(json.dumps(checks, indent=2))
+    else:
+        click.secho("🩺 Polaris Local Forge - System Doctor", bold=True)
+        click.echo("=" * 42)
+        click.echo()
+
+        click.secho("Required Tools:", bold=True)
+        for tool, info in checks["required"].items():
+            if info.get("installed"):
+                status = "✓" if tool != "docker" or info.get("running") else "✗"
+                color = "green" if status == "✓" else "red"
+                version = info.get("version", "").split("\n")[0]
+                extra = ""
+                if tool == "docker":
+                    if info.get("running"):
+                        mem = info.get("memory", "")
+                        extra = f" (running, {mem})" if mem else " (running)"
+                    else:
+                        extra = " (not running)"
+                elif tool == "python" and not info.get("meets_requirement"):
+                    extra = f" (need {info.get('required_version')})"
+                    color = "yellow"
+                click.secho(f"  {status} {tool}: {version}{extra}", fg=color)
+            else:
+                click.secho(f"  ✗ {tool}: not installed", fg="red")
+                if tool == "docker":
+                    click.echo("    → Install: https://www.docker.com/products/docker-desktop/")
+                elif tool == "k3d":
+                    click.echo("    → Install: brew install k3d")
+                elif tool == "python":
+                    click.echo("    → Install: https://www.python.org/downloads/")
+                elif tool == "uv":
+                    click.echo("    → Install: curl -LsSf https://astral.sh/uv/install.sh | sh")
+                elif tool == "task":
+                    click.echo("    → Install: brew install go-task")
+
+        click.echo()
+        click.secho("Optional Tools:", bold=True)
+        for tool, info in checks["optional"].items():
+            if info.get("installed"):
+                version = info.get("version", "")
+                click.secho(f"  ✓ {tool}: {version}", fg="green")
+            else:
+                click.echo(f"  ℹ {tool}: not installed")
+                if tool == "duckdb":
+                    click.echo("    → Install: brew install duckdb")
+                elif tool == "direnv":
+                    click.echo("    → Install: brew install direnv")
+
+        click.echo()
+        click.secho("Environment:", bold=True)
+        env_info = checks["environment"]
+        if env_info["venv"]["exists"]:
+            click.secho("  ✓ Python venv: exists", fg="green")
+        else:
+            click.echo("  ℹ Python venv: not created")
+            click.echo("    → Run: task setup:python")
+
+        if env_info["env_file"]["exists"]:
+            click.secho("  ✓ Configuration: .env exists", fg="green")
+        else:
+            click.echo("  ℹ Configuration: .env not found")
+            click.echo("    → Run: cp .env.example .env")
+
+        if env_info["cluster"]["exists"]:
+            click.secho(f"  ✓ Cluster '{cluster_name}': exists", fg="green")
+        else:
+            click.echo(f"  ℹ Cluster '{cluster_name}': not created")
+            click.echo("    → Run: task setup:all")
+
+        click.echo()
+        click.echo("=" * 42)
+        if all_required_ok:
+            click.secho("✓ All required prerequisites installed!", fg="green")
+            click.echo()
+            click.echo("Next steps:")
+            if not env_info["venv"]["exists"]:
+                click.echo("  1. task setup:python   # Setup Python environment")
+                click.echo("  2. task setup:all      # Deploy everything")
+            elif not env_info["cluster"]["exists"]:
+                click.echo("  1. task setup:all      # Deploy everything")
+            else:
+                click.echo("  Environment ready! Run 'task status' to check services.")
+        else:
+            click.secho("✗ Some prerequisites missing. Install them first.", fg="red")
+
+    sys.exit(0 if all_required_ok else 1)
+
+
 @cli.command()
 @click.option("--tags", "-t", help="Ansible tags to run (comma-separated)")
 @click.option("--dry-run", "-n", is_flag=True, help="Show command without executing")

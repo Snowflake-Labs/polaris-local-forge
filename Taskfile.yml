@@ -45,6 +45,20 @@ tasks:
       - command -v uv
 
   # ============================================
+  # Doctor - System Health Check
+  # ============================================
+
+  doctor:
+    desc: Check system prerequisites and health
+    cmds:
+      - uv run polaris-local-forge doctor
+
+  doctor:json:
+    desc: Check system prerequisites (JSON output for automation)
+    cmds:
+      - uv run polaris-local-forge doctor --output json
+
+  # ============================================
   # Setup and Initialization Tasks
   # ============================================
 

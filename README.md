@@ -39,6 +39,10 @@ A complete local development environment for [Apache Polaris (Incubating)](https
 ### Verify Prerequisites
 
 ```bash
+# Quick health check
+task doctor
+
+# Or manually verify
 docker --version && docker info > /dev/null && echo "Docker: OK"
 k3d version
 python3 --version
@@ -100,6 +104,8 @@ All operations are available via Task commands:
 
 | Command | Description |
 |---------|-------------|
+| `task doctor` | Check system prerequisites and health |
+| `task doctor:json` | Prerequisites check with JSON output |
 | `task status` | Show cluster and Polaris status |
 | `task status:detailed` | Detailed kubectl output |
 | `task config` | Show current configuration |
@@ -174,6 +180,8 @@ uv run polaris-local-forge --help
 
 | Command | Description |
 |---------|-------------|
+| `polaris-local-forge doctor` | Check system prerequisites and health |
+| `polaris-local-forge doctor --output json` | Prerequisites as JSON (for automation/skills) |
 | `polaris-local-forge config` | Show current configuration |
 | `polaris-local-forge config --output json` | Configuration as JSON |
 | `polaris-local-forge setup --dry-run` | Preview setup plan |
