@@ -1,0 +1,23 @@
+[project]
+name = "polaris-local-workspace"
+version = "0.1.0"
+description = "Local Apache Polaris (Incubating) workspace - query Iceberg tables with DuckDB, PyIceberg, and boto3"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.35.0",
+    "duckdb>=1.4.0",
+    "pandas>=2.2.3",
+    "pyarrow>=19.0.0",
+    "pyiceberg[s3fs]>=0.8.1",
+    "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+notebook = [
+    "ipykernel>=6.29.5",
+    "jupyter>=1.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
