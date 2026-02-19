@@ -35,8 +35,8 @@ polaris-local-forge: https://github.com/kameshsampath/polaris-local-forge
 **K3D_CLUSTER_NAME:** polaris-local-forge  # ADAPT: customizable
 **K3S_VERSION:** v1.35.1-k3s1
 **KUBECTL_VERSION:** v1.35.1
-**KUBECONFIG:** .snow-utils/polaris-local-forge/.kube/config  # ADAPT: derived-from-cluster-name
-**KUBECTL_PATH:** .snow-utils/polaris-local-forge/bin/kubectl  # ADAPT: derived-from-cluster-name
+**KUBECONFIG:** .kube/config
+**KUBECTL_PATH:** bin/kubectl
 
 ### RustFS S3
 **AWS_ENDPOINT_URL:** http://localhost:9000
