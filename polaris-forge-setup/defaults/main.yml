@@ -1,7 +1,11 @@
 # defaults/main.yml
 ---
 # AWS S3-Compatible Storage Configuration (RustFS)
-plf_aws_endpoint_url: http://rustfs.rustfs:9000 # RustFS S3 API endpoint in k3s
+# External endpoint for Ansible tasks (localhost via NodePort 9000:31900)
+plf_aws_endpoint_url: http://localhost:9000
+# Internal endpoint for Polaris (inside k8s cluster)
+# Service name is 'rustfs-svc' in namespace 'rustfs'
+plf_aws_endpoint_url_internal: http://rustfs-svc.rustfs:9000
 plf_aws_region: us-east-1 # AWS region for RustFS
 plf_aws_role_arn: arn:aws:iam::000000000000:role/Admin # Default role ARN
 plf_aws_access_key_id: admin # AWS_ACCESS_KEY_ID (RustFS root user)

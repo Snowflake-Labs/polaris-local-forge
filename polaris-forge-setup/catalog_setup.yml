@@ -103,11 +103,12 @@
               allowedLocations:
                 - "{{ plf_base_s3_location }}"
               roleArn: "{{ plf_aws_role_arn }}"
+              # External endpoint for clients accessing from outside the cluster
               endpoint: "{{ plf_aws_endpoint_url }}"
               region: "{{ plf_aws_region }}"
               pathStyleAccess: "{{ plf_aws_path_style_access }}"
-              # added this for clarity
-              endpointInternal: "{{ plf_aws_endpoint_url }}"
+              # Internal endpoint for Polaris (inside k8s cluster)
+              endpointInternal: "{{ plf_aws_endpoint_url_internal }}"
         status_code: [201, 409]
       register: catalog_response
       tags:

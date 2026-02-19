@@ -1,5 +1,6 @@
 ---
 # https://github.com/rustfs/helm
+# Chart values reference: https://github.com/rustfs/rustfs/blob/main/helm/rustfs/values.yaml
 apiVersion: helm.cattle.io/v1
 kind: HelmChart
 metadata:
@@ -11,7 +12,7 @@ spec:
   createNamespace: true
   targetNamespace: rustfs
   valuesContent: |-
-    # Standalone mode for local development
+    # Standalone mode for local development (one pod, one pvc)
     mode:
       standalone:
         enabled: true
@@ -22,23 +23,31 @@ spec:
     replicaCount: 1
     
     # Credentials - using simple test credentials for local development
-    auth:
-      rootUser: admin
-      rootPassword: password
+    secret:
+      rustfs:
+        access_key: admin
+        secret_key: password
     
-    # Service configuration
+    # Service configuration - NodePort for local k3d access
+    # Maps to cluster-config.yaml: 9000:31900 (S3 API), 9001:31901 (Console)
     service:
       type: NodePort
-      port: 9000
-      nodePort: 31900
-      consolePort: 9001
-      consoleNodePort: 31901
+      endpoint:
+        port: 9000
+        nodePort: 31900
+      console:
+        port: 9001
+        nodePort: 31901
     
-    # Persistence configuration
-    persistence:
-      enabled: true
-      size: 10Gi
-      storageClass: local-path
+    # Disable ingress (using NodePort instead)
+    ingress:
+      enabled: false
+    
+    # Storage configuration (uses k3s local-path provisioner)
+    storageclass:
+      name: local-path
+      dataStorageSize: 10Gi
+      logStorageSize: 256Mi
     
     # Resource limits for local development
     resources:
@@ -48,7 +57,3 @@ spec:
       limits:
         memory: 1Gi
         cpu: 500m
-    
-    # Console/UI enabled
-    console:
-      enabled: true
