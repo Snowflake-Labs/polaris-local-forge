@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "CLI tools for managing local Apache Polaris development environment"
 readme = "README.md"
 license = { file = "LICENSE.txt" }
-authors = [{ name = "Kamesh Sampath", email = "kamesh.sampath@hotmail.com" }]
+authors = [{ name = "Kamesh Sampath", email = "kamesh.sampath@snowflake.com" }]
 requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.35.0",

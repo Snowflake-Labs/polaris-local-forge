@@ -310,7 +310,7 @@ polaris-local-forge/
 
 ## License
 
-Apache 2.0
+Copyright (c) Snowflake Inc. All rights reserved. Licensed under the Apache 2.0 license.
 
 ## Contributing
 
