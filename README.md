@@ -82,8 +82,8 @@ After setup completes, you'll see:
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | Polaris API | http://localhost:18181 | See `k8s/polaris/.bootstrap-credentials.env` |
-| RustFS S3 | http://localhost:9000 | `admin` / `password` |
-| RustFS Console | http://localhost:9001 | `admin` / `password` |
+| RustFS S3 | http://localhost:19000 | `admin` / `password` |
+| RustFS Console | http://localhost:19001 | `admin` / `password` |
 
 ## Verify Setup
 
@@ -210,6 +210,7 @@ uv run polaris-local-forge --help
 | `polaris-local-forge setup --dry-run` | Preview setup plan |
 | `polaris-local-forge setup --yes` | Execute setup |
 | `polaris-local-forge teardown --yes` | Execute teardown |
+| `polaris-local-forge cluster delete --yes --stop-podman` | Delete cluster and stop Podman (macOS) |
 | `polaris-local-forge cluster status` | Cluster status |
 | `polaris-local-forge cluster status --output json` | Cluster status as JSON |
 | `polaris-local-forge polaris status` | Polaris status |
@@ -237,7 +238,7 @@ Key settings:
 | `PLF_PODMAN_MACHINE` | `k3d` | Podman machine name (macOS only) |
 | `K3D_CLUSTER_NAME` | `polaris-local-forge` | Cluster name |
 | `K3S_VERSION` | `v1.31.5-k3s1` | K3S version |
-| `AWS_ENDPOINT_URL` | `http://localhost:9000` | RustFS S3 endpoint |
+| `AWS_ENDPOINT_URL` | `http://localhost:19000` | RustFS S3 endpoint |
 | `POLARIS_URL` | `http://localhost:18181` | Polaris API endpoint |
 
 View current configuration:
@@ -296,11 +297,14 @@ task catalog:cleanup
 # Reset catalog (cleanup + setup)
 task catalog:reset
 
-# Complete teardown
+# Complete teardown (prompts to stop Podman machine on macOS)
 task teardown
 
-# Or just delete cluster
+# Or just delete cluster (prompts to stop Podman machine on macOS)
 task clean:all
+
+# Delete cluster and stop Podman machine without prompts
+polaris-local-forge cluster delete --yes --stop-podman
 ```
 
 ## Project Structure

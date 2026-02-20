@@ -1,0 +1,22 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Polaris Local Forge - User Project Environment
+# Copy to .envrc and run: direnv allow
+
+PATH_add "$PWD/bin"
+
+use_venv() {
+  if [ -d ".venv" ]; then
+    source .venv/bin/activate
+  else
+    uv venv
+    uv sync --extra notebook  # includes ipykernel for VSCode/Cursor notebooks
+    source .venv/bin/activate
+  fi
+}
+
+use venv
+dotenv_if_exists
+
+export KUBECONFIG="$PWD/.kube/config"

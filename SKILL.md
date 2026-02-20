@@ -15,6 +15,7 @@ Query [Apache Iceberg](https://iceberg.apache.org/) tables locally with DuckDB, 
 **PREREQUISITE:** NO PREREQUISITE -- this skill is self-contained infrastructure.
 
 **AUTH MODEL:**
+
 - **Bootstrap credentials:** Auto-generated admin credentials for Polaris realm setup (in `.bootstrap-credentials.env`)
 - **Principal credentials:** API-generated client_id/client_secret for catalog access (in `work/principal.txt`)
 - **RustFS credentials:** Static `admin`/`password` for S3-compatible storage (no IAM)
@@ -27,13 +28,15 @@ This skill requires the following tools installed on your machine:
 
 | Tool | Purpose | Install |
 |------|---------|---------|
-| Podman (default) | Container runtime (OSS) | `brew install podman` or [podman.io](https://podman.io/) |
+| Podman (default) | Container runtime (OSS) | **Already installed** - Podman is a dependency of Cortex Code |
 | Docker (alternative) | Container runtime | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (>= 4.27) |
 | k3d | k3s-in-Docker/Podman | `brew install k3d` or [k3d.io](https://k3d.io/) |
 | Python | >= 3.12 | [python.org](https://www.python.org/downloads/) |
 | uv | Python package manager | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 
-**Container Runtime:** Podman is the preferred runtime (fully OSS, shipped with Cortex Code). Auto-detection checks for Podman first, then Docker. Set `PLF_CONTAINER_RUNTIME=docker` in `.env` to use Docker instead. See [docs/podman-setup.md](docs/podman-setup.md) for Podman machine setup.
+**Note:** Podman is a dependency of Cortex Code and should already be installed on your system. If not present, install via `brew install podman` or [podman.io](https://podman.io/).
+
+**Container Runtime:** Podman is the preferred runtime (fully OSS). Auto-detection checks for Podman first, then Docker. Set `PLF_CONTAINER_RUNTIME=docker` in `.env` to use Docker instead. See [docs/podman-setup.md](docs/podman-setup.md) for Podman machine setup.
 
 **Optional:**
 
@@ -45,21 +48,142 @@ This skill requires the following tools installed on your machine:
 
 ## Workflow
 
+**CRITICAL: SETUP TAKES 2-5 MINUTES.** Tell user upfront so they don't wait anxiously.
+
+**PERMISSIONS:** On first command execution, Cortex Code will prompt for permission.
+Select "Allow using 'uv' for this session" to avoid repeated prompts.
+See [Cortex Code Permissions](#cortex-code-permissions) for details.
+
+**SETUP APPROACH FOR CORTEX CODE (REQUIRED):**
+
+1. **First, show the plan and ask for configuration:**
+
+   ```
+   ## Polaris Local Forge Setup (Total: ~2-5 minutes)
+   
+   **Permissions:** On first command, Cursor will prompt for permission.
+   Select "Allow using 'uv' for this session" to avoid repeated prompts.
+   
+   Steps to complete:
+   - [ ] Step 0: Configuration
+   - [ ] Step 1: Doctor check (~5s)
+   - [ ] Step 2: Initialize work directory (~5s)
+   - [ ] Step 3: Generate configuration files (~10s)
+   - [ ] Step 4: Create k3d cluster (~30s)
+   - [ ] Step 5: Wait for RustFS and PostgreSQL (~60-90s)
+   - [ ] Step 6: Deploy Polaris (~60s)
+   - [ ] Step 7: Setup catalog (~30s)
+   - [ ] Step 8: Verify with DuckDB (~5s)
+   
+   **Step 0: Configuration**
+   
+   Q1: Container runtime?
+       (1) Podman [default]
+       (2) Docker
+   ```
+
+   **STOP**: Wait for user response.
+
+   **If user chooses Podman (macOS only), ask Q2:**
+
+   ```
+   Q2: Podman machine?
+       (0) Create new 'k3d' machine [recommended for isolation]
+       (1) Use existing: [run `podman machine ls` and list machines]
+       
+       Default: k3d (press Enter to accept)
+   ```
+
+   **STOP**: Wait for user response. If user selects "0", create the machine:
+
+   ```bash
+   podman machine init k3d --cpus 4 --memory 16384 --now
+   ```
+
+   **Then ask Q3:**
+
+   ```
+   Q3: Cluster name? [default: directory name]
+   ```
+
+   **STOP**: Wait for user response, then proceed to Step 1.
+
+2. **Then run each step individually** with a header message:
+
+   ```
+   ### Step 1: Doctor check
+   ```
+
+   Then run: `./bin/plf doctor`
+   If issues found, run: `./bin/plf doctor --fix`
+
+   ```
+   ### Step 2: Initialize work directory
+   ```
+
+   Then run: `./bin/plf init`
+
+   ```
+   ### Step 3: Generate configuration files
+   ```
+
+   Then run: `./bin/plf prepare`
+
+   ```
+   ### Step 4: Create k3d cluster
+   ```
+
+   Then run: `./bin/plf cluster create`
+
+   ```
+   ### Step 5: Wait for RustFS and PostgreSQL
+   ```
+
+   Then run: `./bin/plf cluster wait --tags bootstrap`
+
+   ```
+   ### Step 6: Deploy Polaris
+   ```
+
+   Then run: `./bin/plf polaris deploy`
+   Wait: `./bin/plf cluster wait --tags polaris`
+   Then run: `./bin/plf polaris bootstrap`
+
+   ```
+   ### Step 7: Setup catalog
+   ```
+
+   Then run: `./bin/plf catalog setup`
+
+   ```
+   ### Step 8: Verify with DuckDB
+   ```
+
+   Then run: `./bin/plf catalog verify-sql`
+
+   For interactive exploration: `./bin/plf catalog explore-sql`
+
+3. **After each step completes**, briefly confirm success before moving to next step.
+
 **FORBIDDEN ACTIONS -- NEVER DO THESE:**
 
-- NEVER skip prerequisite checks -- always run `doctor` first
-- NEVER delete `.snow-utils/` directory or manifest -- preserve for audit/cleanup/replay
-- NEVER hardcode credentials in scripts -- always read from `.env` or `.snow-utils/`
-- NEVER assume the cluster is running -- always check status before catalog operations
-- NEVER use `sed/awk/bash` to edit manifest files -- use the file editing tool (Edit/StrReplace)
-- NEVER run destructive commands (`teardown`, `cluster:delete`, `polaris:purge`) without explicit user confirmation
-- NEVER expose `principal.txt` contents in output -- show only the realm. Mask client_id: show `****` + last 4 chars. NEVER show client_secret at all. Example: `realm: default-realm, client_id: ****a1b2, client_secret: ********`
+- NEVER use `sed/awk/bash` to edit `.env` or configuration files -- use the Edit/StrReplace tool
+- NEVER hardcode credentials in scripts -- always read from `.env` or `work/principal.txt`
+- NEVER assume the cluster is running -- always check status with `k3d cluster list` before operations
+- NEVER run destructive commands (`cluster delete`, `polaris purge`) without explicit user confirmation
+- NEVER expose `principal.txt` contents in output -- show only the realm. Mask client_id: show `****` + last 4 chars. NEVER show client_secret at all. Example: `realm: POLARIS, client_id: ****a1b2, client_secret: ********`
 - NEVER modify files in the skill directory (`<SKILL_DIR>`) -- `k8s/`, `polaris-forge-setup/`, `src/` are read-only source. Only the user's `--work-dir` is writable
-- NEVER guess or invent CLI options -- ONLY use options from the CLI Reference tables below. If a command fails with "No such option", run `${PLF} <command> --help` and use ONLY the options shown there
+- NEVER guess or invent CLI commands or options -- ONLY use commands from the CLI Reference tables below (e.g., `plf cluster status` NOT `plf status`). If a command fails, run `./bin/plf --help` or `./bin/plf <group> --help` and use ONLY the commands/options shown there
+- NEVER run raw `duckdb` commands -- use `./bin/plf catalog verify-sql` or `./bin/plf catalog explore-sql` only
+- NEVER construct DuckDB SQL manually -- the CLI generates properly templated SQL with correct syntax
+- NEVER extract credentials from `principal.txt` to pass to other commands -- credentials are automatically loaded by CLI commands
+- NEVER use `uv run --project ... polaris-local-forge` after init -- ALWAYS use the `./bin/plf` wrapper script which handles paths, env vars, and suppresses warnings
 
 **INTERACTIVE PRINCIPLE:** This skill is designed to be interactive. At every decision point, ASK the user and WAIT for their response before proceeding.
 
 **DISPLAY PRINCIPLE:** When showing configuration or status, substitute actual values from `.env` and the manifest. The user should see real values, not raw `${...}` placeholders.
+
+**OUTPUT PRINCIPLE:** Terminal output gets collapsed/truncated in Cortex Code UI. When running `--dry-run` or any diagnostic command, you MUST copy the relevant output into your response. The user CANNOT see collapsed terminal output. Format with proper code blocks: ` ```text ` for summaries, ` ```bash ` for commands.
 
 **RESILIENCE PRINCIPLE:** Always update the manifest IMMEDIATELY after each resource creation step, not in batches. This ensures Resume Flow can recover from any interruption.
 
@@ -72,6 +196,7 @@ Pattern:
 ```
 
 If user aborts mid-flow, the manifest preserves progress:
+
 - Overall Status stays IN_PROGRESS
 - Completed resources show DONE
 - Pending resources show PENDING/REMOVED
@@ -94,20 +219,32 @@ Pattern for file edits:
 4. Skip with message: "Already applied: [description]"
 ```
 
-**ENVIRONMENT REQUIREMENT:** The skill uses local RustFS for S3-compatible storage. AWS CLI commands target `http://localhost:9000` with static credentials. No real AWS account is needed.
+**ENVIRONMENT REQUIREMENT:** The skill uses local RustFS for S3-compatible storage. AWS CLI commands target `http://localhost:19000` with static credentials. No real AWS account is needed.
 
 > **Note:** This skill configures Polaris with local RustFS (S3-compatible) storage only.
 > For real AWS S3 support, see Phase 2 in [SKILL_README.md](SKILL_README.md).
+
+**CRITICAL RULE - ALL OPERATIONS VIA CLI:**
+
+> **NEVER** use direct `podman`, `docker`, `k3d`, `kubectl`, or `helm` commands.
+> ALL operations MUST go through `polaris-local-forge` CLI commands.
+> Direct commands cause port binding issues (gvproxy) and stale state.
+> See "FORBIDDEN COMMANDS" section in CLI Reference for details.
 
 **Pre-Check Rules (Fail Fast):**
 
 | Command | Pre-Check | If Fails |
 |---------|-----------|----------|
-| `setup` | Docker running, k3d installed | Stop: "Prerequisites missing. Run `doctor` first." |
-| `setup --fresh` | Docker running, k3d installed | Stop: "Prerequisites missing. Run `doctor` first." |
+| Any command | NOT using direct podman/k3d/kubectl | Stop: "Use CLI commands only. See FORBIDDEN COMMANDS." |
+| `doctor` | Tools installed | Report missing tools with install instructions |
+| `doctor --fix` | Podman machine exists, ports available | Starts Podman; kills gvproxy and restarts if ports blocked; refer to podman-setup.md if machine missing |
+| `setup` | Podman running, k3d installed | Stop: "Prerequisites missing. Run `doctor --fix` first." |
+| `setup --fresh` | Podman running, k3d installed | Stop: "Prerequisites missing. Run `doctor --fix` first." |
 | `cluster create` | Cluster doesn't exist | Stop: "Cluster already exists. Use `cluster delete` first or `setup` to resume." |
+| `cluster create` | Ports 19000, 19001, 18181 available | Stop: "Port in use. Run `doctor --fix` first." |
 | `catalog setup` | Cluster running, Polaris ready | Stop: "Cluster not ready. Run `setup` first." |
 | `polaris deploy` | Cluster running | Stop: "Cluster not running. Run `cluster create` first." |
+| `polaris purge` | Polaris deployed | Stop: "Polaris not deployed. Nothing to purge." |
 | `teardown` | Any resources exist | Proceed gracefully (idempotent with `--yes`) |
 | `catalog cleanup` | Catalog exists | Proceed gracefully (idempotent with `--yes`) |
 
@@ -136,37 +273,46 @@ Options:
 
 **STOP**: Wait for user input.
 
-**Initialize the workspace with lightweight project files:**
+**Initialize the workspace with the CLI:**
 
 ```bash
-cp <SKILL_DIR>/user-project/pyproject.toml .
-cp <SKILL_DIR>/.env.example .env
+uv run --project <SKILL_DIR> polaris-local-forge --work-dir . init
 ```
 
-**Infer PROJECT_NAME from directory and write it into `.env`:**
+This command:
+
+- Copies template files (`.env`, `.envrc`, `.gitignore`)
+- Creates required directories (`.kube/`, `work/`, `bin/`, `k8s/`)
+- Sets `PROJECT_HOME`, `K3D_CLUSTER_NAME`, and `SKILL_DIR` in `.env`
+- Creates `bin/plf` wrapper script for simplified CLI invocation
+
+To use a custom cluster name:
 
 ```bash
-PROJECT_NAME=$(basename $(pwd))
-echo "Project: ${PROJECT_NAME}"
-```
-
-If `K3D_CLUSTER_NAME` is not already set in `.env`, append the inferred value:
-
-```bash
-grep -q "^K3D_CLUSTER_NAME=" .env || echo "K3D_CLUSTER_NAME=${PROJECT_NAME}" >> .env
+uv run --project <SKILL_DIR> polaris-local-forge --work-dir . init --cluster-name my-cluster
 ```
 
 > **IMPORTANT:** All subsequent CLI commands use `--work-dir` to point generated files here.
 > The skill directory (`<SKILL_DIR>`) stays read-only. For a second cluster, create another
 > directory and re-run the skill.
 
-**Define the CLI shorthand used throughout this skill:**
+**Use the wrapper script (created by `init`):**
+
+**CRITICAL:** After running init, ALWAYS use `./bin/plf` for ALL commands. NEVER use `uv run --project ...` directly - the wrapper handles everything:
 
 ```bash
-PLF="uv run --project <SKILL_DIR> polaris-local-forge --work-dir ."
+./bin/plf doctor
+./bin/plf cluster create
+./bin/plf catalog verify-sql
 ```
 
-All subsequent `${PLF} <command>` invocations use this pattern.
+The wrapper sources `.env` automatically and handles all paths.
+
+**IMPORTANT - Command Execution:** Use Shell tool's `working_directory` parameter, NOT `cd &&`:
+
+```
+Shell(command="./bin/plf <COMMAND>", working_directory="<PROJECT_HOME>")
+```
 
 ### Step 0a: Configuration Review and Confirmation
 
@@ -185,7 +331,7 @@ Configuration Review
   K3S_VERSION:                   ${K3S_VERSION}
   KUBECONFIG:                    .kube/config
 
-  AWS_ENDPOINT_URL:              http://localhost:9000
+  AWS_ENDPOINT_URL:              http://localhost:19000
   AWS_REGION:                    us-east-1
   AWS_ACCESS_KEY_ID:             admin
 
@@ -204,7 +350,48 @@ Review the configuration above. Would you like to change any values?
 
 **STOP**: Wait for user input.
 
-**If user edits values:** Update `.env`, re-display, and confirm again.
+**If user selects "2. Edit a specific value":**
+
+1. Ask: "Which value to edit? (e.g., K3D_CLUSTER_NAME)"
+2. User provides the variable name
+3. Ask: "Enter new value for {variable}:"
+4. **Update `.env` using StrReplace tool:**
+
+   ```
+   StrReplace(.env, "{VARIABLE}=old-value", "{VARIABLE}=new-value")
+   ```
+
+5. Re-display configuration with updated value
+6. Return to confirmation prompt (user can edit more or accept)
+
+**For `PLF_PODMAN_MACHINE` edits (macOS only):**
+
+If user wants to use a different Podman machine, list available machines:
+
+```bash
+podman machine ls --format "{{.Name}}"
+```
+
+Display options:
+
+```
+Podman Machine Selection:
+  0. Create new 'k3d' machine (recommended for isolation)
+  1. k3d (if exists)
+  2. podman-machine-default
+  3. [other existing machines...]
+
+Enter machine name or number:
+```
+
+**If user selects "0. Create new":**
+
+```bash
+podman machine init k3d --cpus 4 --memory 16384 --now
+podman system connection default k3d
+```
+
+Then run `./bin/plf doctor --fix` to configure SSH access.
 
 **After confirmation, proceed to prerequisites check.**
 
@@ -221,16 +408,23 @@ grep "^tools_verified:" .snow-utils/snow-utils-manifest.md 2>/dev/null
 **Otherwise, run prerequisite check:**
 
 ```bash
-${PLF} doctor
+./bin/plf doctor
 ```
 
 The doctor command checks:
-- Container runtime detection (Podman preferred, Docker fallback)
-- If Podman: machine state, CPUs, memory, cgroup v2, k3d network
-- Required tools: k3d, Python, uv
-- Environment: .env, venv, cluster
 
-If Podman is detected but the machine is missing or under-provisioned, the user should run `task podman:setup` before proceeding.
+- Required tools: podman/docker, k3d, kubectl, uv
+- Podman machine status (macOS only)
+- SSH config for Podman VM access (macOS only)
+- Port availability: 19000 (RustFS), 19001 (RustFS Console), 18181 (Polaris), 6443 (k3d API)
+
+**With `--fix` flag** (macOS only):
+
+- Starts Podman machine if stopped
+- Sets up SSH config for Podman VM access
+- Kills stale gvproxy processes blocking ports
+
+If Podman machine is missing, refer to [docs/podman-setup.md](docs/podman-setup.md) for initial setup, then run `./bin/plf doctor --fix` to complete configuration.
 
 If any tool is missing, stop and provide installation instructions from the Prerequisites table above.
 
@@ -305,7 +499,7 @@ done
 | None | Exists | Copy shared to `.snow-utils/` -> Step 0d |
 | Exists (REMOVED) | None | Replay Flow (reuse existing config) |
 | Exists (COMPLETE) | None | Ask user: re-run, reset, or skip |
-| Exists (IN_PROGRESS) | None | Resume Flow -- `${PLF} setup --yes` auto-resumes from first PENDING resource |
+| Exists (IN_PROGRESS) | None | Resume Flow -- run pending steps from CLI Reference |
 | Exists | Exists | **Conflict** -- ask user which to use |
 
 **If BOTH manifests exist, show:**
@@ -359,10 +553,10 @@ The following values can be customized for your environment:
   ────────────────────────────  ─────────────────────────  ──────────────────────
   PLF_CONTAINER_RUNTIME:        podman                     # ADAPT: podman or docker
   K3D_CLUSTER_NAME:             (project directory name)   # ADAPT: customizable
-  POLARIS_REALM:                default-realm              # ADAPT: customizable
+  POLARIS_REALM:                POLARIS                    # ADAPT: customizable
   PLF_POLARIS_S3_BUCKET:        polaris                    # ADAPT: customizable
   PLF_POLARIS_CATALOG_NAME:     polardb                    # ADAPT: customizable
-  PLF_POLARIS_PRINCIPAL_NAME:   iceberg                    # ADAPT: customizable
+  PLF_POLARIS_PRINCIPAL_NAME:   super_user                 # ADAPT: customizable
   KUBECONFIG:                   (derived from cluster name)
   KUBECTL_PATH:                 (derived from cluster name)
 
@@ -390,26 +584,18 @@ Options:
 
 ### Step 0e: Initialize Manifest
 
+Use the `--with-manifest` flag to initialize the manifest along with the workspace:
+
 ```bash
-mkdir -p .snow-utils && chmod 700 .snow-utils
-if [ ! -f .snow-utils/snow-utils-manifest.md ]; then
-cat > .snow-utils/snow-utils-manifest.md << 'EOF'
-# Snow-Utils Manifest
+./bin/plf init --with-manifest
+```
 
-This manifest tracks resources created by polaris-local-forge.
+This creates `.snow-utils/snow-utils-manifest.md` with proper permissions (chmod 700 for directory, chmod 600 for file).
 
----
+If already initialized, you can add the manifest separately:
 
-## project_recipe
-project_name: polaris-local-forge
-
-## prereqs
-
-## required_skills
-polaris-local-forge: https://github.com/kameshsampath/polaris-local-forge
-EOF
-fi
-chmod 600 .snow-utils/snow-utils-manifest.md
+```bash
+./bin/plf init --with-manifest --force
 ```
 
 ### Step 1: Environment Setup
@@ -438,30 +624,72 @@ uv sync --all-extras
 
 ### Step 2: Full Setup
 
-**SHOW -- what we're about to do:**
+**SHOW -- what we're about to do (tell user this):**
 
-> Run the complete setup pipeline. This single command handles everything:
+> I'll set up the complete Polaris environment. **This takes 2-5 minutes.**
 >
-> 1. **Prepare** -- Generate RSA keys, bootstrap credentials, Helm charts, k8s manifests
-> 2. **Create cluster** -- Download kubectl, create k3d cluster (`${K3D_CLUSTER_NAME}`)
->    using ${PLF_CONTAINER_RUNTIME}, wait for bootstrap (RustFS, PostgreSQL)
-> 3. **Deploy Polaris** -- Install Polaris server, run bootstrap job, wait until ready
-> 4. **Setup catalog** -- Create S3 bucket (`${PLF_POLARIS_S3_BUCKET}`),
->    register catalog (`${PLF_POLARIS_CATALOG_NAME}`),
->    create principal (`${PLF_POLARIS_PRINCIPAL_NAME}`), configure RBAC grants
+> **6 steps:**
+>
+> 1. Pre-check & start Podman (~5s)
+> 2. Generate configs (~10s)
+> 3. Create k3d cluster (~30s)
+> 4. Wait for RustFS & PostgreSQL (~60-90s)
+> 5. Deploy Polaris (~60s)
+> 6. Setup catalog & verify (~35s)
 >
 > Services will be available at:
-> - **Polaris API:** localhost:18181
-> - **RustFS S3:** localhost:9000 (credentials: admin/password)
-> - **RustFS Console:** localhost:9001
 >
-> Live progress is printed as each resource comes up. Takes 2-5 minutes.
+> - **Polaris API:** localhost:18181
+> - **RustFS S3:** localhost:19000
+> - **RustFS Console:** localhost:19001
+>
+> Ready to proceed?
 
-**DO:**
+**STOP**: Ask user for execution preference:
+
+> How would you like to proceed?
+>
+> 1. **Run all** - Execute all setup steps automatically (recommended)
+> 2. **Step by step** - Pause after each step for confirmation
+>
+> Choose [1/2]:
+
+**Based on user choice:**
+
+- **If "Run all" (1):** Execute ALL steps below without pausing. Only stop on errors.
+- **If "Step by step" (2):** Run each step, show output, then ask "Continue? [yes/no]" before the next step.
+
+**DO -- Run each step as a SEPARATE command (REQUIRED for Cortex Code visibility):**
 
 ```bash
-${PLF} setup --yes
+./bin/plf doctor --fix                        # Step 1: Pre-check, auto-starts Podman
+./bin/plf init --with-manifest                # Step 2: Copy templates, create dirs, init manifest
 ```
+
+The `init --with-manifest` command creates the `.snow-utils/snow-utils-manifest.md` file with the resources tracking table.
+
+**Continue with remaining setup steps:**
+
+```bash
+./bin/plf prepare                             # Step 3: Generate k8s configs
+./bin/plf cluster create                      # Step 4: Create k3d cluster
+./bin/plf cluster wait --tags bootstrap       # Wait for RustFS + PostgreSQL
+./bin/plf polaris deploy                      # Step 5: Deploy Polaris to cluster
+./bin/plf cluster wait --tags polaris         # Wait for Polaris + bootstrap job
+./bin/plf polaris bootstrap                   # Step 6: Bootstrap Polaris (create principal)
+./bin/plf catalog setup                       # Step 7: Setup demo catalog
+./bin/plf catalog verify-sql                  # Step 8: Verify with DuckDB
+```
+
+**CRITICAL RULES:**
+
+- Honor user's execution mode choice from config review
+- **Run all mode:** Execute full sequence, no prompts between steps
+- **Step by step mode:** Pause after each step, ask "Continue? [yes/no]"
+- Run EACH command above as a SEPARATE bash invocation (for Cortex Code visibility)
+- NEVER combine multiple commands (hides output from Cortex Code)
+- NEVER use `podman machine start` directly (use `doctor --fix`)
+- Use `--yes` for destructive commands (delete, cleanup, teardown) in both modes
 
 **After setup completes, set the scoped cluster environment for this session:**
 
@@ -471,14 +699,31 @@ export PATH="$(pwd)/bin:$PATH"
 set -a && source .env && set +a
 ```
 
-The CLI manages the manifest automatically during setup:
+**Update manifest after each successful step (RESILIENCE PATTERN):**
 
-1. Creates `.snow-utils/snow-utils-manifest.md` with all resources PENDING and Status: IN_PROGRESS
-2. Updates each resource row to DONE immediately after creation (resilience pattern)
-3. Sets Status: COMPLETE and appends Cleanup Instructions when all resources are verified
-4. If interrupted, re-running `setup --yes` resumes from the first non-DONE resource
+After each step completes successfully, update the manifest resource row status from `PENDING` to `DONE`:
 
-**After setup, verify manifest was written:**
+```bash
+# Example: After cluster create succeeds, update row 1
+# Use Edit/StrReplace tool to change: | 1 | k3d cluster | infrastructure | PENDING |
+# To: | 1 | k3d cluster | infrastructure | DONE |
+```
+
+If interrupted mid-flow, the manifest preserves progress:
+
+- Overall Status stays IN_PROGRESS
+- Completed resources show DONE
+- Pending resources show PENDING
+- Resume Flow picks up from first PENDING resource
+
+**After ALL steps complete, update manifest status to COMPLETE:**
+
+```bash
+# Use Edit/StrReplace tool to change: **Status:** IN_PROGRESS
+# To: **Status:** COMPLETE
+```
+
+**Verify manifest was written:**
 
 ```bash
 cat .snow-utils/snow-utils-manifest.md
@@ -509,12 +754,12 @@ Expected: all 7 resource rows show `DONE`, Status shows `COMPLETE`.
 **DO:**
 
 ```bash
-${PLF} catalog verify-sql
+./bin/plf catalog verify-sql
 ```
 
 **Check the result:**
 
-- **If SUCCEEDED:** Continue to Step 9a (generate notebook)
+- **If SUCCEEDED:** Continue to Step 3a (generate notebook)
 - **If FAILED:** Check Troubleshooting section. Common issues: Polaris not ready, RustFS not accessible, principal credentials invalid.
 
 **SUMMARIZE (on success):**
@@ -532,7 +777,7 @@ ${PLF} catalog verify-sql
 **DO:**
 
 ```bash
-${PLF} catalog generate-notebook
+./bin/plf catalog generate-notebook
 ```
 
 **SUMMARIZE:**
@@ -549,8 +794,8 @@ Polaris Local Forge -- Setup Complete!
 
 Service URLs:
   Polaris API:     http://localhost:18181
-  RustFS S3:       http://localhost:9000
-  RustFS Console:  http://localhost:9001
+  RustFS S3:       http://localhost:19000
+  RustFS Console:  http://localhost:19001
 
 Catalog:
   Name:      ${PLF_POLARIS_CATALOG_NAME}
@@ -564,8 +809,8 @@ Credentials:
 
 Next steps:
   jupyter notebook notebooks/verify_polaris.ipynb  # Interactive exploration
-  ${PLF} catalog verify-sql                        # Re-run verification
-  ${PLF} catalog explore-sql                       # Interactive DuckDB SQL
+  ./bin/plf catalog verify-sql                        # Re-run verification
+  ./bin/plf catalog explore-sql                       # Interactive DuckDB SQL
 
 Shell setup:
   export KUBECONFIG=$(pwd)/.kube/config
@@ -588,7 +833,7 @@ These flows operate on the catalog without rebuilding the cluster.
 **Trigger:** "setup catalog only", "create catalog"
 
 ```bash
-${PLF} catalog setup
+./bin/plf catalog setup
 ```
 
 ### Catalog Cleanup
@@ -598,7 +843,7 @@ ${PLF} catalog setup
 **STOP**: Confirm with user before executing.
 
 ```bash
-${PLF} catalog cleanup --yes
+./bin/plf catalog cleanup --yes
 ```
 
 Updates manifest status to REMOVED. Generated files in `work/` are preserved.
@@ -610,8 +855,8 @@ Updates manifest status to REMOVED. Generated files in `work/` are preserved.
 **STOP**: Confirm with user before executing.
 
 ```bash
-${PLF} catalog cleanup --yes
-${PLF} catalog setup
+./bin/plf catalog cleanup --yes
+./bin/plf catalog setup
 ```
 
 Runs cleanup + setup. Generates new `principal.txt` (new credentials).
@@ -623,8 +868,8 @@ Runs cleanup + setup. Generates new `principal.txt` (new credentials).
 **STOP**: This is destructive. Confirm with user.
 
 ```bash
-${PLF} polaris reset --yes
-${PLF} catalog setup
+./bin/plf polaris reset --yes
+./bin/plf catalog setup
 ```
 
 Purges the entire Polaris database and recreates from scratch.
@@ -636,10 +881,18 @@ Purges the entire Polaris database and recreates from scratch.
 **STOP**: This is destructive. Confirm with user.
 
 ```bash
-${PLF} teardown --yes
+./bin/plf teardown --yes
 ```
 
 Updates manifest status to REMOVED. Generated files are preserved in the work directory for future replay.
+
+### Podman Machine (macOS)
+
+On macOS with Podman, the teardown prompts whether to stop the Podman machine. Stopping the machine fully releases ports (19000, 19001, 18181). For automation/skills, use `--stop-podman` to stop without prompting:
+
+```bash
+./bin/plf teardown --yes --stop-podman
+```
 
 ### Explicit Purge
 
@@ -648,7 +901,7 @@ Updates manifest status to REMOVED. Generated files are preserved in the work di
 **STOP**: This is irreversible. Confirm with user.
 
 ```bash
-${PLF} teardown --yes
+./bin/plf teardown --yes
 rm -rf work/ k8s/ bin/ .kube/ notebooks/ scripts/
 ```
 
@@ -678,7 +931,7 @@ A separate project that wants to query the Polaris catalog needs only:
 
 ```bash
 POLARIS_URL=http://localhost:18181
-AWS_ENDPOINT_URL=http://localhost:9000
+AWS_ENDPOINT_URL=http://localhost:19000
 AWS_ACCESS_KEY_ID=admin
 AWS_SECRET_ACCESS_KEY=password
 AWS_REGION=us-east-1
@@ -697,25 +950,71 @@ CLIENT_SECRET=<from principal.txt>
 
 1. Step 0: Ask for workspace directory (if not detected)
 2. Step 0a: Configuration review -- wait for user confirmation
-3. Step 0b: If prerequisites missing
+3. Step 0b: If prerequisites missing (show install instructions)
 4. Step 0c: Manifest detection (ask which to use if conflict)
 5. Step 0d: Adapt-check (if shared manifest has `# ADAPT:` markers)
-6. Step 1: Before environment setup
-7. Step 2: Before generating config files
-8. Step 3: Before cluster creation
-9. Step 8: Before catalog setup
+6. Step 1: Before environment setup (uv venv)
+7. Step 2: Before full setup (show 6-step plan, wait for OK)
+8. Step 3: Before verification (DuckDB test)
+9. Step 3a: Before generating notebook
 10. Catalog-only flows: Before cleanup/reset
 11. Teardown: Before destructive operations
 
 ## CLI Reference
 
-All commands use:
+All commands use the `./bin/plf` wrapper script (created by `init`):
 
 ```bash
-PLF="uv run --project <SKILL_DIR> polaris-local-forge --work-dir <PROJECT_DIR>"
+./bin/plf <command>
 ```
 
-Aliased as `plf` in tables below for brevity.
+The wrapper sources `.env` automatically and handles all paths. Aliased as `plf` in tables below.
+
+### Command Execution
+
+**IMPORTANT:** Run commands from the project directory using the Shell tool's `working_directory` parameter:
+
+```
+Shell(command="./bin/plf <COMMAND>", working_directory="<PROJECT_HOME>")
+```
+
+**DO NOT** use `cd && ./bin/plf` pattern - use `working_directory` instead for cleaner output.
+
+The wrapper sources `.env` (created by `init`) which contains:
+
+```
+PROJECT_HOME=/path/to/your/project
+K3D_CLUSTER_NAME=your-project-name
+SKILL_DIR=/path/to/polaris-local-forge
+```
+
+**Commands this skill executes:**
+
+| Logical Command | Purpose |
+|-----------------|---------|
+| `plf doctor` | Check prerequisites |
+| `plf doctor --fix` | Fix Podman/SSH issues |
+| `plf init` | Initialize work directory |
+| `plf prepare` | Generate configuration files |
+| `plf cluster create` | Create k3d cluster |
+| `plf cluster wait` | Wait for deployments |
+| `plf polaris deploy` | Deploy Polaris |
+| `plf polaris bootstrap` | Create admin principal |
+| `plf catalog setup` | Setup Iceberg catalog |
+| `plf catalog verify-sql` | Verify with DuckDB |
+| `plf cluster delete --yes` | Delete cluster (destructive) |
+| `plf teardown --yes` | Full cleanup (destructive) |
+
+**Recommended permission setting:** When Cortex Code prompts, select:
+
+- **"Allow using 'uv' for this session"** - Recommended for active work
+- **"Always allow using 'uv'"** - If you use this skill frequently
+
+This is safe because:
+
+- You control the skill source code
+- Commands are well-defined CLI operations
+- `uv` only runs Python from your trusted project
 
 **Global options (before any subcommand):**
 
@@ -727,71 +1026,148 @@ Aliased as `plf` in tables below for brevity.
 **OPTION NAMES (NEVER guess or invent options):**
 
 > ONLY use options listed in the tables below. If a command fails with "No such option",
-> run `${PLF} <command> --help` to see actual available options and
+> run `./bin/plf <command> --help` to see actual available options and
 > use ONLY those. NEVER invent, abbreviate, or rename options.
 
 **`--yes` is REQUIRED** when executing destructive commands after user has approved (CLIs prompt interactively which does not work in Cortex Code's non-interactive shell). All destructive commands support `--dry-run` to preview and `--yes` to skip interactive confirmation.
 
 **COMMAND NAMES (exact -- do NOT substitute):**
 
-- `setup` -- NOT "install", "create", "provision", "init"
-- `teardown` -- NOT "cleanup", "destroy", "remove", "delete"
-- `doctor` -- NOT "check", "verify", "health", "prereqs"
 - `catalog setup` -- NOT "catalog create", "catalog init"
 - `catalog cleanup` -- NOT "catalog delete", "catalog remove"
+- `catalog verify-sql` -- NOT "catalog verify", "verify-sql"
+- `catalog explore-sql` -- NOT "catalog explore", "explore-sql"
 - `cluster create` -- NOT "cluster setup", "cluster init"
 - `cluster delete` -- NOT "cluster remove", "cluster destroy"
 
-### Setup & Teardown
+**FORBIDDEN FILE EDIT COMMANDS (NEVER use for config files):**
+
+> **CRITICAL:** NEVER use `sed`, `awk`, or bash string manipulation to edit `.env`,
+> manifest files, or any configuration files. Use the Edit/StrReplace tool instead.
+
+| NEVER Use | Use Instead |
+|-----------|-------------|
+| `sed -i 's/old/new/' .env` | Edit/StrReplace tool |
+| `awk '{...}' file > newfile` | Edit/StrReplace tool |
+| `echo "VAR=value" >> .env` | Edit/StrReplace tool |
+| `cat > .env << EOF` | Write tool (only for new files) |
+
+**If ports are blocked (gvproxy error):**
+
+```bash
+# Kill gvproxy processes and restart Podman
+# Check and start Podman (macOS)
+podman machine list
+podman machine start k3d  # if not running
+
+# Setup steps
+./bin/plf prepare
+./bin/plf cluster create
+./bin/plf cluster wait --tags bootstrap       # Wait for RustFS + PostgreSQL
+./bin/plf polaris deploy
+./bin/plf cluster wait --tags polaris         # Wait for Polaris + bootstrap job
+./bin/plf polaris bootstrap
+./bin/plf catalog setup
+
+# Verify
+./bin/plf catalog verify-sql
+```
+
+**For port issues (gvproxy holding ports):**
+
+```bash
+# Kill gvproxy processes and restart Podman
+pkill -f gvproxy
+podman machine stop k3d
+sleep 5
+podman machine start k3d
+```
+
+### Doctor (Prerequisites Check)
 
 | Command | Description |
 |---------|-------------|
-| `plf setup --yes` | Complete setup (cluster + Polaris + catalog); resumes from manifest if interrupted |
-| `plf setup --yes --fresh` | Complete setup ignoring saved manifest progress (start from scratch) |
-| `plf setup --dry-run` | Preview setup plan; shows which steps are done (from manifest) |
-| `plf teardown --yes` | Complete teardown (cleanup + delete cluster); marks manifest resources as REMOVED |
-| `plf teardown --dry-run` | Preview teardown plan without executing |
+| `plf doctor` | Check prerequisites, tools, Podman machine, ports |
+| `plf doctor --fix` | Attempt to fix issues (start Podman, setup SSH config) |
+| `plf doctor --output json` | Output status as JSON |
 
-### Status & Config
+### Init & Prepare
 
 | Command | Description |
 |---------|-------------|
-| `plf doctor` | Check system prerequisites |
-| `plf doctor --output json` | Prerequisites as JSON (for automation) |
-| `plf cluster status` | Show cluster status |
-| `plf polaris status` | Show Polaris status |
-| `plf config` | Show current configuration |
-| `plf config --output json` | Configuration as JSON |
+| `plf init` | Initialize project directory (.env, .envrc, .gitignore, directories) |
+| `plf init --force` | Re-initialize, overwriting existing files |
+| `plf prepare` | Generate config files from templates (runs ansible prepare.yml) |
+| `plf prepare --tags <tags>` | Run specific ansible tags |
+| `plf prepare --dry-run` | Preview without executing |
 
 ### Cluster
 
 | Command | Description |
 |---------|-------------|
-| `plf cluster create` | Create k3d cluster |
-| `plf cluster delete --yes` | Delete cluster |
-| `plf cluster bootstrap-check` | Wait for bootstrap deployments |
-| `plf cluster polaris-check` | Wait for Polaris deployment |
+| `plf cluster create` | Create k3d cluster with RustFS and PostgreSQL |
+| `plf cluster create --dry-run` | Preview cluster creation |
+| `plf cluster delete --yes` | Delete k3d cluster |
+| `plf cluster delete --dry-run` | Preview cluster deletion |
+| `plf cluster wait --tags bootstrap` | Wait for RustFS + PostgreSQL to be ready |
+| `plf cluster wait --tags polaris` | Wait for Polaris deployment + bootstrap job |
+| `plf cluster list` | List k3d clusters |
+| `plf cluster list --output json` | List clusters in JSON format |
+| `plf cluster status` | Show cluster and services status |
+| `plf cluster status --output json` | Show status in JSON format |
+
+### Teardown
+
+| Command | Description |
+|---------|-------------|
+| `plf teardown` | Complete teardown: catalog cleanup, cluster delete, prompt to stop Podman |
+| `plf teardown --yes` | Teardown with confirmation skipped |
+| `plf teardown --yes --stop-podman` | Teardown and stop Podman machine (no prompt) |
+| `plf teardown --yes --no-stop-podman` | Teardown but keep Podman running |
+| `plf teardown --dry-run` | Preview teardown operations |
 
 ### Polaris
 
 | Command | Description |
 |---------|-------------|
 | `plf polaris deploy` | Deploy Polaris to cluster |
-| `plf polaris check` | Verify Polaris deployment |
-| `plf polaris reset --yes` | Purge and re-bootstrap Polaris |
+| `plf polaris deploy --dry-run` | Preview Polaris deployment |
+| `plf polaris purge` | Delete Polaris deployment |
+| `plf polaris purge --dry-run` | Preview Polaris purge |
+| `plf polaris bootstrap` | Run bootstrap job (create principal and catalog) |
+| `plf polaris bootstrap --dry-run` | Preview bootstrap job |
 
 ### Catalog
 
 | Command | Description |
 |---------|-------------|
-| `plf catalog setup` | Setup demo catalog |
-| `plf catalog cleanup --yes` | Cleanup catalog resources |
-| `plf catalog verify-sql` | Verify with DuckDB (non-interactive) |
-| `plf catalog explore-sql` | Explore with DuckDB (interactive) |
-| `plf catalog list` | List catalogs |
-| `plf catalog generate-notebook` | Generate verification notebook |
+| `plf catalog setup` | Configure Polaris catalog via Ansible |
+| `plf catalog setup --tags <tags>` | Run specific ansible tags |
+| `plf catalog setup --dry-run` | Preview catalog setup |
+| `plf catalog cleanup --yes` | Clean up catalog via Ansible |
+| `plf catalog cleanup --dry-run` | Preview catalog cleanup |
+| `plf catalog verify-sql` | Run DuckDB verification using generated SQL script |
+| `plf catalog explore-sql` | Open interactive DuckDB session with catalog pre-loaded |
 
-### Logs & Troubleshooting (via scoped kubectl)
+### Status & Verification Commands
+
+Use CLI commands for all status checks and verification:
+
+| Task | CLI Command |
+|------|-------------|
+| Check prerequisites | `plf doctor` |
+| Fix prerequisites | `plf doctor --fix` |
+| List clusters | `plf cluster list` |
+| Check cluster & services status | `plf cluster status` |
+| Wait for bootstrap (RustFS + PostgreSQL) | `plf cluster wait --tags bootstrap` |
+| Wait for Polaris | `plf cluster wait --tags polaris` |
+| Verify catalog with DuckDB | `plf catalog verify-sql` |
+| Interactive SQL exploration | `plf catalog explore-sql` |
+| View config | Read `.env` file directly |
+
+### Logs & Troubleshooting (kubectl allowed for debugging only)
+
+When CLI commands don't provide enough detail for debugging, use kubectl directly for logs and diagnostics:
 
 | Command | Description |
 |---------|-------------|
@@ -801,44 +1177,88 @@ Aliased as `plf` in tables below for brevity.
 | `kubectl get events -n polaris --sort-by='.lastTimestamp'` | Recent Polaris events |
 | `kubectl describe pod -n polaris -l app=polaris` | Diagnose Polaris pod |
 
+**Note:** For all other operations (status checks, waiting for resources, verification), use the CLI commands above. kubectl is only for log streaming and deep debugging.
+
+## Known Limitations
+
+This skill is designed for **local development and learning** only:
+
+| Limitation | Details |
+|------------|---------|
+| **Not for production** | Single-node cluster, no HA, ephemeral storage |
+| **macOS/Linux only** | No native Windows support (WSL2 may work but untested) |
+| **Single cluster** | One k3d cluster named by `K3D_CLUSTER_NAME` at a time |
+| **Local storage** | RustFS data stored in Podman/Docker volumes (lost on teardown) |
+| **No real AWS** | Uses RustFS with static credentials, not real AWS S3 |
+| **Port requirements** | Needs ports 19000, 19001, 18181 free |
+| **Resource limits** | Requires ~4GB RAM and ~10GB disk for Podman machine |
+
+**What this skill CANNOT do:**
+
+- Connect to real AWS S3 (use RustFS for local S3-compatible storage)
+- Run multiple Polaris instances
+- Provide persistent data across teardown (data is ephemeral)
+- Run on ARM Windows or native Windows (Podman/Docker limitation)
+
 ## Troubleshooting
+
+**Always start with CLI status check:**
+
+```bash
+./bin/plf cluster status              # Check overall status
+./bin/plf cluster wait --tags bootstrap  # Wait for RustFS + PostgreSQL
+./bin/plf cluster wait --tags polaris    # Wait for Polaris
+```
 
 **Polaris pod stuck in ContainerCreating:**
 
 ```bash
+# First check status with CLI
+./bin/plf cluster status
+# If still stuck, use kubectl for deeper debugging
 kubectl get events -n polaris --sort-by='.lastTimestamp'
 kubectl describe pod -n polaris -l app=polaris
-${PLF} polaris deploy
+# Then redeploy
+./bin/plf polaris deploy
 ```
 
 **RustFS not accessible:**
 
 ```bash
-kubectl get svc -n rustfs
-aws s3 ls --endpoint-url http://localhost:9000
+# Check status first
+./bin/plf cluster status
+# Then verify S3 access
+aws s3 ls --endpoint-url http://localhost:19000
 ```
 
 **Bootstrap job fails:**
 
 ```bash
+# Check logs for debugging
 kubectl logs -f -n polaris jobs/polaris-bootstrap
-${PLF} polaris reset --yes
+# Purge and re-bootstrap using CLI
+./bin/plf polaris purge
+./bin/plf polaris deploy
+./bin/plf cluster wait --tags polaris
+./bin/plf polaris bootstrap
 ```
 
 **Catalog setup fails (S3 bucket error):**
 
 ```bash
-aws s3 ls --endpoint-url http://localhost:9000
-${PLF} catalog cleanup --yes
-${PLF} catalog setup
+# Verify S3 access
+aws s3 ls --endpoint-url http://localhost:19000
+# Reset catalog using CLI
+./bin/plf catalog cleanup --yes
+./bin/plf catalog setup
 ```
 
 **DuckDB verification fails:**
 
-Ensure the catalog is set up and principal credentials are valid:
-
 ```bash
-${PLF} catalog list
+# Use CLI to verify catalog
+./bin/plf catalog verify-sql
+# If that fails, check credentials
 cat work/principal.txt
 ```
 
@@ -852,14 +1272,35 @@ cat work/principal.txt
 
 ## Security Notes
 
+### Credential Storage
+
 - **Bootstrap credentials:** Generated RSA keys and admin credentials are stored in `k8s/polaris/` with restricted permissions (chmod 600)
-- **Principal credentials:** `work/principal.txt` contains sensitive `client_id` and `client_secret` -- NEVER display full values in logs or output; mask as `****` + last 4 chars for client_id, never show client_secret
+- **Principal credentials:** `work/principal.txt` contains sensitive `client_id` and `client_secret`
 - **RustFS credentials:** Static `admin`/`password` for local development only -- not suitable for production use
 - **KUBECONFIG:** Scoped to project directory (`.kube/config`) to isolate from system kubeconfig
 - **kubectl binary:** Downloaded to project `bin/` directory to ensure version compatibility with the cluster
 - **.env file:** Contains configuration but no secrets by default -- add to `.gitignore` if you add sensitive values
 - **Manifest directory:** `.snow-utils/` directory uses chmod 700; manifest files use chmod 600
-- **Network isolation:** All services run on localhost ports (18181, 9000, 9001) -- not exposed externally by default
+- **Network isolation:** All services run on localhost ports (18181, 19000, 19001) -- not exposed externally by default
+
+### Output Masking (Cortex Code Rules)
+
+When displaying sensitive values to users, Cortex Code MUST mask credentials:
+
+**Display Rules for Cortex Code:**
+
+| Credential | SHOW | NEVER Show |
+|------------|------|------------|
+| `realm` | Full value | - |
+| `client_id` | Last 4 chars: `****a1b2` | Full value |
+| `client_secret` | `********` only | ANY part of the value |
+| RustFS credentials | `admin/password` (known static) | - |
+
+**IMPORTANT for automation:**
+
+- NEVER echo or print `client_secret` values directly
+- When reading `principal.txt`, display: `realm: POLARIS, client_id: ****a1b2, client_secret: ********`
+- When reading `.env`, mask any password or secret values before displaying to user
 
 ## Directory Structure
 

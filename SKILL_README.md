@@ -9,7 +9,7 @@ Polaris Local Forge provides a complete local data lakehouse stack:
 | Component | Role | Local URL |
 |-----------|------|-----------|
 | [Apache Polaris (Incubating)](https://polaris.apache.org/releases/1.3.0/) | Iceberg REST Catalog | `http://localhost:18181` |
-| [RustFS](https://docs.rustfs.com/) | S3-compatible object storage | `http://localhost:9000` (API), `:9001` (console) |
+| [RustFS](https://docs.rustfs.com/) | S3-compatible object storage | `http://localhost:19000` (API), `:19001` (console) |
 | PostgreSQL | Polaris metastore backend | Internal (via k3d) |
 | [Podman](https://podman.io/) (default) / [Docker](https://www.docker.com/) | Container runtime | Podman preferred (OSS, shipped with Cortex Code) |
 | k3d/k3s | Local Kubernetes cluster | `kubectl` via kubeconfig |
@@ -168,14 +168,14 @@ In polaris-local-forge, the local equivalent is:
 
 | Snowflake | Local (polaris-local-forge) |
 |-----------|---------------------------|
-| AWS S3 bucket | RustFS bucket (`aws s3 mb s3://bucket --endpoint-url http://localhost:9000`) |
+| AWS S3 bucket | RustFS bucket (`aws s3 mb s3://bucket --endpoint-url http://localhost:19000`) |
 | IAM role/policy | Static credentials: `admin` / `password` |
 | External Volume SQL | Not needed -- Polaris catalog config points directly to `s3://bucket` with RustFS endpoint |
 
 ### Configuring AWS CLI for RustFS
 
 ```bash
-export AWS_ENDPOINT_URL=http://localhost:9000
+export AWS_ENDPOINT_URL=http://localhost:19000
 export AWS_REGION=us-east-1
 export AWS_ACCESS_KEY_ID=admin
 export AWS_SECRET_ACCESS_KEY=password
@@ -205,12 +205,12 @@ A project that uses polaris-local-forge as infrastructure needs only these files
 
 ```bash
 POLARIS_URL=http://localhost:18181
-AWS_ENDPOINT_URL=http://localhost:9000
+AWS_ENDPOINT_URL=http://localhost:19000
 AWS_ACCESS_KEY_ID=admin
 AWS_SECRET_ACCESS_KEY=password
 AWS_REGION=us-east-1
 # From work/principal.txt in the polaris workspace:
-POLARIS_REALM=default-realm
+POLARIS_REALM=POLARIS
 CLIENT_ID=<from principal.txt>
 CLIENT_SECRET=<from principal.txt>
 ```

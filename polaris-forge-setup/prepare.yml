@@ -121,14 +121,38 @@
         - rsa
         - verify
 
+    - name: Check if postgresql.yaml exists (for password consistency)
+      ansible.builtin.stat:
+        path: "{{ plf_features_dir }}/postgresql.yaml"
+      register: postgresql_yaml_stat
+      tags:
+        - bootstrap
+        - k8s
+
+    - name: Read existing postgresql password if file exists
+      when: postgresql_yaml_stat.stat.exists
+      block:
+        - name: Read postgresql.yaml content
+          ansible.builtin.slurp:
+            src: "{{ plf_features_dir }}/postgresql.yaml"
+          register: postgresql_yaml_content
+
+        - name: Extract existing password from postgresql.yaml
+          ansible.builtin.set_fact:
+            existing_jdbc_password: >-
+              {{ postgresql_yaml_content.content | b64decode | regex_search('postgresPassword:\s*(\S+)', '\1') | first | default('') }}
+      tags:
+        - bootstrap
+        - k8s
+
     - name: Generate credentials
       ansible.builtin.set_fact:
         bootstrap_client_id:
           "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_lowercase', 'digits'], length=8) }}"
         bootstrap_client_secret:
           "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_lowercase', 'digits'], length=12) }}"
-        plf_jdbc_password:
-          "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_lowercase', 'digits'], length=12) }}"
+        plf_jdbc_password: >-
+          {{ existing_jdbc_password | default('') | ternary(existing_jdbc_password, lookup('ansible.builtin.password', '/dev/null', chars=['ascii_lowercase', 'digits'], length=12)) }}
       tags:
         - bootstrap
         - k8s

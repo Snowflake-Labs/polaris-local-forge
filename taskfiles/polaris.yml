@@ -12,9 +12,12 @@ tasks:
       - uv run polaris-local-forge polaris deploy
 
   check:
-    desc: Ensure all Polaris deployments and jobs have succeeded
+    desc: Ensure all Polaris deployments have succeeded
     cmds:
-      - uv run polaris-local-forge polaris check
+      - |
+        echo "Checking Polaris deployment..."
+        kubectl wait --for=condition=available deployment/polaris -n polaris --timeout=120s
+        echo "Polaris deployment ready."
 
   purge:
     desc: Purge Polaris data
@@ -22,26 +25,19 @@ tasks:
       - uv run polaris-local-forge polaris purge
 
   bootstrap:
-    desc: Bootstrap Polaris (run after purge)
+    desc: Bootstrap Polaris (run after deploy)
     cmds:
       - uv run polaris-local-forge polaris bootstrap
 
   reset:
     desc: Purge and re-bootstrap Polaris
     cmds:
-      - uv run polaris-local-forge polaris reset --yes
+      - task: purge
+      - task: deploy
+      - task: check
+      - task: bootstrap
 
   status:
     desc: Show Polaris status
     cmds:
-      - uv run polaris-local-forge polaris status
-
-  bump-version:
-    desc: Update Polaris to latest version from Docker Hub
-    cmds:
-      - uv run polaris-local-forge polaris bump-version
-
-  bump-version:dry-run:
-    desc: Show what Polaris version update would do
-    cmds:
-      - uv run polaris-local-forge polaris bump-version --dry-run
+      - kubectl get deployments,pods,services -n polaris

@@ -54,6 +54,9 @@
 -- Realm: << sql_vars.realm >>
 -- ============================================================================
 
+-- Disable SQL echo to prevent credential exposure in output
+.echo off
+
 .print '============================================================================'
 .print 'DuckDB Iceberg Extension - Polaris REST Catalog Explorer'
 .print '============================================================================'
@@ -95,6 +98,9 @@ DESCRIBE penguins_staging;
 -- Step 3: Connect to Polaris REST Catalog
 -- ============================================================================
 .print 'Connecting to Polaris REST Catalog...'
+.print '    Endpoint: << sql_vars.endpoint >>'
+.print '    Catalog:  << sql_vars.catalog_name >>'
+.print '    Client:   ****<< sql_vars.client_id[-4:] >>'
 .print ''
 
 -- Create OAuth2 secret for Polaris authentication
@@ -112,7 +118,7 @@ ATTACH '<< sql_vars.catalog_name >>' AS polaris_catalog (
     ENDPOINT '<< sql_vars.endpoint >>'
 );
 
-.print 'OK: Connected to Polaris catalog'
+.print 'OK: Connected to Polaris catalog (credentials masked)'
 
 -- Verify connection
 .print ''

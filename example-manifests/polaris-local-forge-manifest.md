@@ -1,71 +1,58 @@
-<!-- CORTEX_CODE_INSTRUCTION: This is a polaris-local-forge manifest.
-     project_name: polaris-local-forge
-     setup_steps:
-       1. Check if required skills are installed: cortex skill list
-       2. For each skill in ## required_skills NOT in the list, run: cortex skill add <url>
-       3. Once all skills installed, ask "setup from example manifest"
-     To trigger: ask "get started with apache polaris" or "setup from example manifest" -->
+# Snow-Utils Manifest
 
-# Polaris Local Forge Manifest
+This manifest tracks resources created by polaris-local-forge.
 
-## shared_info
-shared_by: POLARIS_LOCAL_FORGE
-shared_date: 2026-02-19
-notes: |
-  Polaris Local Forge - local Apache Polaris (Incubating) dev environment
-  with RustFS S3-compatible storage, PostgreSQL metastore, and k3d.
-  To replay: ask "get started with apache polaris using example manifest"
+---
 
-## prereqs
-- Podman (default) or Docker Desktop (>= 4.27) running
-- k3d installed
-- Python >= 3.12
-- uv package manager
-
-## required_skills
-polaris-local-forge: https://github.com/kameshsampath/polaris-local-forge
-
-<!-- START -- polaris-local-forge:polaris-local-forge -->
-## Polaris Local Forge: polaris-local-forge
-
-**Created:** 2026-02-19
 **Status:** REMOVED
 
-### Container Runtime
-**PLF_CONTAINER_RUNTIME:** podman
-**PLF_PODMAN_MACHINE:** k3d
+## shared_info
 
-### Cluster
-**K3D_CLUSTER_NAME:** polaris-local-forge  # ADAPT: customizable
-**K3S_VERSION:** v1.35.1-k3s1
-**KUBECTL_VERSION:** v1.35.1
-**KUBECONFIG:** .kube/config
-**KUBECTL_PATH:** bin/kubectl
+shared_by: User
+shared_to: ALICE
+shared_date: 2026-02-20
 
-### RustFS S3
-**AWS_ENDPOINT_URL:** http://localhost:9000
-**RUSTFS_CONSOLE_URL:** http://localhost:9001
-**AWS_ACCESS_KEY_ID:** admin
-**AWS_REGION:** us-east-1
+## CORTEX_CODE_INSTRUCTION
 
-### Polaris
-**POLARIS_URL:** http://localhost:18181
-**POLARIS_REALM:** default-realm
+ALICE, to set up this Polaris Local Forge environment on your machine:
 
-### Catalog
-**PLF_POLARIS_S3_BUCKET:** polaris  # ADAPT: customizable
-**PLF_POLARIS_CATALOG_NAME:** polardb  # ADAPT: customizable
-**PLF_POLARIS_PRINCIPAL_NAME:** iceberg  # ADAPT: customizable
+1. Save this file to your target directory
+2. Open Cortex Code and say: "setup from shared manifest" or "replay from manifest"
+3. Cortex Code will read this manifest and guide you through setup
+4. Values marked with `# ADAPT:` can be customized for your environment
 
-### Resources
+The setup will create a local Apache Polaris environment with:
 
-| # | Type | Name | Status |
-|---|------|------|--------|
-| 1 | k3d Cluster | polaris-local-forge | REMOVED |
-| 2 | RustFS | S3-compatible storage | REMOVED |
-| 3 | PostgreSQL | Polaris metastore | REMOVED |
-| 4 | Polaris | REST Catalog server | REMOVED |
-| 5 | S3 Bucket | polaris | REMOVED |
-| 6 | Catalog | polardb | REMOVED |
-| 7 | Principal | iceberg | REMOVED |
-<!-- END -- polaris-local-forge:polaris-local-forge -->
+- k3d Kubernetes cluster
+- RustFS S3-compatible storage
+- PostgreSQL metastore
+- Polaris Iceberg REST catalog
+- Demo penguins dataset
+
+## project_recipe
+
+project_name: polaris-dev  # ADAPT: customizable
+
+## configuration
+
+container_runtime: podman  # ADAPT: podman or docker
+podman_machine: k3d  # ADAPT: your podman machine name (macOS only)
+cluster_name: polaris-dev  # ADAPT: customizable
+
+## resources
+
+| # | Resource | Type | Status |
+|---|----------|------|--------|
+| 1 | k3d cluster | infrastructure | REMOVED |
+| 2 | RustFS | storage | REMOVED |
+| 3 | PostgreSQL | database | REMOVED |
+| 4 | Polaris | service | REMOVED |
+| 5 | Catalog | data | REMOVED |
+| 6 | Principal | auth | REMOVED |
+| 7 | Demo data | data | REMOVED |
+
+## prereqs
+
+## installed_skills
+
+polaris-local-forge: <https://github.com/kameshsampath/polaris-local-forge>

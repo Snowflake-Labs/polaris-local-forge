@@ -11,36 +11,31 @@ tasks:
     cmds:
       - uv run polaris-local-forge catalog setup {{if .TAGS}}--tags={{.TAGS}}{{end}}
 
-  generate-notebook:
-    desc: Generate and prepare verification notebook
-    cmds:
-      - uv run polaris-local-forge catalog generate-notebook
-
-  verify:duckdb:
-    desc: Verify Polaris catalog using DuckDB Iceberg extension (Python)
-    cmds:
-      - uv run polaris-local-forge catalog verify {{.CLI_ARGS}}
-    preconditions:
-      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
-        msg: "Principal credentials not found. Run 'task catalog:setup' first."
-
   verify:sql:
     desc: Verify Polaris catalog using DuckDB CLI with SQL script
     cmds:
-      - uv run polaris-local-forge catalog verify-sql
+      - |
+        if [ -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql ]; then
+          duckdb < {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+        else
+          echo "SQL script not found. Run 'task catalog:setup' first to generate it."
+          exit 1
+        fi
     preconditions:
-      - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
-        msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
       - sh: command -v duckdb
         msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
 
   explore:sql:
     desc: Explore Polaris catalog with DuckDB CLI in interactive mode
     cmds:
-      - uv run polaris-local-forge catalog explore-sql
+      - |
+        if [ -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql ]; then
+          duckdb -init {{.PROJECT_HOME}}/scripts/explore_catalog.sql
+        else
+          echo "SQL script not found. Run 'task catalog:setup' first to generate it."
+          exit 1
+        fi
     preconditions:
-      - sh: test -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql
-        msg: "SQL script not found. Run 'task catalog:setup' first to generate it."
       - sh: command -v duckdb
         msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
 
@@ -53,12 +48,13 @@ tasks:
         CLIENT_ID=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f2)
         CLIENT_SECRET=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f3)
 
-        # Get access token
-        TOKEN=$(curl -s -X POST "http://localhost:18181/api/catalog/v1/oauth/tokens" \
+        # Get access token (credentials passed via stdin to avoid exposure in process list)
+        TOKEN=$(echo "grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&scope=PRINCIPAL_ROLE:ALL" | \
+          curl -s -X POST "http://localhost:18181/api/catalog/v1/oauth/tokens" \
           -H "Authorization: Bearer ${CLIENT_ID}:${CLIENT_SECRET}" \
           -H "Polaris-Realm: ${REALM}" \
           -H "Content-Type: application/x-www-form-urlencoded" \
-          -d "grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&scope=PRINCIPAL_ROLE:ALL" \
+          -d @- \
           | jq -r '.access_token')
 
         if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
@@ -100,7 +96,9 @@ tasks:
   list:
     desc: List catalogs in Polaris
     cmds:
-      - uv run polaris-local-forge catalog list
+      - |
+        echo "Fetching catalogs from Polaris API..."
+        curl -s http://localhost:18181/api/catalog/v1/config | jq '.defaults["warehouse"], .overrides | keys' 2>/dev/null || echo "Polaris not running or API unavailable"
 
   reset:
     desc: Cleanup and recreate catalog (keeps cluster running)

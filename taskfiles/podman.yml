@@ -118,11 +118,42 @@ tasks:
 
   stop:
     desc: Stop the dedicated Podman machine and restore default connection
+    platforms: [darwin]
     cmds:
-      - uv run polaris-local-forge podman stop
+      - |
+        if podman machine inspect {{.PODMAN_MACHINE}} > /dev/null 2>&1; then
+          STATE=$(podman machine inspect {{.PODMAN_MACHINE}} --format '{{`{{.State}}`}}')
+          if [ "$STATE" = "running" ]; then
+            echo "Stopping Podman machine '{{.PODMAN_MACHINE}}'..."
+            podman machine stop {{.PODMAN_MACHINE}}
+          else
+            echo "Podman machine '{{.PODMAN_MACHINE}}' is not running (state: $STATE)"
+          fi
+          # Restore default connection if there are other machines
+          DEFAULT=$(podman machine list --format '{{`{{.Name}}`}}' | grep -v "{{.PODMAN_MACHINE}}" | head -1)
+          if [ -n "$DEFAULT" ]; then
+            podman system connection default "$DEFAULT"
+            echo "Restored default connection to: $DEFAULT"
+          fi
+        else
+          echo "Podman machine '{{.PODMAN_MACHINE}}' does not exist"
+        fi
 
   destroy:
     desc: Remove the dedicated Podman machine entirely
+    platforms: [darwin]
     prompt: "This will permanently delete the '{{.PODMAN_MACHINE}}' Podman machine and all its data. Continue?"
     cmds:
-      - uv run polaris-local-forge podman destroy --yes
+      - |
+        if podman machine inspect {{.PODMAN_MACHINE}} > /dev/null 2>&1; then
+          echo "Removing Podman machine '{{.PODMAN_MACHINE}}'..."
+          podman machine rm -f {{.PODMAN_MACHINE}}
+          # Restore default connection if there are other machines
+          DEFAULT=$(podman machine list --format '{{`{{.Name}}`}}' | head -1)
+          if [ -n "$DEFAULT" ]; then
+            podman system connection default "$DEFAULT"
+            echo "Restored default connection to: $DEFAULT"
+          fi
+        else
+          echo "Podman machine '{{.PODMAN_MACHINE}}' does not exist"
+        fi

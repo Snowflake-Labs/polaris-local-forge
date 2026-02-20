@@ -44,7 +44,8 @@ spec:
         secret_key: password
     
     # Service configuration - NodePort for local k3d access
-    # Maps to cluster-config.yaml: 9000:31900 (S3 API), 9001:31901 (Console)
+    # Maps to cluster-config.yaml: 19000:31900 (S3 API), 19001:31901 (Console)
+    # Internal cluster ports remain 9000/9001, host ports are 19000/19001
     service:
       type: NodePort
       endpoint:

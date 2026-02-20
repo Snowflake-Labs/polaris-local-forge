@@ -8,8 +8,10 @@ This guide covers setting up [Podman](https://podman.io/) as the container runti
 
 | Tool | Install |
 |------|---------|
-| Podman >= 4.0 | `brew install podman` (macOS) or [podman.io](https://podman.io/docs/installation) (Linux) |
+| Podman >= 4.0 | **Already installed** - Podman is a dependency of Cortex Code |
 | k3d >= 5.0 | `brew install k3d` or [k3d.io](https://k3d.io/) |
+
+> **Note:** Podman is a dependency of Cortex Code and should already be installed on your system. If not present, install via `brew install podman` (macOS) or [podman.io](https://podman.io/docs/installation) (Linux).
 
 ## macOS Setup
 

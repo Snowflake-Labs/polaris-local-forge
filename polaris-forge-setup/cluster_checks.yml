@@ -35,7 +35,11 @@
         name: "{{ namespace.name }}"
         api_version: v1
       register: ns_status
-      until: ns_status.resources[0].status.phase is defined and ns_status.resources[0].status.phase == "Active"
+      until: >
+        ns_status.resources is defined and
+        ns_status.resources | length > 0 and
+        ns_status.resources[0].status.phase is defined and
+        ns_status.resources[0].status.phase == "Active"
       loop: "{{ namespace_list }}"
       loop_control:
         label: "{{ namespace.name }}"
@@ -52,17 +56,19 @@
           - name: polaris
             tags: ["bootstrap"]
 
-    - name: Wait for Deployments to be ready
+    - name: Wait for Deployments and StatefulSets to be ready
       kubernetes.core.k8s_info:
         kind: "{{ deployment.kind }}"
         name: "{{ deployment.name }}"
         namespace: "{{ deployment.namespace }}"
         api_version: "{{ deployment.api_version | default('apps/v1') }}"
       register: resource_status
-      until:
-        resource_status.resources[0].status.availableReplicas is defined and
-        resource_status.resources[0].status.availableReplicas > 0 and resource_status.resources[0].status.readyReplicas
-        is defined and resource_status.resources[0].status.readyReplicas == resource_status.resources[0].status.replicas
+      until: >
+        resource_status.resources is defined and
+        resource_status.resources | length > 0 and
+        resource_status.resources[0].status.readyReplicas is defined and
+        resource_status.resources[0].status.readyReplicas > 0 and
+        resource_status.resources[0].status.readyReplicas == resource_status.resources[0].status.replicas
       loop: "{{ deployments_resources_list }}"
       loop_control:
         label: "{{ deployment.namespace }}/{{ deployment.kind }}/{{ deployment.name }}"
@@ -99,9 +105,11 @@
         api_version: batch/v1
       register: job_status
       until: >
-        (job.type == 'completion' and job_status.resources[0].status.succeeded is defined and
+        job_status.resources is defined and
+        job_status.resources | length > 0 and
+        ((job.type == 'completion' and job_status.resources[0].status.succeeded is defined and
         job_status.resources[0].status.succeeded > 0) or (job.type == 'suspension' and
-        job_status.resources[0].spec.suspend is defined and job_status.resources[0].spec.suspend == true)
+        job_status.resources[0].spec.suspend is defined and job_status.resources[0].spec.suspend == true))
       retries: 60
       delay: 10
       loop: "{{ job_resources_list }}"

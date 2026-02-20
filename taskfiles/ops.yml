@@ -85,6 +85,6 @@ tasks:
       - 'echo "  Adminer:     http://localhost:18080"'
       - 'echo "  PostgreSQL:  postgresql.polaris (check {{.FEATURES_DIR}}/postgresql.yaml)"'
       - 'echo ""'
-      - 'echo "  RustFS S3:   http://localhost:9000"'
-      - 'echo "  RustFS UI:   http://localhost:9001"'
+      - 'echo "  RustFS S3:   http://localhost:19000"'
+      - 'echo "  RustFS UI:   http://localhost:19001"'
       - 'echo "  Credentials: admin/password"'

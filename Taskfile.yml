@@ -19,7 +19,8 @@ vars:
   PROJECT_HOME:
     sh: pwd
   KUBECONFIG: "{{.PROJECT_HOME}}/.kube/config"
-  K3D_CLUSTER_NAME: polaris-local-forge
+  K3D_CLUSTER_NAME:
+    sh: basename $(pwd)
   K3S_VERSION: v1.35.1-k3s1
   FEATURES_DIR: "{{.PROJECT_HOME}}/k8s"
   PODMAN_MACHINE: k3d
@@ -86,7 +87,7 @@ tasks:
     desc: Ensure container runtime is ready (Podman machine setup if needed)
     cmds:
       - |
-        RUNTIME=$(uv run polaris-local-forge config --output json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('PLF_CONTAINER_RUNTIME',''))" 2>/dev/null || echo "")
+        RUNTIME="${PLF_CONTAINER_RUNTIME:-podman}"
         if [ "$RUNTIME" = "podman" ] && command -v podman > /dev/null 2>&1; then
           echo "Container runtime: podman"
           task podman:setup
@@ -98,23 +99,34 @@ tasks:
     desc: Stop container runtime after teardown (Podman machine stop if needed)
     cmds:
       - |
-        RUNTIME=$(uv run polaris-local-forge config --output json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('PLF_CONTAINER_RUNTIME',''))" 2>/dev/null || echo "")
+        RUNTIME="${PLF_CONTAINER_RUNTIME:-podman}"
         if [ "$RUNTIME" = "podman" ] && [ "$(uname)" = "Darwin" ] && command -v podman > /dev/null 2>&1; then
           task podman:stop
         fi
 
   setup:all:
-    desc: Complete setup - runtime check, prepare files, create cluster, deploy Polaris, setup catalog, verify
+    desc: Complete setup - runtime check, prepare files, create cluster, deploy Polaris, setup catalog
     cmds:
       - task: runtime:setup
-      - uv run polaris-local-forge setup --yes
-      - task: catalog:verify:sql
+      - task: prepare
+      - task: cluster:create
+      - task: cluster:bootstrap-check
+      - task: polaris:deploy
+      - task: cluster:polaris-check
+      - task: polaris:bootstrap
+      - task: catalog:setup
+      - 'echo ""'
+      - 'echo "Setup complete. Verify with: task verify:sql"'
 
   teardown:
-    desc: Complete teardown - cleanup catalog, delete cluster, stop Podman machine
+    desc: Complete teardown - cleanup catalog, delete cluster, prompt to stop Podman
     cmds:
       - uv run polaris-local-forge teardown --yes
-      - task: runtime:teardown
+
+  teardown:full:
+    desc: Complete teardown with Podman stop (no prompt)
+    cmds:
+      - uv run polaris-local-forge teardown --yes --stop-podman
 
   reset:all:
     desc: Complete reset - delete cluster, recreate everything with fresh catalog
@@ -123,9 +135,9 @@ tasks:
       - task: setup:all
 
   clean:all:
-    desc: Delete cluster and all resources
+    desc: Delete cluster and all resources (use teardown for full cleanup)
     cmds:
-      - uv run polaris-local-forge cluster delete --yes
+      - uv run polaris-local-forge teardown --yes --no-stop-podman
 
   cluster:reset:
     desc: Delete and recreate cluster with fresh catalog
@@ -161,24 +173,49 @@ tasks:
   doctor:
     desc: Check system prerequisites and health
     cmds:
-      - uv run polaris-local-forge doctor
-
-  doctor:json:
-    desc: Check system prerequisites (JSON output for automation)
-    cmds:
-      - uv run polaris-local-forge doctor --output json
+      - |
+        echo "=== Podman Check ==="
+        if [ "$(uname)" = "Darwin" ]; then
+          podman machine list || echo "Podman not installed"
+        else
+          podman info --format "Version: {{`{{.Version.Version}}`}}" 2>/dev/null || echo "Podman not running"
+        fi
+        echo ""
+        echo "=== k3d Check ==="
+        k3d version 2>/dev/null || echo "k3d not installed"
+        echo ""
+        echo "=== Cluster Check ==="
+        k3d cluster list 2>/dev/null || echo "No clusters"
+        echo ""
+        echo "=== Port Check ==="
+        for port in 19000 19001 18181 6443; do
+          if lsof -i :$port > /dev/null 2>&1; then
+            echo "Port $port: IN USE"
+          else
+            echo "Port $port: available"
+          fi
+        done
 
   config:
     desc: Show current configuration from .env file
     cmds:
-      - uv run polaris-local-forge config
+      - |
+        if [ -f .env ]; then
+          echo "=== Configuration (.env) ==="
+          grep -v '^#' .env | grep -v '^$' | sort
+        else
+          echo ".env file not found. Run 'task prepare' first."
+        fi
 
   status:
     desc: Show status of cluster and Polaris
     cmds:
-      - uv run polaris-local-forge cluster status
-      - echo ""
-      - uv run polaris-local-forge polaris status
+      - |
+        echo "=== Cluster Status ==="
+        k3d cluster list
+        echo ""
+        echo "=== Polaris Status ==="
+        kubectl get deployments,pods -n polaris 2>/dev/null || echo "Cluster not running or polaris namespace not found"
 
   verify:
     desc: Verify Polaris catalog setup (alias for catalog:verify:duckdb)
@@ -194,26 +231,6 @@ tasks:
         vars:
           CLI_ARGS: "{{.CLI_ARGS}}"
 
-  # Version bumps (aliases for discoverability)
-  bump:polaris:
-    desc: Update Polaris to latest version from Docker Hub
-    cmds:
-      - task: polaris:bump-version
-
-  bump:polaris:dry-run:
-    desc: Show what Polaris version update would do
-    cmds:
-      - task: polaris:bump-version:dry-run
-
-  bump:k3s:
-    desc: Update K3S to latest version from Docker Hub
-    cmds:
-      - task: cluster:bump-k3s
-
-  bump:k3s:dry-run:
-    desc: Show what K3S version update would do
-    cmds:
-      - task: cluster:bump-k3s:dry-run
 
   help:
     desc: Show available tasks with descriptions
