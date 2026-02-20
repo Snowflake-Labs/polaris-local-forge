@@ -99,6 +99,18 @@ Pattern for file edits:
 > **Note:** This skill configures Polaris with local RustFS (S3-compatible) storage only.
 > For real AWS S3 support, see Phase 2 in [SKILL_README.md](SKILL_README.md).
 
+**Pre-Check Rules (Fail Fast):**
+
+| Command | Pre-Check | If Fails |
+|---------|-----------|----------|
+| `setup` | Docker running, k3d installed | Stop: "Prerequisites missing. Run `doctor` first." |
+| `setup --fresh` | Docker running, k3d installed | Stop: "Prerequisites missing. Run `doctor` first." |
+| `cluster create` | Cluster doesn't exist | Stop: "Cluster already exists. Use `cluster delete` first or `setup` to resume." |
+| `catalog setup` | Cluster running, Polaris ready | Stop: "Cluster not ready. Run `setup` first." |
+| `polaris deploy` | Cluster running | Stop: "Cluster not running. Run `cluster create` first." |
+| `teardown` | Any resources exist | Proceed gracefully (idempotent with `--yes`) |
+| `catalog cleanup` | Catalog exists | Proceed gracefully (idempotent with `--yes`) |
+
 ### Step 0: Initialize Project Directory
 
 **Detect if user already has a workspace set up:**
@@ -131,11 +143,17 @@ cp <SKILL_DIR>/user-project/pyproject.toml .
 cp <SKILL_DIR>/.env.example .env
 ```
 
-**Infer PROJECT_NAME from directory:**
+**Infer PROJECT_NAME from directory and write it into `.env`:**
 
 ```bash
 PROJECT_NAME=$(basename $(pwd))
 echo "Project: ${PROJECT_NAME}"
+```
+
+If `K3D_CLUSTER_NAME` is not already set in `.env`, append the inferred value:
+
+```bash
+grep -q "^K3D_CLUSTER_NAME=" .env || echo "K3D_CLUSTER_NAME=${PROJECT_NAME}" >> .env
 ```
 
 > **IMPORTANT:** All subsequent CLI commands use `--work-dir` to point generated files here.
@@ -160,10 +178,10 @@ Configuration Review
   Config file:                   .env
   Work directory:                $(pwd)
 
-  PLF_CONTAINER_RUNTIME:         ${PLF_CONTAINER_RUNTIME}  # podman (default) or docker
+  PLF_CONTAINER_RUNTIME:         ${PLF_CONTAINER_RUNTIME}  # ADAPT: podman (default) or docker
   PLF_PODMAN_MACHINE:            ${PLF_PODMAN_MACHINE}     # macOS only (default: k3d)
 
-  K3D_CLUSTER_NAME:              ${K3D_CLUSTER_NAME}      # ADAPT: customizable
+  K3D_CLUSTER_NAME:              ${K3D_CLUSTER_NAME}      # ADAPT: defaults to project directory name
   K3S_VERSION:                   ${K3S_VERSION}
   KUBECONFIG:                    .kube/config
 
@@ -172,7 +190,7 @@ Configuration Review
   AWS_ACCESS_KEY_ID:             admin
 
   POLARIS_URL:                   http://localhost:18181
-  POLARIS_REALM:                 ${POLARIS_REALM}
+  POLARIS_REALM:                 ${POLARIS_REALM}           # ADAPT: customizable
 
   PLF_POLARIS_S3_BUCKET:         ${PLF_POLARIS_S3_BUCKET}    # ADAPT: customizable
   PLF_POLARIS_CATALOG_NAME:      ${PLF_POLARIS_CATALOG_NAME} # ADAPT: customizable
@@ -287,7 +305,7 @@ done
 | None | Exists | Copy shared to `.snow-utils/` -> Step 0d |
 | Exists (REMOVED) | None | Replay Flow (reuse existing config) |
 | Exists (COMPLETE) | None | Ask user: re-run, reset, or skip |
-| Exists (IN_PROGRESS) | None | Resume Flow (continue from last step) |
+| Exists (IN_PROGRESS) | None | Resume Flow -- `${PLF} setup --yes` auto-resumes from first PENDING resource |
 | Exists | Exists | **Conflict** -- ask user which to use |
 
 **If BOTH manifests exist, show:**
@@ -337,12 +355,14 @@ Manifest Value Review
 ─────────────────────
 The following values can be customized for your environment:
 
-  Setting                       Default Value          Marker
-  ────────────────────────────  ─────────────────────  ──────────────────────
-  K3D_CLUSTER_NAME:             polaris-local-forge    # ADAPT: customizable
-  PLF_POLARIS_S3_BUCKET:        polaris                # ADAPT: customizable
-  PLF_POLARIS_CATALOG_NAME:     polardb                # ADAPT: customizable
-  PLF_POLARIS_PRINCIPAL_NAME:   iceberg                # ADAPT: customizable
+  Setting                       Default Value              Marker
+  ────────────────────────────  ─────────────────────────  ──────────────────────
+  PLF_CONTAINER_RUNTIME:        podman                     # ADAPT: podman or docker
+  K3D_CLUSTER_NAME:             (project directory name)   # ADAPT: customizable
+  POLARIS_REALM:                default-realm              # ADAPT: customizable
+  PLF_POLARIS_S3_BUCKET:        polaris                    # ADAPT: customizable
+  PLF_POLARIS_CATALOG_NAME:     polardb                    # ADAPT: customizable
+  PLF_POLARIS_PRINCIPAL_NAME:   iceberg                    # ADAPT: customizable
   KUBECONFIG:                   (derived from cluster name)
   KUBECTL_PATH:                 (derived from cluster name)
 
@@ -357,10 +377,14 @@ Options:
 | Choice | Action |
 |--------|--------|
 | **1 -- Accept all** | Proceed with defaults |
-| **2 -- Edit specific** | Ask which value, update manifest in-place, re-display |
+| **2 -- Edit specific** | Ask which value, update manifest and `.env` in-place, re-display |
 | **3 -- Cancel** | Stop |
 
+**If user changes `PLF_CONTAINER_RUNTIME`:** Update `.env` with the new value. If switching to Docker, clear `PLF_PODMAN_MACHINE` from `.env`.
+
 **If user changes `K3D_CLUSTER_NAME`:** Automatically update derived values (`KUBECONFIG`, `KUBECTL_PATH`, resource table row 1) in the manifest. Also update `.env` with the new cluster name.
+
+**If user changes `POLARIS_REALM` or any `PLF_POLARIS_*` value:** Update both the manifest and `.env`.
 
 **If `ADAPT_COUNT` = 0 (no markers):** Proceed silently with values as-is.
 
@@ -412,254 +436,64 @@ uv sync --all-extras
 > Environment ready. Python venv created with query/notebook dependencies.
 > Configuration loaded from `.env`.
 
-### Step 2: Generate Configuration Files
+### Step 2: Full Setup
 
 **SHOW -- what we're about to do:**
 
-> Generate configuration files from templates using Ansible:
+> Run the complete setup pipeline. This single command handles everything:
 >
-> - RSA key pair for Polaris token authentication
-> - Bootstrap credentials for initial Polaris realm setup
-> - PostgreSQL Helm chart values
-> - Polaris Helm chart values with S3 endpoint configuration
-> - Kubernetes secrets manifest
+> 1. **Prepare** -- Generate RSA keys, bootstrap credentials, Helm charts, k8s manifests
+> 2. **Create cluster** -- Download kubectl, create k3d cluster (`${K3D_CLUSTER_NAME}`)
+>    using ${PLF_CONTAINER_RUNTIME}, wait for bootstrap (RustFS, PostgreSQL)
+> 3. **Deploy Polaris** -- Install Polaris server, run bootstrap job, wait until ready
+> 4. **Setup catalog** -- Create S3 bucket (`${PLF_POLARIS_S3_BUCKET}`),
+>    register catalog (`${PLF_POLARIS_CATALOG_NAME}`),
+>    create principal (`${PLF_POLARIS_PRINCIPAL_NAME}`), configure RBAC grants
 >
-> Files are generated directly in the work directory. Static k8s
-> manifests are copied from the skill repo and permissions are secured.
-
-**STOP**: Wait for user confirmation before proceeding.
-
-**DO:**
-
-```bash
-${PLF} prepare
-```
-
-**Update manifest:** Record tools_verified date and K3S/kubectl versions.
-
-**SUMMARIZE:**
-
-> Configuration files generated in work directory.
-> RSA keys, bootstrap credentials, and Helm chart values are ready.
-> Sensitive files secured (0600/0700).
-
-### Step 3: Create Cluster
-
-**SHOW -- what we're about to do:**
-
-> Create a k3d cluster with the following configuration:
->
-> - **Cluster name:** ${K3D_CLUSTER_NAME}
-> - **K3S version:** ${K3S_VERSION}
-> - **Container runtime:** ${PLF_CONTAINER_RUNTIME} (Podman or Docker)
-> - **RustFS S3:** localhost:9000
-> - **RustFS Console:** localhost:9001
-> - **PostgreSQL:** internal metastore
+> Services will be available at:
 > - **Polaris API:** localhost:18181
+> - **RustFS S3:** localhost:9000 (credentials: admin/password)
+> - **RustFS Console:** localhost:9001
 >
-> This will create a local Kubernetes cluster running in Podman (default) or Docker.
-> When using Podman, k3d runs against the dedicated `${PLF_PODMAN_MACHINE}` machine.
-> kubectl is downloaded to `bin/` and kubeconfig to `.kube/config`
-> within the work directory.
-
-**STOP**: Wait for user confirmation before proceeding.
+> Live progress is printed as each resource comes up. Takes 2-5 minutes.
 
 **DO:**
 
 ```bash
-${PLF} cluster create
+${PLF} setup --yes
 ```
 
-**Set the scoped cluster environment for this session:**
+**After setup completes, set the scoped cluster environment for this session:**
 
 ```bash
 export KUBECONFIG="$(pwd)/.kube/config"
 export PATH="$(pwd)/bin:$PATH"
-```
-
-**Verify kubectl works:**
-
-```bash
-kubectl version --client
-kubectl get nodes
-```
-
-**SUMMARIZE:**
-
-> k3d cluster `${K3D_CLUSTER_NAME}` created. Kubeconfig at `.kube/config`,
-> kubectl at `bin/kubectl`.
-
-### Step 4: Wait for Bootstrap
-
-**SHOW -- what we're about to do:**
-
-> Wait for the bootstrap deployments (RustFS, PostgreSQL) to be ready.
-> This may take 1-3 minutes while containers pull images and start.
-
-**DO:**
-
-```bash
-${PLF} cluster bootstrap-check
-```
-
-**SUMMARIZE:**
-
-> Bootstrap complete. RustFS and PostgreSQL are running.
-
-### Step 5: Deploy Polaris
-
-**SHOW -- what we're about to do:**
-
-> Deploy Apache Polaris (Incubating) to the cluster. This installs the Polaris server
-> and runs the bootstrap job to initialize the default realm.
-
-**DO:**
-
-```bash
-${PLF} polaris deploy
-```
-
-**SUMMARIZE:**
-
-> Polaris deployment submitted. Waiting for it to become ready.
-
-### Step 6: Wait for Polaris
-
-**DO:**
-
-```bash
-${PLF} cluster polaris-check
-```
-
-**SUMMARIZE:**
-
-> Polaris is running at `http://localhost:18181`. Realm `${POLARIS_REALM}` is initialized.
-
-### Step 7: S3/RustFS Configuration
-
-**SHOW -- Local AWS settings for RustFS:**
-
-> RustFS provides S3-compatible storage at `http://localhost:9000`.
-> These settings let you use `aws` CLI and any S3-compatible SDK against RustFS:
->
-> ```
-> AWS_ENDPOINT_URL=http://localhost:9000
-> AWS_REGION=us-east-1
-> AWS_ACCESS_KEY_ID=admin
-> AWS_SECRET_ACCESS_KEY=password
-> ```
->
-> **Local equivalent of `snow-utils-volumes`:** In Snowflake environments,
-> `snow-utils-volumes` creates real AWS S3 buckets + IAM roles + Snowflake
-> External Volumes. Here, RustFS provides the S3 layer directly -- no IAM
-> roles needed, no External Volume SQL. Polaris catalog config points to
-> `s3://bucket` with the RustFS endpoint.
-
-**DO -- configure AWS CLI for RustFS:**
-
-The `prepare` step generated project-local AWS config files at `.aws/config`
-and `.aws/credentials`. The `.env` file points the AWS CLI to them via
-`AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE`. To activate:
-
-```bash
 set -a && source .env && set +a
 ```
 
-This exports all `.env` variables into the current shell session.
-The AWS CLI will now use the local RustFS config -- no changes to `~/.aws/`.
+The CLI manages the manifest automatically during setup:
 
-**Verify RustFS is accessible (if AWS CLI is installed):**
+1. Creates `.snow-utils/snow-utils-manifest.md` with all resources PENDING and Status: IN_PROGRESS
+2. Updates each resource row to DONE immediately after creation (resilience pattern)
+3. Sets Status: COMPLETE and appends Cleanup Instructions when all resources are verified
+4. If interrupted, re-running `setup --yes` resumes from the first non-DONE resource
 
-```bash
-aws s3 ls
-```
-
-No `--endpoint-url` flag needed -- the local `.aws/config` has the endpoint.
-
-**Create additional S3 buckets (optional):**
+**After setup, verify manifest was written:**
 
 ```bash
-aws s3 mb s3://my-bucket
+cat .snow-utils/snow-utils-manifest.md
 ```
+
+Expected: all 7 resource rows show `DONE`, Status shows `COMPLETE`.
 
 **SUMMARIZE:**
 
-> RustFS S3 is accessible at `http://localhost:9000`. Credentials: `admin`/`password`.
-> Project-local `.aws/config` + `.aws/credentials` configured -- no changes to `~/.aws/`.
-> AWS CLI and S3 SDKs work with these local settings.
-
-### Step 8: Catalog Setup
-
-**SHOW -- what we're about to do:**
-
-> Set up the Polaris catalog on RustFS:
->
-> - **S3 bucket:** `${PLF_POLARIS_S3_BUCKET}` (on RustFS at localhost:9000)
-> - **Catalog:** `${PLF_POLARIS_CATALOG_NAME}` (REST catalog backed by S3)
-> - **Principal:** `${PLF_POLARIS_PRINCIPAL_NAME}` (with client_id/client_secret)
-> - **Roles and grants:** catalog admin + principal role assignment
->
-> This creates the S3 bucket, registers the catalog with Polaris,
-> creates a principal for external access, and configures RBAC grants.
-
-**STOP**: Wait for user confirmation before proceeding.
-
-**DO:**
-
-```bash
-${PLF} catalog setup
-```
-
-**Update manifest -- set Status: IN_PROGRESS and mark each resource DONE as created:**
-
-```markdown
-<!-- START -- polaris-local-forge:${CLUSTER_NAME} -->
-## Polaris Local Forge: ${CLUSTER_NAME}
-
-**Created:** {TIMESTAMP}
-**Status:** IN_PROGRESS
-
-### Container Runtime
-**PLF_CONTAINER_RUNTIME:** ${PLF_CONTAINER_RUNTIME}
-**PLF_PODMAN_MACHINE:** ${PLF_PODMAN_MACHINE}
-
-### Cluster
-**K3D_CLUSTER_NAME:** ${K3D_CLUSTER_NAME}
-**K3S_VERSION:** ${K3S_VERSION}
-
-### RustFS S3
-**AWS_ENDPOINT_URL:** http://localhost:9000
-
-### Polaris
-**POLARIS_URL:** http://localhost:18181
-**POLARIS_REALM:** ${POLARIS_REALM}
-
-### Catalog
-**PLF_POLARIS_S3_BUCKET:** ${PLF_POLARIS_S3_BUCKET}
-**PLF_POLARIS_CATALOG_NAME:** ${PLF_POLARIS_CATALOG_NAME}
-**PLF_POLARIS_PRINCIPAL_NAME:** ${PLF_POLARIS_PRINCIPAL_NAME}
-
-### Resources
-
-| # | Type | Name | Status |
-|---|------|------|--------|
-| 1 | k3d Cluster | ${K3D_CLUSTER_NAME} | DONE |
-| 2 | RustFS | S3-compatible storage | DONE |
-| 3 | PostgreSQL | Polaris metastore | DONE |
-| 4 | Polaris | REST Catalog server | DONE |
-| 5 | S3 Bucket | ${PLF_POLARIS_S3_BUCKET} | DONE |
-| 6 | Catalog | ${PLF_POLARIS_CATALOG_NAME} | DONE |
-| 7 | Principal | ${PLF_POLARIS_PRINCIPAL_NAME} | DONE |
-<!-- END -- polaris-local-forge:${CLUSTER_NAME} -->
-```
-
-**SUMMARIZE:**
-
+> Setup complete. Cluster `${K3D_CLUSTER_NAME}` running with Polaris, RustFS, and PostgreSQL.
 > Catalog `${PLF_POLARIS_CATALOG_NAME}` created with principal `${PLF_POLARIS_PRINCIPAL_NAME}`.
-> Credentials saved to `work/principal.txt` (realm shown, client_id/secret masked).
-> Sensitive files permissions secured (0600).
+> Credentials saved to `work/principal.txt`.
+> Manifest: `.snow-utils/snow-utils-manifest.md`
 
-### Step 9: Verification
+### Step 3: Verification
 
 **SHOW -- what we're about to do:**
 
@@ -687,7 +521,7 @@ ${PLF} catalog verify-sql
 
 > Verification passed! DuckDB successfully queried Iceberg tables via Polaris REST catalog on RustFS.
 
-### Step 9a: Generate Notebook
+### Step 3a: Generate Notebook
 
 **SHOW -- what we're about to do:**
 
@@ -706,7 +540,7 @@ ${PLF} catalog generate-notebook
 > Notebook generated at `notebooks/verify_polaris.ipynb`.
 > Open it with `jupyter notebook notebooks/verify_polaris.ipynb` for interactive exploration.
 
-### Step 10: Summary
+### Step 4: Summary
 
 **SUMMARIZE -- Setup Complete:**
 
@@ -898,13 +732,24 @@ Aliased as `plf` in tables below for brevity.
 
 **`--yes` is REQUIRED** when executing destructive commands after user has approved (CLIs prompt interactively which does not work in Cortex Code's non-interactive shell). All destructive commands support `--dry-run` to preview and `--yes` to skip interactive confirmation.
 
+**COMMAND NAMES (exact -- do NOT substitute):**
+
+- `setup` -- NOT "install", "create", "provision", "init"
+- `teardown` -- NOT "cleanup", "destroy", "remove", "delete"
+- `doctor` -- NOT "check", "verify", "health", "prereqs"
+- `catalog setup` -- NOT "catalog create", "catalog init"
+- `catalog cleanup` -- NOT "catalog delete", "catalog remove"
+- `cluster create` -- NOT "cluster setup", "cluster init"
+- `cluster delete` -- NOT "cluster remove", "cluster destroy"
+
 ### Setup & Teardown
 
 | Command | Description |
 |---------|-------------|
-| `plf setup --yes` | Complete setup (cluster + Polaris + catalog) |
-| `plf setup --dry-run` | Preview setup plan without executing |
-| `plf teardown --yes` | Complete teardown (cleanup + delete cluster) |
+| `plf setup --yes` | Complete setup (cluster + Polaris + catalog); resumes from manifest if interrupted |
+| `plf setup --yes --fresh` | Complete setup ignoring saved manifest progress (start from scratch) |
+| `plf setup --dry-run` | Preview setup plan; shows which steps are done (from manifest) |
+| `plf teardown --yes` | Complete teardown (cleanup + delete cluster); marks manifest resources as REMOVED |
 | `plf teardown --dry-run` | Preview teardown plan without executing |
 
 ### Status & Config
@@ -1004,6 +849,17 @@ cat work/principal.txt
 - [Polaris Catalog API Spec (Swagger)](https://editor.swagger.io/?url=https://raw.githubusercontent.com/apache/polaris/refs/heads/main/spec/generated/bundled-polaris-catalog-service.yaml)
 - [RustFS Documentation](https://docs.rustfs.com/)
 - [Apache Iceberg](https://iceberg.apache.org/)
+
+## Security Notes
+
+- **Bootstrap credentials:** Generated RSA keys and admin credentials are stored in `k8s/polaris/` with restricted permissions (chmod 600)
+- **Principal credentials:** `work/principal.txt` contains sensitive `client_id` and `client_secret` -- NEVER display full values in logs or output; mask as `****` + last 4 chars for client_id, never show client_secret
+- **RustFS credentials:** Static `admin`/`password` for local development only -- not suitable for production use
+- **KUBECONFIG:** Scoped to project directory (`.kube/config`) to isolate from system kubeconfig
+- **kubectl binary:** Downloaded to project `bin/` directory to ensure version compatibility with the cluster
+- **.env file:** Contains configuration but no secrets by default -- add to `.gitignore` if you add sensitive values
+- **Manifest directory:** `.snow-utils/` directory uses chmod 700; manifest files use chmod 600
+- **Network isolation:** All services run on localhost ports (18181, 9000, 9001) -- not exposed externally by default
 
 ## Directory Structure
 
