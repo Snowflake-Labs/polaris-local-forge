@@ -85,11 +85,13 @@ mkdir -p ~/polaris-dev && task setup:all WORK_DIR=~/polaris-dev
 ```
 
 > [!NOTE]
-> **Podman:** Auto-detected and started via `doctor --fix`. **Docker:** Start Docker Desktop first.
+>
+> - **Podman:** Auto-detected and started via `doctor --fix`.
+> - **Docker:** Start Docker Desktop first.
 
 ### Option 2: Cortex Code (AI-assisted)
 
-[Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) automates setup through natural language.
+[Snowflake Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) automates setup through natural language.
 
 ```bash
 cortex skill add https://github.com/kameshsampath/polaris-local-forge
@@ -100,7 +102,14 @@ Then just say:
 | Say this... | What happens |
 |-------------|--------------|
 | *"get started with apache polaris"* | Full guided setup with cluster, storage, and catalog |
-| *"get started with apache polaris using example manifest"* | Setup using pre-configured manifest |
+
+*(OR)*
+
+Simply with `cortex` say ( will install skill and run the workflow):
+
+```bash
+get started with apache polaris using example manifest <https://github.com/Snowflake-Labs/polaris-local-forge/blob/main/example-manifests/polaris-local-forge-manifest.md>
+```
 
 See [SKILL_README.md](SKILL_README.md) for complete trigger list and API query examples.
 
