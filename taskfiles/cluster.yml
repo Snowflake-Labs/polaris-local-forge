@@ -9,16 +9,46 @@ tasks:
   create:
     desc: Create the k3d cluster and deploy initial components
     cmds:
-      - uv run polaris-local-forge cluster create
+      - "{{.PLF}} cluster create"
 
   bootstrap-check:
     desc: Wait for bootstrap deployments (RustFS, PostgreSQL) to be ready
     cmds:
       - |
+        echo "Waiting for namespaces to be created by Helm charts..."
+        # Wait for rustfs namespace (created by HelmChart)
+        until kubectl get namespace rustfs >/dev/null 2>&1; do
+          echo "  Waiting for rustfs namespace..."
+          sleep 5
+        done
+        echo "  rustfs namespace ready"
+        # Wait for polaris namespace (created by HelmChart for PostgreSQL)
+        until kubectl get namespace polaris >/dev/null 2>&1; do
+          echo "  Waiting for polaris namespace..."
+          sleep 5
+        done
+        echo "  polaris namespace ready"
+        
         echo "Waiting for RustFS deployment..."
-        kubectl wait --for=condition=available deployment/rustfs -n default --timeout=120s
-        echo "Waiting for PostgreSQL deployment..."
-        kubectl wait --for=condition=available deployment/postgresql -n polaris --timeout=120s
+        kubectl wait --for=condition=available deployment/rustfs -n rustfs --timeout=300s
+        
+        echo "Waiting for RustFS S3 endpoint to be ready..."
+        # Check actual S3 connectivity (deployment ready != S3 ready)
+        MAX_RETRIES=30
+        RETRY_COUNT=0
+        until AWS_ACCESS_KEY_ID=admin AWS_SECRET_ACCESS_KEY=password AWS_ENDPOINT_URL=http://localhost:19000 aws s3 ls >/dev/null 2>&1; do
+          RETRY_COUNT=$((RETRY_COUNT + 1))
+          if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+            echo "  ERROR: RustFS S3 endpoint not responding after ${MAX_RETRIES} attempts"
+            exit 1
+          fi
+          echo "  Waiting for S3 endpoint... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+          sleep 5
+        done
+        echo "  RustFS S3 endpoint ready"
+        
+        echo "Waiting for PostgreSQL StatefulSet..."
+        kubectl rollout status statefulset/postgresql -n polaris --timeout=300s
         echo "Bootstrap deployments ready."
 
   polaris-check:
@@ -32,7 +62,7 @@ tasks:
   delete:
     desc: Delete the k3d cluster
     cmds:
-      - uv run polaris-local-forge cluster delete --yes
+      - "{{.PLF}} cluster delete --yes"
 
   status:
     desc: Show cluster status

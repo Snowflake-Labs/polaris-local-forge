@@ -9,7 +9,7 @@ tasks:
   setup:
     desc: Set up demo catalog with s3 bucket, catalog, principal, and roles
     cmds:
-      - uv run polaris-local-forge catalog setup {{if .TAGS}}--tags={{.TAGS}}{{end}}
+      - "{{.PLF}} catalog setup {{if .TAGS}}--tags={{.TAGS}}{{end}}"
 
   verify:sql:
     desc: Verify Polaris catalog using DuckDB CLI with SQL script
@@ -91,7 +91,7 @@ tasks:
   cleanup:
     desc: Cleanup Polaris catalog resources
     cmds:
-      - uv run polaris-local-forge catalog cleanup --yes {{if .TAGS}}--tags={{.TAGS}}{{end}}
+      - "{{.PLF}} catalog cleanup --yes {{if .TAGS}}--tags={{.TAGS}}{{end}}"
 
   list:
     desc: List catalogs in Polaris

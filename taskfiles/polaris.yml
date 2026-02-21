@@ -9,7 +9,7 @@ tasks:
   deploy:
     desc: Deploy Polaris to the cluster
     cmds:
-      - uv run polaris-local-forge polaris deploy
+      - "{{.PLF}} polaris deploy"
 
   check:
     desc: Ensure all Polaris deployments have succeeded
@@ -22,12 +22,12 @@ tasks:
   purge:
     desc: Purge Polaris data
     cmds:
-      - uv run polaris-local-forge polaris purge
+      - "{{.PLF}} polaris purge"
 
   bootstrap:
     desc: Bootstrap Polaris (run after deploy)
     cmds:
-      - uv run polaris-local-forge polaris bootstrap
+      - "{{.PLF}} polaris bootstrap"
 
   reset:
     desc: Purge and re-bootstrap Polaris
