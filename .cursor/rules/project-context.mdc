@@ -1,0 +1,25 @@
+---
+description: Project references and toolkit documentation for polaris-local-forge
+alwaysApply: true
+---
+
+# Project Context
+
+## GitHub Repository
+
+- **Project:** https://github.com/Snowflake-Labs/polaris-local-forge
+
+## Toolkit Documentation
+
+When working with this project, reference these docs:
+
+- **RustFS:** https://docs.rustfs.com/
+- **Apache Polaris:** https://polaris.apache.org/
+- **Apache Iceberg:** https://iceberg.apache.org/
+
+## Related Skill Repos
+
+For CLI and skill patterns, reference:
+
+- `~/git/kameshsampath/snow-utils-skills` - PAT, Networks, Volumes skills
+- `~/git/kameshsampath/kamesh-demo-skills` - Demo skills (hirc-duckdb, smart-crowd-counter)

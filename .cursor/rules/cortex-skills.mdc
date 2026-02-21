@@ -1,0 +1,28 @@
+---
+description: Cortex Code skill development - quick reference (detailed patterns in skill-development.mdc)
+alwaysApply: true
+---
+
+# Cortex Code Skills - Quick Reference
+
+**Full Best Practices:** `~/snow-works/coco/skills/BEST_PRACTICES.local.md`
+
+**Reference Repos:**
+- `~/git/kameshsampath/snow-utils` - CLI scripts (PAT, Networks, Volumes) + Taskfile patterns
+- `~/git/kameshsampath/snow-utils-skills` - Cortex Code skills consuming snow-utils
+- `~/git/kameshsampath/kamesh-demo-skills` - Demo skills (hirc-duckdb, smart-crowd-counter)
+
+## Core Principles
+
+1. **SHOW/DO/SUMMARIZE** - Preview → Execute with approval → Explain result
+2. **Manifest-Driven** - Track in `.snow-utils/snow-utils-manifest.md`
+3. **CLI Thin Wrapper** - CLI does ONE thing; SKILL.md orchestrates
+4. **Plan First** - For questions/WDYT, plan before executing
+
+## Quick Don'ts
+
+- NEVER sed/awk for .env edits — use Edit/StrReplace
+- NEVER skip user confirmation for destructive ops
+- NEVER guess CLI options — run `--help` first
+
+*Detailed patterns activate when editing SKILL.md files.*

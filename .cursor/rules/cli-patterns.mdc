@@ -1,0 +1,88 @@
+---
+description: CLI development patterns with Click, Taskfile, and uv
+globs: "**/{Taskfile.yml,*.py,pyproject.toml}"
+alwaysApply: false
+---
+
+# CLI Development Patterns
+
+**Reference:** `~/git/kameshsampath/snow-utils`
+
+## Click CLI Structure
+
+```python
+import click
+from dotenv import load_dotenv
+
+@click.group()
+@click.option('--verbose', '-v', is_flag=True)
+@click.option('--debug', '-d', is_flag=True)
+@click.pass_context
+def cli(ctx, verbose, debug):
+    ctx.ensure_object(dict)
+    ctx.obj['verbose'] = verbose
+
+@cli.command()
+@click.option('--name', '-n', envvar='RESOURCE_NAME', required=True)
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation')
+def create(name, yes):
+    """Create a resource."""
+    pass
+```
+
+## Taskfile.yml Patterns
+
+```yaml
+version: "3"
+dir: "{{.TASKFILE_DIR}}"  # Run from project dir (enables symlink usage)
+dotenv: [".env"]
+
+vars:
+  PYTHON: uv run --project {{.TASKFILE_DIR}}
+  CLI: "{{.PYTHON}} my-cli"
+
+tasks:
+  create:
+    desc: Create resource
+    deps: [check]  # Run prerequisite first
+    cmds:
+      - "{{.CLI}} create {{.CLI_ARGS}}"
+    env:
+      RESOURCE_NAME: "{{.RESOURCE_NAME}}"
+    vars:
+      RESOURCE_NAME: '{{.RESOURCE_NAME | default ""}}'
+```
+
+## pyproject.toml Entry Points
+
+```toml
+[project.scripts]
+my-cli = "my_package.main:cli"
+
+[tool.uv.sources]
+common-lib = { path = "common", editable = true }
+```
+
+## Naming Conventions
+
+| Style | Pattern | Use Case |
+|-------|---------|----------|
+| `snowflake` | `UPPER_SNAKE_CASE` | Snowflake objects |
+| `aws` | `lower-kebab-case` | S3 buckets, IAM roles |
+
+**User-prefixed naming** (avoid conflicts in shared accounts):
+- AWS: `{username}-{bucket}`, `{username}-{bucket}-snowflake-role`
+- Snowflake: `{USERNAME}_{BUCKET}_EXTERNAL_VOLUME`
+
+## Environment-Driven Config
+
+- Use `envvar=` in Click options for env var fallbacks
+- Load `.env` with `load_dotenv(override=True)`
+- Taskfile: `dotenv: [".env"]` auto-loads environment
+
+## Key Patterns from snow-utils
+
+- **Global options before subcommand:** `cli --verbose create --name foo`
+- **Confirmation flags:** `--yes` for non-interactive, `--dry-run` for preview
+- **Output formats:** `--output text|json`
+- **Task dependencies:** Use `deps:` for prerequisite checks
