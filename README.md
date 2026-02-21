@@ -108,7 +108,7 @@ Then just say:
 Simply with `cortex` say ( will install skill and run the workflow):
 
 ```bash
-get started with apache polaris using example manifest <https://github.com/Snowflake-Labs/polaris-local-forge/blob/main/example-manifests/polaris-local-forge-manifest.md>
+get started with apache polaris using example manifest "https://github.com/Snowflake-Labs/polaris-local-forge/blob/main/example-manifests/polaris-local-forge-manifest.md"
 ```
 
 See [SKILL_README.md](SKILL_README.md) for complete trigger list and API query examples.

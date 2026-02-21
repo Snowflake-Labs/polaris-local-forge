@@ -69,7 +69,7 @@ Say any of these to activate the skill:
 
 ### Manifest-Driven
 
-- "get started with apache polaris using <https://github.com/Snowflake-Labs/polaris-local-forge/blob/main/example-manifests/polaris-local-forge-manifest.md>"
+- "get started with apache polaris using "<https://github.com/Snowflake-Labs/polaris-local-forge/blob/main/example-manifests/polaris-local-forge-manifest.md>""
 - "replay polaris local forge"
 - "replay from manifest"
 
