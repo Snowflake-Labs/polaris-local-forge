@@ -1,35 +1,79 @@
-# Polaris Local Forge
+# Apache Polaris Local Forge
 
 ![k3d](https://img.shields.io/badge/k3d-v5.8.0-427cc9)
 ![Podman](https://img.shields.io/badge/Podman-v4.0+-892CA0)
 ![Docker Desktop](https://img.shields.io/badge/Docker%20Desktop-v4.27+-0db7ed)
-![Apache Polaris](https://img.shields.io/badge/Apache%20Polaris-1.3.0--incubating-blue)
+![Apache Polaris](https://img.shields.io/badge/Apache%20Polaris-1.3.0-blue)
 ![RustFS](https://img.shields.io/badge/RustFS-1.0.0-orange)
 
-A complete local development environment for [Apache Polaris (Incubating)](https://polaris.apache.org/) with [RustFS](https://rustfs.com/) S3-compatible storage running on k3s Kubernetes.
+A complete local development environment for [Apache Polaris](https://polaris.apache.org/) with [RustFS](https://rustfs.com/) S3-compatible storage running on k3s Kubernetes.
 
-**Features:**
+**Why polaris-local-forge?**
 
-- Automated k3s cluster setup with k3d
-- RustFS for high-performance S3-compatible object storage
-- PostgreSQL metastore
-- Task-based automation and Python CLI
-- DuckDB SQL verification and Jupyter notebook
+- **Quickly try Apache Iceberg** — Get hands-on with Iceberg tables via Apache Polaris in minutes
+- **Production blueprint** — K8s manifests and Helm patterns transfer directly to real clusters
+- **Rinse-repeat PoC cycles** — Isolated `WORK_DIR` environments for easy setup/teardown/reset
+- **K8s over Compose** — Production parity without "works locally, breaks in K8s" surprises
 
-> **Note**: Looking for LocalStack? Check out the [`localstack`](https://github.com/kameshsampath/polaris-local-forge/tree/localstack) branch.
+### Architecture
+
+```mermaid
+flowchart TB
+    subgraph k3d_cluster [k3d Cluster]
+        Polaris[Apache Polaris<br/>REST Catalog]
+        PostgreSQL[(PostgreSQL<br/>Metastore)]
+        RustFS[RustFS<br/>S3 Storage]
+    end
+    
+    Client[DuckDB / PyIceberg / Cortex Code]
+    
+    Client -->|"Iceberg REST API<br/>:18181"| Polaris
+    Polaris --> PostgreSQL
+    Polaris -->|"S3 API<br/>:19000"| RustFS
+```
+
+## TL;DR (Quick Start)
+
+> [!TIP]
+> Just want to get started? Run these commands:
+
+```bash
+git clone https://github.com/kameshsampath/polaris-local-forge
+cd polaris-local-forge
+task setup:python
+
+# Recommended: Use a separate work directory to keep source clean
+mkdir -p ~/polaris-dev && task setup:all WORK_DIR=~/polaris-dev
+```
+
+Services will be available at:
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Apache Polaris API | <http://localhost:18181> | See `k8s/polaris/.bootstrap-credentials.env` |
+| RustFS S3 | <http://localhost:19000> | `admin` / `password` |
+| RustFS Console | <http://localhost:19001> | `admin` / `password` |
+
+> [!TIP]
+> **Using Cortex Code?** Skip the CLI and just say: *"get started with apache polaris"*
+>
+> See [Using with Cortex Code](#using-with-cortex-code) for AI-assisted setup and natural language commands.
 
 ## Prerequisites
 
 ### Required Tools
 
-| Tool | Version | Install |
-|------|---------|---------|
-| Podman (default) | >= 4.0 | `brew install podman` or [podman.io](https://podman.io/) |
-| Docker (alternative) | >= 4.27 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) |
-| k3d | >= 5.0.0 | `brew install k3d` or [k3d.io](https://k3d.io/) |
-| Python | >= 3.12 | [python.org](https://www.python.org/downloads/) |
-| uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| Task | latest | `brew install go-task` or [taskfile.dev](https://taskfile.dev) |
+> [!NOTE]
+> **Windows users:** Use WSL2 with Ubuntu. All commands below work in WSL2.
+
+| Tool | macOS | Linux | Docs |
+|------|-------|-------|------|
+| Podman (default) | `brew install podman` | `sudo dnf install podman` or `sudo apt install podman` | [podman.io](https://podman.io/getting-started) |
+| Docker (alternative) | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | [Docker Engine](https://docs.docker.com/engine/install/) | [docs.docker.com](https://docs.docker.com/) |
+| k3d | `brew install k3d` | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` | [k3d.io](https://k3d.io/#installation) |
+| Python | `brew install python@3.12` | `sudo apt install python3.12` | [python.org](https://www.python.org/downloads/) |
+| uv | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | Same | [docs.astral.sh/uv](https://docs.astral.sh/uv/) |
+| Task | `brew install go-task` | `sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d` | [taskfile.dev](https://taskfile.dev/installation/) |
 
 ### Container Runtime
 
@@ -52,20 +96,22 @@ flowchart TD
 ```
 
 **Detection priority:**
+
 1. Running runtime preferred over just installed
 2. Docker preferred when both are running
 3. User prompted when both installed but neither running
 
 Override auto-detection by setting `PLF_CONTAINER_RUNTIME=docker` or `PLF_CONTAINER_RUNTIME=podman` in `.env`.
 
-**First-time Podman users:** See [docs/podman-setup.md](docs/podman-setup.md) for machine setup, cgroup configuration, and network creation.
+> [!TIP]
+> **First-time Podman users:** See [docs/podman-setup.md](docs/podman-setup.md) for machine setup, cgroup configuration, and network creation.
 
 ### Optional Tools
 
 | Tool | Purpose | Install |
 |------|---------|---------|
-| DuckDB CLI | SQL verification | `brew install duckdb` |
-| direnv | Auto-load env vars | `brew install direnv` |
+| DuckDB CLI | SQL verification | `brew install duckdb` (macOS) or [duckdb.org](https://duckdb.org/docs/installation/) |
+| direnv | Auto-load env vars | `brew install direnv` (macOS) or [direnv.net](https://direnv.net/docs/installation.html) |
 
 ### Verify Prerequisites
 
@@ -91,27 +137,21 @@ cd polaris-local-forge
 # Setup Python environment
 task setup:python
 
-# Deploy everything (cluster + Polaris + catalog)
-# This auto-detects Docker/Podman and creates Podman machine if needed
-task setup:all
-
-# Or specify a work directory to avoid polluting the source tree
-task setup:all WORK_DIR=/path/to/my/project
+# Deploy everything (cluster + Apache Polaris + catalog)
+# Recommended: Use WORK_DIR to keep source tree clean
+task setup:all WORK_DIR=~/polaris-dev
 ```
 
-> **Note:** `task setup:all` runs `doctor --fix` which automatically creates and starts the Podman machine if using Podman. For manual Podman setup, run `task podman:setup` first.
+> [!NOTE]
+> `task setup:all` runs `doctor --fix` which automatically creates and starts the Podman machine if using Podman.
+> For manual Podman setup, run `task podman:setup` first.
 
-> **Using Docker instead?** Start Docker Desktop before running `task setup:all`. The runtime is auto-detected.
+> [!TIP]
+> **Using Docker?** Start Docker Desktop before running `task setup:all`. The runtime is auto-detected.
 
-> **Isolated setup:** Use `WORK_DIR=/path` to run setup in a separate directory, keeping the source tree clean. The CLI will auto-reject running destructive commands in the source directory.
-
-After setup completes, you'll see:
-
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| Polaris API | http://localhost:18181 | See `k8s/polaris/.bootstrap-credentials.env` |
-| RustFS S3 | http://localhost:19000 | `admin` / `password` |
-| RustFS Console | http://localhost:19001 | `admin` / `password` |
+> [!IMPORTANT]
+> **Isolated setup recommended:** Use `WORK_DIR=/path` to run setup in a separate directory, keeping the source tree clean.
+> The CLI will auto-reject running destructive commands in the source directory.
 
 ## Verify Setup
 
@@ -147,10 +187,10 @@ All operations are available via Task commands:
 
 | Command | Description |
 |---------|-------------|
-| `task setup:all` | Complete setup (cluster + Polaris + catalog) |
-| `task setup:all WORK_DIR=/path` | Setup in specified directory (keeps source clean) |
-| `task teardown` | Complete teardown (cleanup + delete cluster) |
+| `task setup:all WORK_DIR=/path` | Complete setup in specified directory (recommended) |
+| `task setup:all` | Complete setup in current directory |
 | `task teardown WORK_DIR=/path` | Teardown specific project directory |
+| `task teardown` | Complete teardown (cleanup + delete cluster) |
 | `task reset:all` | Teardown and setup fresh |
 
 ### Status & Config
@@ -159,7 +199,7 @@ All operations are available via Task commands:
 |---------|-------------|
 | `task doctor` | Check system prerequisites and health |
 | `task doctor:json` | Prerequisites check with JSON output |
-| `task status` | Show cluster and Polaris status |
+| `task status` | Show cluster and Apache Polaris status |
 | `task status:detailed` | Detailed kubectl output |
 | `task config` | Show current configuration |
 | `task urls` | Display service URLs |
@@ -171,18 +211,18 @@ All operations are available via Task commands:
 | `task cluster:create` | Create k3d cluster |
 | `task cluster:delete` | Delete cluster |
 | `task cluster:bootstrap-check` | Wait for bootstrap deployments |
-| `task cluster:polaris-check` | Wait for Polaris deployment |
+| `task cluster:polaris-check` | Wait for Apache Polaris deployment |
 | `task cluster:reset` | Delete and recreate cluster |
 
-### Polaris Operations
+### Apache Polaris Operations
 
 | Command | Description |
 |---------|-------------|
-| `task polaris:deploy` | Deploy Polaris to cluster |
-| `task polaris:check` | Verify Polaris deployment |
-| `task polaris:reset` | Purge and re-bootstrap Polaris |
-| `task polaris:purge` | Purge Polaris data |
-| `task polaris:bootstrap` | Bootstrap Polaris |
+| `task polaris:deploy` | Deploy Apache Polaris to cluster |
+| `task polaris:check` | Verify Apache Polaris deployment |
+| `task polaris:reset` | Purge and re-bootstrap Apache Polaris |
+| `task polaris:purge` | Purge Apache Polaris data |
+| `task polaris:bootstrap` | Bootstrap Apache Polaris |
 
 ### Catalog Management
 
@@ -202,8 +242,8 @@ All operations are available via Task commands:
 
 | Command | Description |
 |---------|-------------|
-| `task bump:polaris` | Update Polaris to latest Docker Hub version |
-| `task bump:polaris:dry-run` | Preview Polaris version update |
+| `task bump:polaris` | Update Apache Polaris to latest Docker Hub version |
+| `task bump:polaris:dry-run` | Preview Apache Polaris version update |
 | `task bump:k3s` | Update K3S to latest Docker Hub version |
 | `task bump:k3s:dry-run` | Preview K3S version update |
 
@@ -211,12 +251,12 @@ All operations are available via Task commands:
 
 | Command | Description |
 |---------|-------------|
-| `task logs:polaris` | Stream Polaris logs |
+| `task logs:polaris` | Stream Apache Polaris logs |
 | `task logs:postgresql` | Stream PostgreSQL logs |
 | `task logs:rustfs` | Stream RustFS logs |
 | `task logs:bootstrap` | View bootstrap job logs |
 | `task logs:purge` | View purge job logs |
-| `task troubleshoot:polaris` | Diagnose Polaris issues |
+| `task troubleshoot:polaris` | Diagnose Apache Polaris issues |
 | `task troubleshoot:postgresql` | Check PostgreSQL connectivity |
 | `task troubleshoot:rustfs` | Verify RustFS connectivity |
 | `task troubleshoot:events` | Show recent events |
@@ -244,10 +284,10 @@ uv run polaris-local-forge --help
 | `polaris-local-forge cluster delete --yes` | Delete cluster |
 | `polaris-local-forge cluster status` | Cluster status |
 | `polaris-local-forge cluster status --output json` | Cluster status as JSON |
-| `polaris-local-forge polaris deploy` | Deploy Polaris to cluster |
-| `polaris-local-forge polaris bootstrap` | Run Polaris bootstrap job |
-| `polaris-local-forge polaris purge` | Delete Polaris deployment |
-| `polaris-local-forge catalog setup` | Configure Polaris catalog |
+| `polaris-local-forge polaris deploy` | Deploy Apache Polaris to cluster |
+| `polaris-local-forge polaris bootstrap` | Run Apache Polaris bootstrap job |
+| `polaris-local-forge polaris purge` | Delete Apache Polaris deployment |
+| `polaris-local-forge catalog setup` | Configure Apache Polaris catalog |
 | `polaris-local-forge catalog cleanup --yes` | Clean up catalog resources |
 | `polaris-local-forge catalog verify-sql` | Run DuckDB verification |
 | `polaris-local-forge runtime detect` | Detect and display container runtime |
@@ -273,9 +313,11 @@ Key settings:
 | `K3D_CLUSTER_NAME` | `polaris-local-forge` | Cluster name |
 | `K3S_VERSION` | `v1.31.5-k3s1` | K3S version |
 | `AWS_ENDPOINT_URL` | `http://localhost:19000` | RustFS S3 endpoint |
-| `POLARIS_URL` | `http://localhost:18181` | Polaris API endpoint |
+| `POLARIS_URL` | `http://localhost:18181` | Apache Polaris API endpoint |
 
-> **Note:** `PLF_CONTAINER_RUNTIME` is auto-detected during `init`. It prefers running runtimes over installed ones. Set it manually in `.env` only to override auto-detection.
+> [!NOTE]
+> `PLF_CONTAINER_RUNTIME` is auto-detected during `init`. It prefers running runtimes over installed ones.
+> Set it manually in `.env` only to override auto-detection.
 
 View current configuration:
 
@@ -292,46 +334,51 @@ uv run polaris-local-forge config
 ```bash
 task status              # Check deployment status
 task troubleshoot:events # View recent events
-task logs:polaris        # Stream Polaris logs
+task logs:polaris        # Stream Apache Polaris logs
 ```
 
 ### Common Issues
 
-**Polaris pod stuck in ContainerCreating:**
-```bash
-kubectl get events -n polaris --sort-by='.lastTimestamp'
-task polaris:deploy  # Re-apply deployment
-```
+> [!WARNING]
+> **Apache Polaris pod stuck in ContainerCreating**
+>
+> ```bash
+> kubectl get events -n polaris --sort-by='.lastTimestamp'
+> task polaris:deploy  # Re-apply deployment
+> ```
 
-**RustFS not accessible:**
-```bash
-kubectl get pods -n rustfs
-task troubleshoot:rustfs
-```
+> [!WARNING]
+> **RustFS not accessible**
+>
+> ```bash
+> kubectl get pods -n rustfs
+> task troubleshoot:rustfs
+> ```
 
-**Bootstrap job fails:**
-```bash
-task logs:bootstrap
-task polaris:reset  # Reset Polaris
-```
+> [!WARNING]
+> **Bootstrap job fails**
+>
+> ```bash
+> task logs:bootstrap
+> task polaris:reset  # Reset Apache Polaris
+> ```
 
-**Port 19000 blocked by gvproxy (Podman):**
-
-When using Podman, the `gvproxy` network proxy may occupy port 19000 (needed by RustFS). This happens when a previous Podman machine session didn't clean up properly.
-
-```bash
-# Check what's using port 19000
-lsof -i :19000
-
-# Option 1: Let doctor fix it
-task doctor -- --fix
-
-# Option 2: Stop the Podman machine
-podman machine stop k3d
-
-# Option 3: Switch to Docker
-# Edit .env and set PLF_CONTAINER_RUNTIME=docker
-```
+> [!CAUTION]
+> **Port 19000 blocked by gvproxy (Podman)**
+>
+> When using Podman, the `gvproxy` network proxy may occupy port 19000 (needed by RustFS).
+> This happens when a previous Podman machine session didn't clean up properly.
+>
+> ```bash
+> # Option 1: Let doctor fix it (recommended)
+> task doctor -- --fix
+>
+> # Option 2: Stop the Podman machine
+> podman machine stop k3d
+>
+> # Option 3: Switch to Docker
+> # Edit .env and set PLF_CONTAINER_RUNTIME=docker
+> ```
 
 ### Manual kubectl Commands
 
@@ -352,7 +399,7 @@ task catalog:cleanup
 task catalog:reset
 
 # Complete teardown (prompts to stop Podman machine on macOS)
-task teardown
+task teardown WORK_DIR=~/polaris-dev
 
 # Or just delete cluster (prompts to stop Podman machine on macOS)
 task clean:all
@@ -361,52 +408,22 @@ task clean:all
 polaris-local-forge cluster delete --yes --stop-podman
 ```
 
-## Project Structure
-
-```
-polaris-local-forge/
-├── .env.example              # Environment configuration template
-├── .kube/config              # Cluster kubeconfig (generated)
-├── config/
-│   └── cluster-config.yaml   # k3d cluster configuration
-├── k8s/
-│   ├── features/             # Helm chart manifests
-│   │   ├── rustfs.yaml
-│   │   ├── polaris.yaml      # Generated
-│   │   └── postgresql.yaml   # Generated
-│   └── polaris/
-│       ├── kustomization.yaml
-│       ├── .bootstrap-credentials.env  # Generated
-│       └── rsa_key*          # Generated RSA keys
-├── notebooks/
-│   └── verify_polaris.ipynb  # Verification notebook
-├── polaris-forge-setup/      # Ansible playbooks
-├── scripts/
-│   └── explore_catalog.sql   # Generated DuckDB script
-├── src/polaris_local_forge/  # Python CLI
-├── work/
-│   └── principal.txt         # Catalog credentials (generated)
-├── pyproject.toml
-└── Taskfile.yml
-```
-
 ## Using with Cortex Code
 
-This repo includes a [Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) skill that automates the full setup interactively.
-
-**Install the skill:**
+[Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) is Snowflake's AI-powered coding assistant. This repo includes a skill that automates Apache Polaris setup through natural language.
 
 ```bash
 cortex skill add https://github.com/kameshsampath/polaris-local-forge
 ```
 
-**Then say:** "get started with apache polaris" or "setup from example manifest"
+Then just say:
 
-The skill wraps all CLI commands, manages a `.snow-utils/` manifest for tracking resources, and supports catalog-only resets without rebuilding the cluster.
+| Say this... | What happens |
+|-------------|--------------|
+| *"get started with apache polaris"* | Full guided setup with cluster, storage, and catalog |
+| *"get started with apache polaris using example manifest <https://github.com/Snowflake-Labs/polaris-local-forge/blob/main/example-manifests/polaris-local-forge-manifest.md>"* | Setup using pre-configured manifest from `example-manifests/` |
 
-The CLI supports `--work-dir` to keep the skill repo pristine -- generated files (k8s manifests, credentials, kubeconfig, notebooks) go to a user project directory. A lightweight `user-project/pyproject.toml` template is included for query-only workspaces.
-
-See [SKILL_README.md](SKILL_README.md) for full details on triggers, example manifests, S3/RustFS configuration, and consuming project setup.
+See [SKILL_README.md](SKILL_README.md) for the complete trigger list, API query examples, and manifest workflows.
 
 ## Development
 
@@ -435,19 +452,6 @@ task test:isolated:list
 ```
 
 The isolated environment protects the source directory from accidental initialization. Commands like `init`, `doctor`, `prepare`, and `cluster create` will refuse to run in the source directory without `--work-dir`.
-
-### Project Structure (Python CLI)
-
-```
-src/polaris_local_forge/
-├── __init__.py           # Package init
-├── cli.py                # Main entry point, init, doctor, prepare, teardown
-├── common.py             # Shared utilities (config, ansible, templates)
-├── container_runtime.py  # Runtime detection and management
-├── cluster.py            # Cluster commands (create, delete, status, etc.)
-├── polaris_ops.py        # Polaris commands (deploy, purge, bootstrap)
-└── catalog.py            # Catalog commands (setup, cleanup, verify-sql)
-```
 
 ## Related Projects
 

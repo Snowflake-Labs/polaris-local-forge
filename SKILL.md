@@ -1,12 +1,12 @@
 ---
 name: polaris-local-forge
-description: "Set up a local Apache Polaris (Incubating) development environment with RustFS S3-compatible storage, PostgreSQL, and k3d. Triggers: polaris local, local iceberg catalog, local polaris setup, rustfs setup, local s3 setup, create polaris cluster, setup local forge, verify polaris, try polaris locally, get started with polaris, get started with apache polaris, apache polaris quickstart, local iceberg development, polaris dev environment, local data lakehouse, try iceberg locally, set up local catalog, run polaris on my machine, polaris docker setup, local s3 iceberg, duckdb polaris local, replay polaris local forge, get started with apache polaris using example manifest, setup from example manifest, replay from manifest, reset polaris catalog, recreate catalog, cleanup catalog, setup catalog only, catalog reset, catalog cleanup, teardown polaris, delete polaris cluster, polaris status, verify polaris setup."
+description: "Set up a local Apache Polaris development environment with RustFS S3-compatible storage, PostgreSQL, and k3d. Triggers: polaris local, local iceberg catalog, local polaris setup, rustfs setup, local s3 setup, create polaris cluster, setup local forge, verify polaris, try polaris locally, get started with polaris, get started with apache polaris, apache polaris quickstart, local iceberg development, polaris dev environment, local data lakehouse, try iceberg locally, set up local catalog, run polaris on my machine, polaris docker setup, local s3 iceberg, duckdb polaris local, replay polaris local forge, get started with apache polaris using example manifest, setup from example manifest, replay from manifest, reset polaris catalog, recreate catalog, cleanup catalog, setup catalog only, catalog reset, catalog cleanup, teardown polaris, delete polaris cluster, polaris status, verify polaris setup, list catalogs, show namespaces, list tables, show catalog details, describe table."
 location: user
 ---
 
-# Polaris Local Forge
+# Apache Polaris Local Forge
 
-Set up a complete local [Apache Polaris](https://polaris.apache.org/releases/1.3.0/) (Incubating) development environment with [RustFS](https://docs.rustfs.com/) S3-compatible storage, PostgreSQL metastore, and k3d/k3s Kubernetes -- all on your machine.
+Set up a complete local [Apache Polaris](https://polaris.apache.org/) development environment with [RustFS](https://docs.rustfs.com/) S3-compatible storage, PostgreSQL metastore, and k3d/k3s Kubernetes — all on your machine.
 
 Query [Apache Iceberg](https://iceberg.apache.org/) tables locally with DuckDB, PyIceberg, or any Iceberg REST-compatible engine.
 
@@ -16,7 +16,7 @@ Query [Apache Iceberg](https://iceberg.apache.org/) tables locally with DuckDB, 
 
 **AUTH MODEL:**
 
-- **Bootstrap credentials:** Auto-generated admin credentials for Polaris realm setup (in `.bootstrap-credentials.env`)
+- **Bootstrap credentials:** Auto-generated admin credentials for Apache Polaris realm setup (in `.bootstrap-credentials.env`)
 - **Principal credentials:** API-generated client_id/client_secret for catalog access (in `work/principal.txt`)
 - **RustFS credentials:** Static `admin`/`password` for S3-compatible storage (no IAM)
 
@@ -76,7 +76,7 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
 1. **First, show the plan:**
 
    ```
-   ## Polaris Local Forge Setup (Total: ~2-5 minutes)
+   ## Apache Polaris Local Forge Setup (Total: ~2-5 minutes)
    
    **Permissions:** On first command, Cursor will prompt for permission.
    Select "Allow using 'uv' for this session" to avoid repeated prompts.
@@ -92,7 +92,7 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
    - [ ] Step 3: Generate configuration files (~10s)
    - [ ] Step 4: Create k3d cluster (~30s)
    - [ ] Step 5: Wait for RustFS and PostgreSQL (~60-90s)
-   - [ ] Step 6: Deploy Polaris (~60s)
+   - [ ] Step 6: Deploy Apache Polaris (~60s)
    - [ ] Step 7: Setup catalog (~30s)
    - [ ] Step 8: Verify with DuckDB (~5s)
    
@@ -167,7 +167,7 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
 
    ---
    
-   **Step 6: Deploy Polaris**
+   **Step 6: Deploy Apache Polaris**
 
    Run: `./bin/plf polaris deploy`
    Wait: `./bin/plf cluster wait --tags polaris`
@@ -257,7 +257,7 @@ Pattern for file edits:
 
 **ENVIRONMENT REQUIREMENT:** The skill uses local RustFS for S3-compatible storage. AWS CLI commands target `http://localhost:19000` with static credentials. No real AWS account is needed.
 
-> **Note:** This skill configures Polaris with local RustFS (S3-compatible) storage only.
+> **Note:** This skill configures Apache Polaris with local RustFS (S3-compatible) storage only.
 > For real AWS S3 support, see Phase 2 in [SKILL_README.md](SKILL_README.md).
 
 **CRITICAL RULE - ALL OPERATIONS VIA CLI:**
@@ -279,9 +279,9 @@ Pattern for file edits:
 | `cluster create` | Cluster doesn't exist | Stop: "Cluster already exists. Use `cluster delete` first or `setup` to resume." |
 | `cluster create` | No ghost cluster | Stop: "Ghost cluster detected. Use `--force` to clean up stale references." |
 | `cluster create` | Ports 19000, 19001, 18181 available | Stop: "Port in use. Run `doctor --fix` first." |
-| `catalog setup` | Cluster running, Polaris ready | Stop: "Cluster not ready. Run setup first." |
+| `catalog setup` | Cluster running, Apache Polaris ready | Stop: "Cluster not ready. Run setup first." |
 | `polaris deploy` | Cluster running | Stop: "Cluster not running. Run `cluster create` first." |
-| `polaris purge` | Polaris deployed | Stop: "Polaris not deployed. Nothing to purge." |
+| `polaris purge` | Apache Polaris deployed | Stop: "Apache Polaris not deployed. Nothing to purge." |
 | `teardown` | Any resources exist | Proceed gracefully (idempotent with `--yes`) |
 | `catalog cleanup` | Catalog exists | Proceed gracefully (idempotent with `--yes`) |
 
@@ -301,7 +301,7 @@ fi
 **If NOT in an existing workspace, ask user:**
 
 ```
-Where would you like to create your Polaris workspace?
+Where would you like to create your Apache Polaris workspace?
 
 Options:
   1. Use current directory: $(pwd)
@@ -453,7 +453,7 @@ The doctor command checks:
 - Required tools: podman/docker, k3d, kubectl, uv
 - Podman machine status (macOS only)
 - SSH config for Podman VM access (macOS only)
-- Port availability: 19000 (RustFS), 19001 (RustFS Console), 18181 (Polaris), 6443 (k3d API)
+- Port availability: 19000 (RustFS), 19001 (RustFS Console), 18181 (Apache Polaris), 6443 (k3d API)
 
 **With `--fix` flag** (macOS with Podman):
 
@@ -664,7 +664,7 @@ uv sync --all-extras
 
 **SHOW -- what we're about to do (tell user this):**
 
-> I'll set up the complete Polaris environment. **This takes 2-5 minutes.**
+> I'll set up the complete Apache Polaris environment. **This takes 2-5 minutes.**
 >
 > **6 steps:**
 >
@@ -672,12 +672,12 @@ uv sync --all-extras
 > 2. Generate configs (~10s)
 > 3. Create k3d cluster (~30s)
 > 4. Wait for RustFS & PostgreSQL (~60-90s)
-> 5. Deploy Polaris (~60s)
+> 5. Deploy Apache Polaris (~60s)
 > 6. Setup catalog & verify (~35s)
 >
 > Services will be available at:
 >
-> - **Polaris API:** localhost:18181
+> - **Apache Polaris API:** localhost:18181
 > - **RustFS S3:** localhost:19000
 > - **RustFS Console:** localhost:19001
 >
@@ -714,9 +714,9 @@ The `init --with-manifest` command creates the `.snow-utils/snow-utils-manifest.
 ./bin/plf prepare                             # Step 3: Generate k8s configs
 ./bin/plf cluster create                      # Step 4: Create k3d cluster
 ./bin/plf cluster wait --tags bootstrap       # Wait for RustFS + PostgreSQL
-./bin/plf polaris deploy                      # Step 5: Deploy Polaris to cluster
-./bin/plf cluster wait --tags polaris         # Wait for Polaris + bootstrap job
-./bin/plf polaris bootstrap                   # Step 6: Bootstrap Polaris (create principal)
+./bin/plf polaris deploy                      # Step 5: Deploy Apache Polaris to cluster
+./bin/plf cluster wait --tags polaris         # Wait for Apache Polaris + bootstrap job
+./bin/plf polaris bootstrap                   # Step 6: Bootstrap Apache Polaris (create principal)
 ./bin/plf catalog setup                       # Step 7: Setup demo catalog
 ./bin/plf catalog verify-sql                  # Step 8: Verify with DuckDB
 ```
@@ -773,7 +773,7 @@ Expected: all 7 resource rows show `DONE`, Status shows `COMPLETE`.
 
 **SUMMARIZE:**
 
-> Setup complete. Cluster `${K3D_CLUSTER_NAME}` running with Polaris, RustFS, and PostgreSQL.
+> Setup complete. Cluster `${K3D_CLUSTER_NAME}` running with Apache Polaris, RustFS, and PostgreSQL.
 > Catalog `${PLF_POLARIS_CATALOG_NAME}` created with principal `${PLF_POLARIS_PRINCIPAL_NAME}`.
 > Credentials saved to `work/principal.txt`.
 > Manifest: `.snow-utils/snow-utils-manifest.md`
@@ -784,12 +784,12 @@ Expected: all 7 resource rows show `DONE`, Status shows `COMPLETE`.
 
 > Verify the entire setup by running a DuckDB SQL script that:
 >
-> 1. Connects to Polaris REST catalog at `http://localhost:18181`
+> 1. Connects to Apache Polaris REST catalog at `http://localhost:18181`
 > 2. Authenticates using the principal credentials from `work/principal.txt`
 > 3. Creates a test Iceberg table on RustFS
 > 4. Queries the table to confirm read/write works
 >
-> This confirms: Polaris API, RustFS S3, catalog, principal, and RBAC grants are all working.
+> This confirms: Apache Polaris API, RustFS S3, catalog, principal, and RBAC grants are all working.
 
 **DO:**
 
@@ -800,17 +800,17 @@ Expected: all 7 resource rows show `DONE`, Status shows `COMPLETE`.
 **Check the result:**
 
 - **If SUCCEEDED:** Continue to Step 3a (generate notebook)
-- **If FAILED:** Check Troubleshooting section. Common issues: Polaris not ready, RustFS not accessible, principal credentials invalid.
+- **If FAILED:** Check Troubleshooting section. Common issues: Apache Polaris not ready, RustFS not accessible, principal credentials invalid.
 
 **SUMMARIZE (on success):**
 
-> Verification passed! DuckDB successfully queried Iceberg tables via Polaris REST catalog on RustFS.
+> Verification passed! DuckDB successfully queried Iceberg tables via Apache Polaris REST catalog on RustFS.
 
 ### Step 3a: Generate Notebook
 
 **SHOW -- what we're about to do:**
 
-> Generate a Jupyter notebook for interactive Polaris and Iceberg exploration.
+> Generate a Jupyter notebook for interactive Apache Polaris and Iceberg exploration.
 > The notebook is pre-configured with your catalog connection details and
 > principal credentials, ready to run.
 
@@ -832,10 +832,10 @@ Expected: all 7 resource rows show `DONE`, Status shows `COMPLETE`.
 Output the following summary (substitute actual values from `.env`). **Remember:** blank line before AND after the code block.
 
 ```
-Polaris Local Forge -- Setup Complete!
+Apache Polaris Local Forge -- Setup Complete!
 
 Service URLs:
-  Polaris API:     http://localhost:18181
+  Apache Polaris API:     http://localhost:18181
   RustFS S3:       http://localhost:19000
   RustFS Console:  http://localhost:19001
 
@@ -846,7 +846,7 @@ Catalog:
 
 Credentials:
   RustFS:    admin / password
-  Polaris:   See work/principal.txt
+  Apache Polaris:   See work/principal.txt
   Bootstrap: See k8s/polaris/.bootstrap-credentials.env
 
 Next steps:
@@ -914,7 +914,7 @@ Runs cleanup + setup. Generates new `principal.txt` (new credentials).
 ./bin/plf catalog setup
 ```
 
-Purges the entire Polaris database and recreates from scratch.
+Purges the entire Apache Polaris database and recreates from scratch.
 
 ## Teardown Flow
 
@@ -965,7 +965,7 @@ When manifest has `Status: REMOVED`:
 
 ## Consuming Projects: Minimal Setup
 
-A separate project that wants to query the Polaris catalog needs only:
+A separate project that wants to query the Apache Polaris catalog needs only:
 
 **In the project directory:**
 
@@ -1040,7 +1040,7 @@ SKILL_DIR=/path/to/polaris-local-forge
 | `plf prepare` | Generate configuration files |
 | `plf cluster create` | Create k3d cluster |
 | `plf cluster wait` | Wait for deployments |
-| `plf polaris deploy` | Deploy Polaris |
+| `plf polaris deploy` | Deploy Apache Polaris |
 | `plf polaris bootstrap` | Create admin principal |
 | `plf catalog setup` | Setup Iceberg catalog |
 | `plf catalog verify-sql` | Verify with DuckDB |
@@ -1171,7 +1171,7 @@ podman machine start k3d
 | `plf cluster delete --yes` | Delete k3d cluster |
 | `plf cluster delete --dry-run` | Preview cluster deletion |
 | `plf cluster wait --tags bootstrap` | Wait for RustFS + PostgreSQL to be ready |
-| `plf cluster wait --tags polaris` | Wait for Polaris deployment + bootstrap job |
+| `plf cluster wait --tags polaris` | Wait for Apache Polaris deployment + bootstrap job |
 | `plf cluster list` | List k3d clusters |
 | `plf cluster list --output json` | List clusters in JSON format |
 | `plf cluster status` | Show cluster and services status |
@@ -1186,14 +1186,14 @@ podman machine start k3d
 | `plf teardown --yes --no-stop-podman` | Teardown but keep Podman running |
 | `plf teardown --dry-run` | Preview teardown operations |
 
-### Polaris
+### Apache Polaris
 
 | Command | Description |
 |---------|-------------|
-| `plf polaris deploy` | Deploy Polaris to cluster |
-| `plf polaris deploy --dry-run` | Preview Polaris deployment |
-| `plf polaris purge` | Delete Polaris deployment |
-| `plf polaris purge --dry-run` | Preview Polaris purge |
+| `plf polaris deploy` | Deploy Apache Polaris to cluster |
+| `plf polaris deploy --dry-run` | Preview Apache Polaris deployment |
+| `plf polaris purge` | Delete Apache Polaris deployment |
+| `plf polaris purge --dry-run` | Preview Apache Polaris purge |
 | `plf polaris bootstrap` | Run bootstrap job (create principal and catalog) |
 | `plf polaris bootstrap --dry-run` | Preview bootstrap job |
 
@@ -1201,7 +1201,7 @@ podman machine start k3d
 
 | Command | Description |
 |---------|-------------|
-| `plf catalog setup` | Configure Polaris catalog via Ansible |
+| `plf catalog setup` | Configure Apache Polaris catalog via Ansible |
 | `plf catalog setup --tags <tags>` | Run specific ansible tags |
 | `plf catalog setup --dry-run` | Preview catalog setup |
 | `plf catalog cleanup --yes` | Clean up catalog via Ansible |
@@ -1220,7 +1220,7 @@ Use CLI commands for all status checks and verification:
 | List clusters | `plf cluster list` |
 | Check cluster & services status | `plf cluster status` |
 | Wait for bootstrap (RustFS + PostgreSQL) | `plf cluster wait --tags bootstrap` |
-| Wait for Polaris | `plf cluster wait --tags polaris` |
+| Wait for Apache Polaris | `plf cluster wait --tags polaris` |
 | Verify catalog with DuckDB | `plf catalog verify-sql` |
 | Interactive SQL exploration | `plf catalog explore-sql` |
 | View config | Read `.env` file directly |
@@ -1231,11 +1231,11 @@ When CLI commands don't provide enough detail for debugging, use kubectl directl
 
 | Command | Description |
 |---------|-------------|
-| `kubectl logs -f -n polaris deployment/polaris` | Stream Polaris logs |
+| `kubectl logs -f -n polaris deployment/polaris` | Stream Apache Polaris logs |
 | `kubectl logs -f -n polaris statefulset/postgresql` | Stream PostgreSQL logs |
 | `kubectl logs -f -n rustfs deployment/rustfs` | Stream RustFS logs |
-| `kubectl get events -n polaris --sort-by='.lastTimestamp'` | Recent Polaris events |
-| `kubectl describe pod -n polaris -l app=polaris` | Diagnose Polaris pod |
+| `kubectl get events -n polaris --sort-by='.lastTimestamp'` | Recent Apache Polaris events |
+| `kubectl describe pod -n polaris -l app=polaris` | Diagnose Apache Polaris pod |
 
 **Note:** For all other operations (status checks, waiting for resources, verification), use the CLI commands above. kubectl is only for log streaming and deep debugging.
 
@@ -1256,7 +1256,7 @@ This skill is designed for **local development and learning** only:
 **What this skill CANNOT do:**
 
 - Connect to real AWS S3 (use RustFS for local S3-compatible storage)
-- Run multiple Polaris instances
+- Run multiple Apache Polaris instances
 - Provide persistent data across teardown (data is ephemeral)
 - Run on ARM Windows or native Windows (Podman/Docker limitation)
 
@@ -1267,7 +1267,7 @@ This skill is designed for **local development and learning** only:
 ```bash
 ./bin/plf cluster status              # Check overall status
 ./bin/plf cluster wait --tags bootstrap  # Wait for RustFS + PostgreSQL
-./bin/plf cluster wait --tags polaris    # Wait for Polaris
+./bin/plf cluster wait --tags polaris    # Wait for Apache Polaris
 ```
 
 **Ghost cluster (cluster create fails with "already exists" but cluster list is empty):**
@@ -1295,7 +1295,7 @@ The cluster create command waits for the API server by default (120s timeout). I
 ./bin/plf cluster create --wait-timeout 180
 ```
 
-**Polaris pod stuck in ContainerCreating:**
+**Apache Polaris pod stuck in ContainerCreating:**
 
 ```bash
 # First check status with CLI
@@ -1349,9 +1349,9 @@ cat work/principal.txt
 
 **Official documentation:**
 
-- [Apache Polaris (Incubating) 1.3.0](https://polaris.apache.org/releases/1.3.0/)
-- [Polaris Management API Spec](https://polaris.apache.org/releases/1.3.0/polaris-api-specs/polaris-management-api/)
-- [Polaris Catalog API Spec (Swagger)](https://editor.swagger.io/?url=https://raw.githubusercontent.com/apache/polaris/refs/heads/main/spec/generated/bundled-polaris-catalog-service.yaml)
+- [Apache Polaris Documentation](https://polaris.apache.org/)
+- [Apache Polaris Management API Spec](https://polaris.apache.org/releases/1.3.0/polaris-api-specs/polaris-management-api/)
+- [Apache Polaris Catalog API Spec (Swagger)](https://editor.swagger.io/?url=https://raw.githubusercontent.com/apache/polaris/refs/heads/main/spec/generated/bundled-polaris-catalog-service.yaml)
 - [RustFS Documentation](https://docs.rustfs.com/)
 - [Apache Iceberg](https://iceberg.apache.org/)
 
@@ -1407,7 +1407,7 @@ my-polaris-project/                   # User's --work-dir
 ├── k8s/                              # Generated + copied k8s manifests
 │   ├── features/
 │   │   ├── rustfs.yaml               # RustFS deployment (copied from skill)
-│   │   ├── polaris.yaml              # Generated Polaris Helm values
+│   │   ├── polaris.yaml              # Generated Apache Polaris Helm values
 │   │   └── postgresql.yaml           # Generated PostgreSQL Helm values
 │   └── polaris/
 │       ├── kustomization.yaml        # Copied from skill

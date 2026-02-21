@@ -1,25 +1,31 @@
-# Polaris Local Forge -- Cortex Code Skills
+# Apache Polaris Local Forge — Cortex Code Skills
 
-This document describes how to use **polaris-local-forge** as a [Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) skill to set up a local [Apache Polaris](https://polaris.apache.org/releases/1.3.0/) (Incubating) development environment.
+This document describes how to use **polaris-local-forge** as a [Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) skill to set up a local [Apache Polaris](https://polaris.apache.org/) development environment.
+
+> [!TIP]
+> This skill embodies **Infrastructure-as-Intent** — instead of remembering complex parameter chains, just say what you want.
+> The skill handles the plumbing. You focus on the value.
+>
+> Read more: [Infrastructure-as-Intent: The Field Velocity Blueprint](https://blogs.kamesh.dev/infrastructure-as-intent-the-field-velocity-blueprint-e6217ef30f14)
 
 ## Overview
 
-Polaris Local Forge provides a complete local data lakehouse stack:
+Apache Polaris Local Forge provides a complete local data lakehouse stack:
 
 | Component | Role | Local URL |
 |-----------|------|-----------|
-| [Apache Polaris (Incubating)](https://polaris.apache.org/releases/1.3.0/) | Iceberg REST Catalog | `http://localhost:18181` |
+| [Apache Polaris](https://polaris.apache.org/) | Iceberg REST Catalog | `http://localhost:18181` |
 | [RustFS](https://docs.rustfs.com/) | S3-compatible object storage | `http://localhost:19000` (API), `:19001` (console) |
-| PostgreSQL | Polaris metastore backend | Internal (via k3d) |
+| PostgreSQL | Apache Polaris metastore backend | Internal (via k3d) |
 | [Podman](https://podman.io/) (default) / [Docker](https://www.docker.com/) | Container runtime | Podman preferred (OSS, shipped with Cortex Code) |
 | k3d/k3s | Local Kubernetes cluster | `kubectl` via kubeconfig |
-| [Apache Iceberg](https://iceberg.apache.org/) | Open table format | Via Polaris catalog |
+| [Apache Iceberg](https://iceberg.apache.org/) | Open table format | Via Apache Polaris catalog |
 
 ## Available Skills
 
 | Skill | Description |
 |-------|-------------|
-| `polaris-local-forge` | Full local environment setup: k3d cluster + RustFS + PostgreSQL + Polaris + catalog |
+| `polaris-local-forge` | Full local environment setup: k3d cluster + RustFS + PostgreSQL + Apache Polaris + catalog |
 
 ## Installation
 
@@ -63,8 +69,7 @@ Say any of these to activate the skill:
 
 ### Manifest-Driven
 
-- "get started with apache polaris using example manifest"
-- "setup from example manifest"
+- "get started with apache polaris using <https://github.com/Snowflake-Labs/polaris-local-forge/blob/main/example-manifests/polaris-local-forge-manifest.md>"
 - "replay polaris local forge"
 - "replay from manifest"
 
@@ -82,6 +87,46 @@ Say any of these to activate the skill:
 - "teardown polaris"
 - "delete polaris cluster"
 
+## Apache Polaris API Queries via Natural Language
+
+The skill can query the Apache Polaris REST API directly using natural language. No need to construct curl commands or manage OAuth tokens — the skill handles authentication automatically.
+
+### Catalog Operations
+
+| Say this... | API Endpoint | Description |
+|-------------|--------------|-------------|
+| "list catalogs" | `GET /api/management/v1/catalogs` | Show all available catalogs |
+| "show catalog details for polardb" | `GET /api/management/v1/catalogs/{catalog}` | Get catalog configuration |
+| "create catalog named mydata" | `POST /api/management/v1/catalogs` | Create a new catalog |
+
+### Namespace Operations
+
+| Say this... | API Endpoint | Description |
+|-------------|--------------|-------------|
+| "show namespaces" | `GET /api/catalog/v1/{catalog}/namespaces` | List namespaces in default catalog |
+| "show namespaces in polardb" | `GET /api/catalog/v1/polardb/namespaces` | List namespaces in specific catalog |
+| "create namespace analytics" | `POST /api/catalog/v1/{catalog}/namespaces` | Create a new namespace |
+
+### Table Operations
+
+| Say this... | API Endpoint | Description |
+|-------------|--------------|-------------|
+| "list tables in default" | `GET /api/catalog/v1/{catalog}/namespaces/default/tables` | List tables in namespace |
+| "show table schema for penguins" | `GET /api/catalog/v1/{catalog}/namespaces/{ns}/tables/{table}` | Get table metadata |
+| "describe table penguins in default" | `GET /api/catalog/v1/{catalog}/namespaces/default/tables/penguins` | Full table details |
+
+### Principal & Role Operations
+
+| Say this... | API Endpoint | Description |
+|-------------|--------------|-------------|
+| "list principals" | `GET /api/management/v1/principals` | Show all principals |
+| "show my principal roles" | `GET /api/management/v1/principal-roles` | List principal roles |
+| "show catalog roles for polardb" | `GET /api/management/v1/catalogs/{catalog}/catalog-roles` | List catalog roles |
+
+> [!NOTE]
+> The skill handles OAuth token retrieval and credential management automatically.
+> You never need to manually construct curl commands or manage tokens.
+
 ## Example Manifest Workflow
 
 An example manifest is included at `example-manifests/polaris-local-forge-manifest.md` with sane defaults for a quick start.
@@ -94,9 +139,9 @@ An example manifest is included at `example-manifests/polaris-local-forge-manife
 cortex skill add https://github.com/kameshsampath/polaris-local-forge
 ```
 
-2. Say: **"get started with apache polaris using example manifest"**
+1. Say: **"get started with apache polaris using example manifest"**
 
-3. The skill will:
+2. The skill will:
    - Copy the example manifest to `.snow-utils/snow-utils-manifest.md`
    - Show the pre-configured defaults (cluster name, S3 bucket, catalog, etc.)
    - Walk you through the full setup interactively
@@ -112,51 +157,15 @@ Say **"get started with apache polaris"** and the skill will guide you step by s
 4. Environment setup (Python venv with query deps)
 5. Configuration generation (RSA keys, bootstrap creds, k8s manifests)
 6. Cluster creation (k3d with RustFS + PostgreSQL)
-7. Polaris deployment
+7. Apache Polaris deployment
 8. S3/RustFS configuration
 9. Catalog setup (bucket, catalog, principal, roles)
 10. Verification (DuckDB or notebook)
 
-### CLI Global Options
+> [!NOTE]
+> For CLI commands, container runtime setup, environment variables, and troubleshooting, see [README.md](README.md).
 
-The CLI supports `--work-dir` to keep the skill directory pristine:
-
-```bash
-uv run --project <SKILL_DIR> polaris-local-forge --work-dir <PROJECT_DIR> <command>
-```
-
-| Option | Description |
-|--------|-------------|
-| `--work-dir PATH` | Working directory for generated files (default: skill directory) |
-| `--env-file PATH` | Path to .env file (default: `<work-dir>/.env`) |
-
-When `--work-dir` is specified, all generated files (k8s manifests, credentials,
-kubeconfig, kubectl, notebooks, scripts) are written to the work directory.
-The skill directory remains read-only.
-
-For a **second cluster**, create a new directory and re-run:
-
-```bash
-mkdir ~/polaris-staging && cd ~/polaris-staging
-# The skill creates a fully independent environment here
-```
-
-## Container Runtime
-
-Podman is the preferred and default container runtime. It is fully open source and ships pre-installed with Cortex Code. The CLI auto-detects the available runtime (Podman first, then Docker) and stores the result in `PLF_CONTAINER_RUNTIME`.
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `PLF_CONTAINER_RUNTIME` | (auto-detect) | `podman` or `docker` |
-| `PLF_PODMAN_MACHINE` | `k3d` | Dedicated Podman machine name (macOS only) |
-
-On macOS, a dedicated Podman machine named `k3d` is created with 4 CPUs and 16GB RAM, keeping the user's default machine untouched. All k3d operations are pinned to this machine's socket.
-
-For detailed setup instructions (machine creation, cgroup delegation, network), see [docs/podman-setup.md](docs/podman-setup.md).
-
-To use Docker instead, set `PLF_CONTAINER_RUNTIME=docker` in `.env`.
-
-## S3 / RustFS -- Local External Volume Equivalent
+## S3 / RustFS — Local External Volume Equivalent
 
 In Snowflake environments, [snow-utils-volumes](https://github.com/kameshsampath/snow-utils-skills) creates:
 
@@ -170,7 +179,7 @@ In polaris-local-forge, the local equivalent is:
 |-----------|---------------------------|
 | AWS S3 bucket | RustFS bucket (`aws s3 mb s3://bucket --endpoint-url http://localhost:19000`) |
 | IAM role/policy | Static credentials: `admin` / `password` |
-| External Volume SQL | Not needed -- Polaris catalog config points directly to `s3://bucket` with RustFS endpoint |
+| External Volume SQL | Not needed — Apache Polaris catalog config points directly to `s3://bucket` with RustFS endpoint |
 
 ### Configuring AWS CLI for RustFS
 
@@ -195,7 +204,7 @@ No `--endpoint-url` flag needed when `AWS_ENDPOINT_URL` is set.
 
 Both the skill's `pyproject.toml` and the lightweight `user-project/pyproject.toml` include `boto3>=1.35.0` and `pyiceberg[s3fs]>=0.8.1`. No additional Python dependencies are needed. The `aws` CLI must be installed separately if you want to use it directly.
 
-## Consuming Projects -- Minimal Setup
+## Consuming Projects — Minimal Setup
 
 A project that uses polaris-local-forge as infrastructure needs only these files in its own directory:
 
@@ -215,7 +224,7 @@ CLIENT_ID=<from principal.txt>
 CLIENT_SECRET=<from principal.txt>
 ```
 
-**`pyproject.toml`** -- copy from `user-project/pyproject.toml` in the skill repo.
+**`pyproject.toml`** — copy from `user-project/pyproject.toml` in the skill repo.
 It includes `duckdb`, `pyiceberg[s3fs]`, `boto3`, `pandas`, `pyarrow`, and
 optional `[notebook]` extras for Jupyter.
 
@@ -234,65 +243,13 @@ Infrastructure lives in the `polaris-local-forge` repo. Your project only needs 
 
 | Repo | Purpose | Relationship |
 |------|---------|-------------|
-| [polaris-local-forge](https://github.com/kameshsampath/polaris-local-forge) | Local Polaris infra | **This repo** -- provides the local environment |
+| [polaris-local-forge](https://github.com/kameshsampath/polaris-local-forge) | Local Apache Polaris infra | **This repo** — provides the local environment |
 | [snow-utils-skills](https://github.com/kameshsampath/snow-utils-skills) | Snowflake PAT, External Volumes | Provides real AWS S3 equivalent (Phase 2 interop) |
 | [kamesh-demo-skills](https://github.com/kameshsampath/kamesh-demo-skills) | Demo applications | Can consume polaris-local-forge as infrastructure |
 
 ### Future Interoperability
 
-The `.snow-utils/` directory convention and manifest format are shared across all skill repos. A demo skill from `kamesh-demo-skills` could be adapted to target local Polaris by pointing to the `polaris-local-forge` manifest for connection details.
-
-## Generated Files
-
-With `--work-dir`, generated files live directly in the user's project directory:
-
-```
-my-polaris-project/                    # --work-dir
-├── .env                               # Configuration
-├── pyproject.toml                     # Lightweight query deps
-├── .snow-utils/
-│   └── snow-utils-manifest.md         # Resource tracking manifest
-├── .kube/config                       # Cluster kubeconfig (chmod 600)
-├── bin/kubectl                        # Version-matched kubectl
-├── k8s/                               # Generated + copied k8s manifests
-│   ├── features/                      # RustFS, Polaris, PostgreSQL manifests
-│   └── polaris/                       # Secrets, credentials, RSA keys
-├── work/
-│   └── principal.txt                  # Catalog credentials (chmod 600)
-├── notebooks/
-│   └── verify_polaris.ipynb           # Verification notebook
-└── scripts/
-    └── explore_catalog.sql            # SQL verification
-```
-
-Sensitive directories (`.kube/`, `work/`, `.snow-utils/`) are set to `0700`.
-Sensitive files (`.env`, `principal.txt`, `rsa_key`, credentials) are set to `0600`.
-
-### File Lifecycle
-
-**Cluster-level files** (survive catalog reset, reused on cluster recreation):
-
-- RSA keys, bootstrap credentials, k8s manifests, kubectl, kubeconfig
-
-**Catalog-level files** (regenerated on catalog reset):
-
-- `work/principal.txt` (new credentials on each catalog setup)
-- `scripts/explore_catalog.sql` (re-templated with new credentials)
-
-### User Project Template
-
-The skill repo includes `user-project/pyproject.toml` with lightweight dependencies
-for querying and exploration:
-
-| Package | Purpose |
-|---------|---------|
-| `duckdb` | SQL engine with Iceberg extension |
-| `pyiceberg[s3fs]` | PyIceberg with S3 filesystem support |
-| `boto3` | AWS SDK for S3/RustFS operations |
-| `pandas` | Data manipulation |
-| `pyarrow` | Arrow columnar format support |
-| `python-dotenv` | Load `.env` configuration |
-| `ipykernel` + `jupyter` | Optional: notebook support (`[notebook]` extra) |
+The `.snow-utils/` directory convention and manifest format are shared across all skill repos. A demo skill from `kamesh-demo-skills` could be adapted to target local Apache Polaris by pointing to the `polaris-local-forge` manifest for connection details.
 
 ## Phase 2: Real AWS S3 Support
 
@@ -300,17 +257,11 @@ Currently polaris-local-forge is fully local (RustFS). Real AWS S3 support would
 
 - Real AWS credentials (IAM/SSO instead of static admin/password)
 - Real S3 endpoint (remove `AWS_ENDPOINT_URL` override)
-- IAM role ARN for Polaris catalog `storageConfigInfo`
+- IAM role ARN for Apache Polaris catalog `storageConfigInfo`
 - Optional: skip RustFS deployment
 
 This is tracked as a future enhancement. Contributions welcome.
 
 ## References
 
-- [Apache Polaris (Incubating) 1.3.0 Documentation](https://polaris.apache.org/releases/1.3.0/)
-- [Polaris Management API Spec](https://polaris.apache.org/releases/1.3.0/polaris-api-specs/polaris-management-api/)
-- [Polaris Catalog API Spec (Swagger)](https://editor.swagger.io/?url=https://raw.githubusercontent.com/apache/polaris/refs/heads/main/spec/generated/bundled-polaris-catalog-service.yaml)
-- [RustFS Documentation](https://docs.rustfs.com/)
-- [Apache Iceberg](https://iceberg.apache.org/)
-- [k3d Documentation](https://k3d.io/)
-- [DuckDB Iceberg Extension](https://duckdb.org/docs/extensions/iceberg.html)
+See [README.md](README.md#related-projects) for the full list of related projects and documentation links.
