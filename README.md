@@ -54,10 +54,22 @@ Services will be available at:
 | RustFS S3 | <http://localhost:19000> | `admin` / `password` |
 | RustFS Console | <http://localhost:19001> | `admin` / `password` |
 
-> [!TIP]
-> **Using Cortex Code?** Skip the CLI and just say: *"get started with apache polaris"*
->
-> See [Using with Cortex Code](#using-with-cortex-code) for AI-assisted setup and natural language commands.
+## Using with Cortex Code
+
+[Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) is Snowflake's AI-powered coding assistant. This repo includes a skill that automates Apache Polaris setup through natural language.
+
+```bash
+cortex skill add https://github.com/kameshsampath/polaris-local-forge
+```
+
+Then just say:
+
+| Say this... | What happens |
+|-------------|--------------|
+| *"get started with apache polaris"* | Full guided setup with cluster, storage, and catalog |
+| *"get started with apache polaris using example manifest"* | Setup using pre-configured manifest from `example-manifests/` |
+
+See [SKILL_README.md](SKILL_README.md) for the complete trigger list, API query examples, and manifest workflows.
 
 ## Prerequisites
 
@@ -143,15 +155,8 @@ task setup:all WORK_DIR=~/polaris-dev
 ```
 
 > [!NOTE]
-> `task setup:all` runs `doctor --fix` which automatically creates and starts the Podman machine if using Podman.
-> For manual Podman setup, run `task podman:setup` first.
-
-> [!TIP]
-> **Using Docker?** Start Docker Desktop before running `task setup:all`. The runtime is auto-detected.
-
-> [!IMPORTANT]
-> **Isolated setup recommended:** Use `WORK_DIR=/path` to run setup in a separate directory, keeping the source tree clean.
-> The CLI will auto-reject running destructive commands in the source directory.
+> **Podman:** Auto-detected and started via `doctor --fix`. **Docker:** Start Docker Desktop first.
+> The `WORK_DIR` parameter keeps generated files separate from source.
 
 ## Verify Setup
 
@@ -407,23 +412,6 @@ task clean:all
 # Delete cluster and stop Podman machine without prompts
 polaris-local-forge cluster delete --yes --stop-podman
 ```
-
-## Using with Cortex Code
-
-[Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) is Snowflake's AI-powered coding assistant. This repo includes a skill that automates Apache Polaris setup through natural language.
-
-```bash
-cortex skill add https://github.com/kameshsampath/polaris-local-forge
-```
-
-Then just say:
-
-| Say this... | What happens |
-|-------------|--------------|
-| *"get started with apache polaris"* | Full guided setup with cluster, storage, and catalog |
-| *"get started with apache polaris using example manifest <https://github.com/Snowflake-Labs/polaris-local-forge/blob/main/example-manifests/polaris-local-forge-manifest.md>"* | Setup using pre-configured manifest from `example-manifests/` |
-
-See [SKILL_README.md](SKILL_README.md) for the complete trigger list, API query examples, and manifest workflows.
 
 ## Development
 
