@@ -94,11 +94,16 @@ task setup:python
 # Deploy everything (cluster + Polaris + catalog)
 # This auto-detects Docker/Podman and creates Podman machine if needed
 task setup:all
+
+# Or specify a work directory to avoid polluting the source tree
+task setup:all WORK_DIR=/path/to/my/project
 ```
 
 > **Note:** `task setup:all` runs `doctor --fix` which automatically creates and starts the Podman machine if using Podman. For manual Podman setup, run `task podman:setup` first.
 
 > **Using Docker instead?** Start Docker Desktop before running `task setup:all`. The runtime is auto-detected.
+
+> **Isolated setup:** Use `WORK_DIR=/path` to run setup in a separate directory, keeping the source tree clean. The CLI will auto-reject running destructive commands in the source directory.
 
 After setup completes, you'll see:
 
@@ -143,7 +148,9 @@ All operations are available via Task commands:
 | Command | Description |
 |---------|-------------|
 | `task setup:all` | Complete setup (cluster + Polaris + catalog) |
+| `task setup:all WORK_DIR=/path` | Setup in specified directory (keeps source clean) |
 | `task teardown` | Complete teardown (cleanup + delete cluster) |
+| `task teardown WORK_DIR=/path` | Teardown specific project directory |
 | `task reset:all` | Teardown and setup fresh |
 
 ### Status & Config

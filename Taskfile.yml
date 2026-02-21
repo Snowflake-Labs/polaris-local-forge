@@ -20,9 +20,11 @@ vars:
   # This allows running tasks from isolated test folders
   SKILL_DIR:
     sh: dirname "$(readlink -f Taskfile.yml 2>/dev/null || echo Taskfile.yml)"
-  # PROJECT_HOME: current working directory (may be isolated test folder)
-  PROJECT_HOME:
-    sh: pwd
+  # WORK_DIR: explicit work directory override (empty = use pwd)
+  # Usage: task setup:all WORK_DIR=/path/to/project
+  WORK_DIR: ""
+  # PROJECT_HOME: WORK_DIR if specified, otherwise current working directory
+  PROJECT_HOME: '{{if .WORK_DIR}}{{.WORK_DIR}}{{else}}{{env "PWD"}}{{end}}'
   KUBECONFIG: "{{.PROJECT_HOME}}/.kube/config"
   K3D_CLUSTER_NAME:
     sh: basename $(pwd)
@@ -115,7 +117,7 @@ tasks:
         fi
 
   setup:all:
-    desc: Complete setup - init, doctor, cluster, Polaris, catalog (mirrors agentic workflow)
+    desc: "Complete setup - init, doctor, cluster, Polaris, catalog. Use WORK_DIR=/path for isolated setup"
     cmds:
       # Same sequence as SKILL.md agentic workflow - one base, multiple use
       - "{{.PLF}} init"
@@ -133,7 +135,7 @@ tasks:
       - 'echo "Explore further with: task catalog:generate-notebook"'
 
   teardown:
-    desc: Complete teardown - cleanup catalog, delete cluster, prompt to stop Podman
+    desc: "Complete teardown - cleanup catalog, delete cluster. Use WORK_DIR=/path to target specific project"
     cmds:
       - "{{.PLF}} teardown --yes"
 
