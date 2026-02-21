@@ -274,8 +274,10 @@ Pattern for file edits:
 | Any command | NOT using direct podman/k3d/kubectl | Stop: "Use CLI commands only. See FORBIDDEN COMMANDS." |
 | `init` | Docker or Podman installed | Auto-detects runtime; prompts user if both installed but neither running; fails if neither installed |
 | `doctor` | Tools installed | Report missing tools with install instructions |
-| `doctor --fix` | (none - fixes issues) | Creates Podman machine if missing; starts if stopped; kills gvproxy if blocking port 19000; sets up SSH config |
+| `doctor` | No ghost clusters | Report stale Docker resources if found |
+| `doctor --fix` | (none - fixes issues) | Creates Podman machine if missing; starts if stopped; kills gvproxy if blocking port 19000; sets up SSH config; cleans up ghost clusters |
 | `cluster create` | Cluster doesn't exist | Stop: "Cluster already exists. Use `cluster delete` first or `setup` to resume." |
+| `cluster create` | No ghost cluster | Stop: "Ghost cluster detected. Use `--force` to clean up stale references." |
 | `cluster create` | Ports 19000, 19001, 18181 available | Stop: "Port in use. Run `doctor --fix` first." |
 | `catalog setup` | Cluster running, Polaris ready | Stop: "Cluster not ready. Run setup first." |
 | `polaris deploy` | Cluster running | Stop: "Cluster not running. Run `cluster create` first." |
@@ -1161,7 +1163,10 @@ podman machine start k3d
 
 | Command | Description |
 |---------|-------------|
-| `plf cluster create` | Create k3d cluster with RustFS and PostgreSQL |
+| `plf cluster create` | Create k3d cluster with RustFS and PostgreSQL (waits for API server) |
+| `plf cluster create --force` | Clean up ghost/stale cluster references before creating |
+| `plf cluster create --wait-timeout N` | Custom API server wait timeout in seconds (default: 120) |
+| `plf cluster create --skip-wait` | Skip API server readiness check (for debugging) |
 | `plf cluster create --dry-run` | Preview cluster creation |
 | `plf cluster delete --yes` | Delete k3d cluster |
 | `plf cluster delete --dry-run` | Preview cluster deletion |
@@ -1263,6 +1268,31 @@ This skill is designed for **local development and learning** only:
 ./bin/plf cluster status              # Check overall status
 ./bin/plf cluster wait --tags bootstrap  # Wait for RustFS + PostgreSQL
 ./bin/plf cluster wait --tags polaris    # Wait for Polaris
+```
+
+**Ghost cluster (cluster create fails with "already exists" but cluster list is empty):**
+
+This happens when Docker/Podman has stale resources from a previous cluster that wasn't fully cleaned up (e.g., after switching container runtimes).
+
+```bash
+# Detect ghost clusters
+./bin/plf doctor
+# If ghost-cluster check fails, clean up with:
+./bin/plf doctor --fix
+# Or force cleanup during create:
+./bin/plf cluster create --force
+```
+
+**API server not ready after cluster creation:**
+
+The cluster create command waits for the API server by default (120s timeout). If you see "server could not find the requested resource" errors:
+
+```bash
+# Wait for API server manually
+./bin/plf cluster wait
+# Or recreate with longer timeout
+./bin/plf cluster delete --yes
+./bin/plf cluster create --wait-timeout 180
 ```
 
 **Polaris pod stuck in ContainerCreating:**

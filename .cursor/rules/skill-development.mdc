@@ -1,0 +1,107 @@
+---
+description: Detailed Cortex Code skill development patterns (applies to SKILL.md files)
+globs: "**/SKILL.md"
+alwaysApply: false
+---
+
+# Cortex Code Skill Development
+
+## Reference Repositories
+
+**Best Practices:** `~/snow-works/coco/skills/BEST_PRACTICES.local.md`
+
+**CLI Source (Python package):**
+- `~/git/kameshsampath/snow-utils` - Scripts consumed by skills via uv git dependency
+
+**Skills (SKILL.md files):**
+- `~/git/kameshsampath/snow-utils-skills` - PAT, Networks, Volumes skills
+- `~/git/kameshsampath/kamesh-demo-skills` - Demo skills (hirc-duckdb, smart-crowd-counter)
+
+## SKILL.md Structure
+
+```markdown
+---
+name: skill-name
+description: "Triggers: keyword1, keyword2, ..."
+---
+
+# Skill Title
+
+**📍 MANIFEST FILE:** `.snow-utils/snow-utils-manifest.md`
+**📋 PREREQUISITE:** NO PREREQUISITE or list dependencies
+**⚠️ CONNECTION USAGE:** Which connection/auth model
+**📌 ROLE MODEL:** (if applicable)
+
+## Workflow
+
+**FORBIDDEN ACTIONS -- NEVER DO THESE:**
+- List prohibited actions
+
+**INTERACTIVE PRINCIPLE:** Ask user, wait for response
+
+### Step N: Step Name
+[SHOW/DO/SUMMARIZE pattern]
+
+## CLI Reference
+[Tables with exact command/option names]
+
+## Troubleshooting
+[Common issues and fixes]
+```
+
+## Key Patterns
+
+### SHOW/DO/SUMMARIZE (Pedagogical UX)
+
+Every action in a skill should follow this three-phase pattern:
+
+1. **SHOW** - Preview what we're about to do (display SQL/command with explanation)
+2. **DO** - Execute after user approval
+3. **SUMMARIZE** - Explain result and connect to learning goal
+
+### CLI Thin Wrapper Pattern
+
+- CLI does ONE thing (run subprocess, exit)
+- SKILL.md handles: orchestration, user prompts, manifest updates, .env edits
+- Status checks use native tools (`k3d cluster list`, `kubectl get`)
+
+### Manifest-Driven Operations
+
+- Track resources in `.snow-utils/snow-utils-manifest.md`
+- Use START/END markers: `<!-- START -- skill-name -->`
+- Update progressively (after each step, not at end)
+- Include cleanup instructions in manifest
+
+### .env Handling
+
+- **CLI:** Read-only via `load_dotenv()`
+- **SKILL.md:** Write via Edit/StrReplace tool (NEVER sed/awk)
+
+### User Confirmation Rules
+
+- Show full preview before destructive operations
+- Use `ask_user_question` tool with 4-option limit
+- Wait for explicit approval ("yes", "ok", "proceed")
+- `--yes` flag for non-interactive execution after approval
+
+## Naming Conventions
+
+| Resource | Pattern | Example |
+|----------|---------|---------|
+| Network Rule | `{SA_USER}_NETWORK_RULE` | `KAMESHS_DEMO_NETWORK_RULE` |
+| Service Role | `{PROJECT}_ACCESS` | `KAMESHS_DEMO_ACCESS` |
+| Service User | `{PROJECT}_RUNNER` | `KAMESHS_DEMO_RUNNER` |
+
+## SQL Verification
+
+**MANDATORY:** Before writing ANY SQL, verify syntax against Snowflake docs:
+1. `web_search: "Snowflake <COMMAND> syntax"`
+2. `web_fetch: https://docs.snowflake.com/en/sql-reference/sql/<command>`
+
+## Forbidden in Skills
+
+- NEVER skip dry-run/preview output
+- NEVER use sed/awk for config edits
+- NEVER guess CLI options (run `--help` first)
+- NEVER run raw SQL for cleanup (use CLI commands)
+- NEVER write to `~/.snow-utils/` (project-scoped only)
