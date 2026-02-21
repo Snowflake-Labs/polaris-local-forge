@@ -1,6 +1,6 @@
 ---
 name: polaris-local-forge
-description: "Set up a local Apache Polaris development environment with RustFS S3-compatible storage, PostgreSQL, and k3d. Triggers: polaris local, local iceberg catalog, local polaris setup, rustfs setup, local s3 setup, create polaris cluster, setup local forge, verify polaris, try polaris locally, get started with polaris, get started with apache polaris, apache polaris quickstart, local iceberg development, polaris dev environment, local data lakehouse, try iceberg locally, set up local catalog, run polaris on my machine, polaris docker setup, local s3 iceberg, duckdb polaris local, replay polaris local forge, get started with apache polaris using example manifest, setup from example manifest, replay from manifest, reset polaris catalog, recreate catalog, cleanup catalog, setup catalog only, catalog reset, catalog cleanup, teardown polaris, delete polaris cluster, polaris status, verify polaris setup, list catalogs, show namespaces, list tables, show catalog details, describe table."
+description: "**[REQUIRED]** Use for **ALL** requests involving local Apache Polaris: setup, API queries, catalog operations. **DO NOT** use `polaris` CLI (does not exist), curl to Polaris endpoints (needs OAuth), or docker ps checks - invoke this skill first. Context: if `.snow-utils/snow-utils-manifest.md` contains `polaris-local-forge:` or `.env` has PLF_POLARIS_CATALOG_NAME, this is an active project. Triggers: polaris local, local iceberg catalog, local polaris setup, rustfs setup, create polaris cluster, try polaris locally, get started with polaris, apache polaris quickstart, polaris dev environment, local data lakehouse, replay from manifest, reset polaris catalog, teardown polaris, polaris status, list catalogs, show namespaces, list tables, show catalog, describe table, list principals, show principal roles, list views, polaris namespaces, polaris catalogs."
 location: user
 ---
 
@@ -231,6 +231,89 @@ This avoids repeated prompts. See [Cortex Code Permissions](#cortex-code-permiss
 - NEVER construct DuckDB SQL manually -- the CLI generates properly templated SQL with correct syntax
 - NEVER extract credentials from `principal.txt` to pass to other commands -- credentials are automatically loaded by CLI commands
 - NEVER use `uv run --project ... polaris-local-forge` after init -- ALWAYS use the `./bin/plf` wrapper script which handles paths, env vars, and suppresses warnings
+- NEVER use `plf` commands for REST API queries (list catalogs, show namespaces, list tables, etc.) -- use Ansible playbooks instead (see [Apache Polaris API Queries](#apache-polaris-api-queries))
+- NEVER look for or try to run a `polaris` CLI -- there is NO `polaris` command in this skill. The only CLI is `plf` (for infrastructure) and Ansible (for API queries)
+- NEVER run `which polaris` or `polaris --help` -- the `polaris` binary does not exist
+
+**COMMAND ROUTING:**
+- **plf commands:** Only for CLI operations listed in [CLI Reference](#cli-reference) (init, prepare, cluster, catalog setup/cleanup, teardown, doctor, verify-sql, etc.)
+- **REST API queries:** For query intents (list/show/describe catalogs, namespaces, tables, principals, roles, views, grants) -- use `./bin/plf api query <endpoint>` (see [Apache Polaris API Queries](#apache-polaris-api-queries))
+- **General chat:** Explanations, questions, troubleshooting advice -- respond directly without running commands
+
+**PROJECT CONTEXT DETECTION (AUTO-ACTIVATION):**
+
+When user is in a directory containing ANY of these files, treat it as an **active polaris-local-forge project** and auto-activate this skill for API queries:
+
+| Context Signal | Check | Meaning |
+|----------------|-------|---------|
+| `.snow-utils/snow-utils-manifest.md` with `polaris-local-forge:` | `grep -q "polaris-local-forge:" .snow-utils/snow-utils-manifest.md` | This skill is installed (primary) |
+| `.env` with `PLF_POLARIS_CATALOG_NAME` | `grep -q "PLF_POLARIS_CATALOG_NAME" .env` | Polaris config exists (secondary) |
+| `bin/plf` wrapper script | `[ -x bin/plf ]` | CLI initialized (tertiary) |
+
+**When context detected AND user asks API-related queries** (list/show/describe/what catalogs/namespaces/tables/principals/roles/views/grants):
+
+**⚠️ FIRST — CHECK FOR WRITE OPERATIONS (FAIL FAST):**
+
+Before doing ANYTHING else, check if user is asking to **create**, **update**, **delete**, **add**, **remove**, **modify**, **drop**, or **grant/revoke**. If YES, respond IMMEDIATELY:
+
+```
+⚠️ Write operations are not supported yet.
+
+This skill currently supports **read-only** API queries (GET only):
+- list/show catalogs, namespaces, tables, views
+- describe/get principals, roles, grants
+
+Create/update/delete operations will be added in a future phase.
+```
+
+**DO NOT** proceed to construct endpoints or run Ansible for write operations. Stop here.
+
+**DO NOT (FORBIDDEN):**
+- ❌ `polaris` CLI — DOES NOT EXIST (no `polaris namespaces list`, no `polaris --help`, no `polaris namespace list`)
+- ❌ `curl` to any Polaris endpoint — needs OAuth token you don't have (no `curl http://localhost:8181/...`, no `curl http://localhost:18181/...`)
+- ❌ `jq` piped from curl — same reason, curl won't work without OAuth
+- ❌ `kubectl get ns` — "namespaces" means Polaris catalog namespaces, NOT Kubernetes
+- ❌ `docker ps` / `docker ps --filter "name=polaris"` — assume infra is running, don't check
+- ❌ Port `8181` — wrong port, Polaris runs on `18181` in this skill
+- ❌ Snowflake disambiguation ("Is this Snowflake or Polaris?") — it's Polaris
+- ❌ "No Polaris service detected" fallback — don't give up, use Ansible
+- ❌ `ansible-playbook` directly — causes asdf/tool-versions conflict, MUST use `uv run`
+- ❌ `cd <dir> && ansible-playbook` — wrong pattern, use `uv run --project`
+- ❌ **POST/PUT/DELETE operations** — write operations NOT supported, fail fast (see above)
+- ❌ `-e "method=POST"` or any method other than GET — read-only phase
+- ❌ `-e '{"body": ...}'` or any JSON body parameter — not supported
+- ❌ Constructing JSON request bodies — not supported
+- ❌ Asking user for JSON input — not supported
+
+**DO (REQUIRED) — USE `plf api query` COMMAND:**
+```bash
+./bin/plf api query /api/catalog/v1/polardb/namespaces
+./bin/plf api query /api/management/v1/catalogs
+./bin/plf api query /api/management/v1/principals
+```
+
+**Key points:**
+1. Use `./bin/plf api query <endpoint>` — clean, simple, handles all the complexity
+2. Endpoint must start with `/api/...` — construct from user intent (see table below)
+3. Only GET is supported (read-only phase)
+4. Output is JSON by default, use `-o text` for plain text
+5. Use `-v` for verbose Ansible output if debugging
+
+**Quick context check (run silently before API queries):**
+```bash
+grep -q "polaris-local-forge:" .snow-utils/snow-utils-manifest.md 2>/dev/null || grep -q "PLF_POLARIS_CATALOG_NAME" .env 2>/dev/null || [ -x bin/plf ]
+```
+
+**API QUERY ROUTING (CRITICAL):**
+When user asks about Apache Polaris data (catalogs, namespaces, tables, views, principals, roles, grants):
+1. Do NOT search for CLI tools (`polaris`, `plf query`, etc.) -- they don't exist
+2. Do NOT try `curl` to any endpoint -- it won't work (needs OAuth token)
+3. Do NOT run `kubectl` commands to check services or namespaces -- this is NOT Kubernetes
+4. Do NOT check if Polaris is running -- assume the setup is complete
+5. Go DIRECTLY to `./bin/plf api query <endpoint>` with the constructed endpoint path
+
+**DISAMBIGUATION -- "namespaces" = Polaris catalog namespaces (NOT Kubernetes):**
+When user says "namespaces", "list namespaces", "show namespaces" → this means Apache Polaris catalog namespaces, accessed via `/api/catalog/v1/{catalog}/namespaces`. Do NOT interpret as Kubernetes namespaces.
 
 **INTERACTIVE PRINCIPLE:** This skill is designed to be interactive. At every decision point, ASK the user and WAIT for their response before proceeding. When presenting choices (e.g., runtime selection, execution mode), use the **AskQuestion tool** with radio options for better UX in Cortex Code.
 
@@ -1072,6 +1155,144 @@ When manifest has `Status: REMOVED`:
 5. Re-activate scoped environment (`KUBECONFIG`, `PATH` for kubectl)
 6. Regenerate catalog-level files (new principal credentials)
 7. Update manifest to COMPLETE
+
+## Apache Polaris API Queries
+
+> **EXPERIMENTAL FEATURE:** REST API query support via natural language is experimental.
+> Currently supports read-only operations. Write operations (create, delete, update) will be added in a future phase.
+
+> **AUTO-ACTIVATION:** If user's current directory has `.snow-utils/snow-utils-manifest.md` with `polaris-local-forge:`, or `.env` with `PLF_POLARIS_CATALOG_NAME`, this is an active polaris-local-forge project. Skip all disambiguation and use `plf api query` (see PROJECT CONTEXT DETECTION above).
+
+**When to use:** User asks to list, show, describe, or query catalogs, namespaces, tables, views, principals, roles, or grants.
+
+**IMPORTANT — GO DIRECTLY TO ANSIBLE:**
+- There is NO `polaris` CLI — do NOT run `which polaris` or `polaris --help`
+- There is NO `plf query` or `plf polaris` subcommand
+- Do NOT search for CLI tools — go DIRECTLY to the Ansible playbook
+- Do NOT try `curl` or `jq` — Ansible handles OAuth and credentials automatically
+- Construct the endpoint path dynamically based on user intent
+
+**How:** Use `./bin/plf api query <endpoint>` — the CLI handles Ansible, OAuth, and output formatting.
+
+> **SEMANTIC UNDERSTANDING:** Recognize intent variations — these all mean the same thing:
+> - "list catalogs" = "show me catalogs" = "what catalogs exist" = "get all catalogs"
+> - "show namespaces" = "list namespaces" = "namespaces in catalog" = "what namespaces"
+> - "describe table X" = "show table X" = "get table X details" = "table X schema"
+
+> **CRITICAL DISAMBIGUATION — "namespaces" means POLARIS NAMESPACES:**
+> - When user says "namespaces", "list namespaces", "show namespaces" — this means **Apache Polaris catalog namespaces**, NOT Kubernetes namespaces
+> - Do NOT run `kubectl get ns` or check Kubernetes namespaces
+> - Do NOT run `curl` to any endpoint — Ansible handles this
+> - Do NOT check if Polaris is running or look for services — assume setup is complete
+> - Go DIRECTLY to Ansible with endpoint `/api/catalog/v1/{catalog}/namespaces`
+
+### Why Ansible (not curl/jq)
+
+- **No extra dependencies** — users don't need `jq` installed
+- **Credentials hidden** — OAuth token retrieval uses `no_log: true`, never exposed
+- **Consistent pattern** — same approach as existing `catalog_setup.yml`
+- **JSON output** — Ansible returns structured JSON for easy formatting
+- **Reads .env** — Automatically uses user's configured catalog name
+
+### Endpoint Construction (Generic Pattern)
+
+The playbook accepts an `endpoint` parameter. Construct the endpoint path based on user intent:
+
+**Management API Endpoints** (`/api/management/v1/...`):
+
+| User Intent | Endpoint Path |
+|-------------|---------------|
+| "list catalogs", "show catalogs" | `/api/management/v1/catalogs` |
+| "show catalog {name}", "describe catalog {name}" | `/api/management/v1/catalogs/{name}` |
+| "list principals", "show principals" | `/api/management/v1/principals` |
+| "show principal {name}", "describe principal {name}" | `/api/management/v1/principals/{name}` |
+| "list principal roles", "show my roles" | `/api/management/v1/principal-roles` |
+| "show principal role {name}" | `/api/management/v1/principal-roles/{name}` |
+| "list roles for principal {name}" | `/api/management/v1/principals/{name}/principal-roles` |
+| "list catalog roles for {catalog}" | `/api/management/v1/catalogs/{catalog}/catalog-roles` |
+| "show catalog role {role} in {catalog}" | `/api/management/v1/catalogs/{catalog}/catalog-roles/{role}` |
+| "list grants for role {role} in {catalog}" | `/api/management/v1/catalogs/{catalog}/catalog-roles/{role}/grants` |
+
+**Catalog API Endpoints** (`/api/catalog/v1/...`):
+
+| User Intent | Endpoint Path |
+|-------------|---------------|
+| "list namespaces", "show namespaces" | `/api/catalog/v1/{catalog}/namespaces` |
+| "show namespace {ns}", "describe namespace {ns}" | `/api/catalog/v1/{catalog}/namespaces/{ns}` |
+| "list tables in {ns}", "show tables" | `/api/catalog/v1/{catalog}/namespaces/{ns}/tables` |
+| "show table {table} in {ns}", "describe table {table}" | `/api/catalog/v1/{catalog}/namespaces/{ns}/tables/{table}` |
+| "list views in {ns}", "show views" | `/api/catalog/v1/{catalog}/namespaces/{ns}/views` |
+| "show view {view} in {ns}", "describe view {view}" | `/api/catalog/v1/{catalog}/namespaces/{ns}/views/{view}` |
+
+### Endpoint Construction Rules
+
+1. **Parse user intent** to identify the operation type (list/show/describe)
+2. **Extract entity names** from the request (catalog, namespace, table, view, principal, role)
+3. **Use defaults** when not specified:
+   - `{catalog}` → use value from `.env` `PLF_POLARIS_CATALOG_NAME` (typically `polardb`)
+   - `{ns}` → use `default` if not specified
+4. **Substitute placeholders** in the endpoint path
+5. **Execute** with the constructed endpoint
+
+### Execution Pattern
+
+Use `./bin/plf api query <endpoint>` — the CLI handles Ansible, OAuth, environment, and output formatting:
+
+```bash
+# List all catalogs
+./bin/plf api query /api/management/v1/catalogs
+
+# List namespaces in polardb catalog
+./bin/plf api query /api/catalog/v1/polardb/namespaces
+
+# Show table details
+./bin/plf api query /api/catalog/v1/polardb/namespaces/default/tables/penguins
+
+# List grants for a catalog role
+./bin/plf api query /api/management/v1/catalogs/polardb/catalog-roles/admin/grants
+
+# Text output instead of JSON
+./bin/plf api query /api/management/v1/catalogs -o text
+
+# Verbose mode for debugging
+./bin/plf api query /api/management/v1/catalogs -v
+```
+
+Use Shell tool with `working_directory` set to `<WORK_DIR>`:
+
+```
+Shell(command="./bin/plf api query /api/catalog/v1/polardb/namespaces", working_directory="<WORK_DIR>")
+```
+
+### Messaging Template
+
+When running API queries, show clear progress:
+
+```
+**Querying Apache Polaris:** {intent description}
+
+Running: `plf api query {endpoint}`
+```
+
+Example:
+```
+**Querying Apache Polaris:** list namespaces in polardb catalog
+
+Running: `plf api query /api/catalog/v1/polardb/namespaces`
+```
+
+### Output Formatting
+
+Ansible returns JSON in `result.json`. Format as markdown table for the user:
+
+```
+**Namespaces in catalog `polardb`:**
+
+| Namespace |
+|-----------|
+| default |
+| analytics |
+```
 
 ## Export for Sharing Flow
 

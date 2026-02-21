@@ -61,6 +61,7 @@ from polaris_local_forge.container_runtime import (
 from polaris_local_forge.cluster import cluster
 from polaris_local_forge.polaris_ops import polaris
 from polaris_local_forge.catalog import catalog
+from polaris_local_forge.api import api
 
 
 # =============================================================================
@@ -83,6 +84,7 @@ def cli(ctx, work_dir: str | None):
 cli.add_command(cluster)
 cli.add_command(polaris)
 cli.add_command(catalog)
+cli.add_command(api)
 
 
 # =============================================================================

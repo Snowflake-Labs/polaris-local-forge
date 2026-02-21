@@ -89,39 +89,90 @@ Say any of these to activate the skill:
 
 ## Apache Polaris API Queries via Natural Language
 
+> [!WARNING]
+> **Experimental Feature — Read-Only:** REST API query support via natural language is experimental.
+> Currently supports **read-only** operations only (GET requests).
+>
+> **Not supported yet:** create, update, delete operations (POST/PUT/DELETE).
+> If you ask to create a catalog, namespace, or modify resources, the skill will inform you this isn't available yet.
+
 The skill can query the Apache Polaris REST API directly using natural language. No need to construct curl commands or manage OAuth tokens — the skill handles authentication automatically.
+
+### Auto-Activation (Project Context Detection)
+
+When you're in a project directory with polaris-local-forge infrastructure set up, the skill **auto-activates** for API queries. No need to say "using polaris" or "polaris show namespaces" — just say "show namespaces".
+
+**Context signals that trigger auto-activation:**
+
+| Context Signal | Check | Meaning |
+|----------------|-------|---------|
+| `.snow-utils/snow-utils-manifest.md` with `polaris-local-forge:` | `grep -q "polaris-local-forge:" ...` | This skill is installed (primary) |
+| `.env` with `PLF_POLARIS_CATALOG_NAME` | `grep -q "PLF_POLARIS_CATALOG_NAME" .env` | Polaris config exists (secondary) |
+| `bin/plf` wrapper script | `[ -x bin/plf ]` | CLI initialized (tertiary) |
+
+When any of these exist in your current directory:
+- "show namespaces" → queries Polaris (not Snowflake, not Kubernetes)
+- "list catalogs" → calls Management API
+- "describe table X" → fetches table metadata
+
+> [!CAUTION]
+> **Forbidden commands — these will NOT work:**
+> - `polaris` CLI — does not exist (`polaris namespaces list`, `polaris --help`)
+> - `curl http://localhost:8181/...` or `curl http://localhost:18181/...` — needs OAuth token
+> - `docker ps --filter "name=polaris"` — don't check, assume infra is running
+> - `ansible-playbook` directly — causes asdf/tool-versions conflict
+>
+> **Correct pattern** — use `plf api query`:
+> ```bash
+> ./bin/plf api query /api/catalog/v1/polardb/namespaces
+> ./bin/plf api query /api/management/v1/catalogs
+> ```
+
+No disambiguation prompts, no Docker checks — the skill assumes infrastructure is running and uses `plf api query` directly.
 
 ### Catalog Operations
 
 | Say this... | API Endpoint | Description |
 |-------------|--------------|-------------|
 | "list catalogs" | `GET /api/management/v1/catalogs` | Show all available catalogs |
-| "show catalog details for polardb" | `GET /api/management/v1/catalogs/{catalog}` | Get catalog configuration |
-| "create catalog named mydata" | `POST /api/management/v1/catalogs` | Create a new catalog |
+| "show catalog polardb" | `GET /api/management/v1/catalogs/{catalog}` | Get catalog configuration |
+| "describe catalog polardb" | `GET /api/management/v1/catalogs/{catalog}` | Get catalog details |
 
 ### Namespace Operations
 
 | Say this... | API Endpoint | Description |
 |-------------|--------------|-------------|
 | "show namespaces" | `GET /api/catalog/v1/{catalog}/namespaces` | List namespaces in default catalog |
-| "show namespaces in polardb" | `GET /api/catalog/v1/polardb/namespaces` | List namespaces in specific catalog |
-| "create namespace analytics" | `POST /api/catalog/v1/{catalog}/namespaces` | Create a new namespace |
+| "list namespaces in polardb" | `GET /api/catalog/v1/polardb/namespaces` | List namespaces in specific catalog |
+| "describe namespace default" | `GET /api/catalog/v1/{catalog}/namespaces/default` | Get namespace details |
 
 ### Table Operations
 
 | Say this... | API Endpoint | Description |
 |-------------|--------------|-------------|
 | "list tables in default" | `GET /api/catalog/v1/{catalog}/namespaces/default/tables` | List tables in namespace |
-| "show table schema for penguins" | `GET /api/catalog/v1/{catalog}/namespaces/{ns}/tables/{table}` | Get table metadata |
-| "describe table penguins in default" | `GET /api/catalog/v1/{catalog}/namespaces/default/tables/penguins` | Full table details |
+| "show table penguins in default" | `GET /api/catalog/v1/{catalog}/namespaces/default/tables/penguins` | Get table metadata |
+| "describe table penguins" | `GET /api/catalog/v1/{catalog}/namespaces/{ns}/tables/{table}` | Full table details |
+
+### View Operations
+
+| Say this... | API Endpoint | Description |
+|-------------|--------------|-------------|
+| "list views in default" | `GET /api/catalog/v1/{catalog}/namespaces/default/views` | List views in namespace |
+| "show view myview in default" | `GET /api/catalog/v1/{catalog}/namespaces/default/views/myview` | Get view details |
 
 ### Principal & Role Operations
 
 | Say this... | API Endpoint | Description |
 |-------------|--------------|-------------|
 | "list principals" | `GET /api/management/v1/principals` | Show all principals |
-| "show my principal roles" | `GET /api/management/v1/principal-roles` | List principal roles |
-| "show catalog roles for polardb" | `GET /api/management/v1/catalogs/{catalog}/catalog-roles` | List catalog roles |
+| "show principal alice" | `GET /api/management/v1/principals/alice` | Get principal details |
+| "list principal roles" | `GET /api/management/v1/principal-roles` | List principal roles |
+| "show principal role admin" | `GET /api/management/v1/principal-roles/admin` | Get principal role details |
+| "list roles for principal alice" | `GET /api/management/v1/principals/alice/principal-roles` | Roles assigned to principal |
+| "list catalog roles for polardb" | `GET /api/management/v1/catalogs/{catalog}/catalog-roles` | List catalog roles |
+| "show catalog role admin in polardb" | `GET /api/management/v1/catalogs/{catalog}/catalog-roles/admin` | Get catalog role details |
+| "list grants for role admin in polardb" | `GET /api/management/v1/catalogs/{catalog}/catalog-roles/admin/grants` | List grants for role |
 
 > [!NOTE]
 > The skill handles OAuth token retrieval and credential management automatically.

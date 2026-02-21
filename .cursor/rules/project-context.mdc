@@ -17,6 +17,11 @@ When working with this project, reference these docs:
 - **Apache Polaris:** https://polaris.apache.org/
 - **Apache Iceberg:** https://iceberg.apache.org/
 
+## Apache Polaris API Reference
+
+- **Catalog API (Iceberg REST):** https://editor.swagger.io/?url=https://raw.githubusercontent.com/apache/polaris/refs/heads/main/spec/generated/bundled-polaris-catalog-service.yaml
+- **Management API:** https://editor.swagger.io/?url=https://raw.githubusercontent.com/apache/polaris/refs/heads/main/spec/polaris-management-service.yml
+
 ## Related Skill Repos
 
 For CLI and skill patterns, reference:
