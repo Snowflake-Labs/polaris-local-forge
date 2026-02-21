@@ -67,9 +67,11 @@ flowchart TD
 
 **CRITICAL: SETUP TAKES 2-5 MINUTES.** Tell user upfront so they don't wait anxiously.
 
-**PERMISSIONS:** On first command execution, Cortex Code will prompt for permission.
-Select "Allow using 'uv' for this session" to avoid repeated prompts.
-See [Cortex Code Permissions](#cortex-code-permissions) for details.
+**PERMISSIONS:** Cortex Code prompts for approval on each new command.
+- Before `init`: Select **"Allow using 'uv' for this session"**
+- After `init`: Select **"Allow using 'plf' for this session"** (or option 5)
+
+This avoids repeated prompts. See [Cortex Code Permissions](#cortex-code-permissions) for details.
 
 **SETUP APPROACH FOR CORTEX CODE (REQUIRED):**
 
@@ -78,8 +80,8 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
    ```
    ## Apache Polaris Local Forge Setup (Total: ~2-5 minutes)
    
-   **Permissions:** On first command, Cursor will prompt for permission.
-   Select "Allow using 'uv' for this session" to avoid repeated prompts.
+   **Permissions:** Cortex Code prompts for approval on each new command.
+   Select "Allow using 'plf' for this session" (option 5) to run all steps smoothly.
    
    **Container runtime:** Auto-detected based on what's running.
    - Docker Desktop running → uses Docker
@@ -111,7 +113,12 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
    
    **Step 1: Initialize & detect runtime**
 
-   First, detect runtime availability by running: `./bin/plf runtime detect --json`
+   > **NOTE:** Before `init`, there is no `./bin/plf` wrapper. Use `uv run --project <SKILL_DIR>` for these commands.
+
+   First, detect runtime availability:
+   ```bash
+   uv run --project <SKILL_DIR> polaris-local-forge runtime detect --json
+   ```
    
    This outputs JSON with detection result:
    - `{"status": "detected", "runtime": "docker|podman", ...}` - Runtime found, proceed
@@ -120,7 +127,10 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
    
    **Based on detection result:**
    
-   - **If `"status": "detected"`**: Run `./bin/plf init` (no extra flags needed)
+   - **If `"status": "detected"`**: Run init (runtime will be auto-set):
+     ```bash
+     uv run --project <SKILL_DIR> polaris-local-forge --work-dir <WORK_DIR> init
+     ```
    
    - **If `"status": "choice"`**: Present choice using **AskQuestion tool** with radio options:
 
@@ -129,11 +139,16 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
      | `docker` | Use Docker | User will start Docker Desktop manually |
      | `podman` | Use Podman (recommended) | Machine will be created/started by `doctor --fix` |
      
-     Then run: `./bin/plf init --runtime <user_choice>`
+     Then run init with explicit runtime:
+     ```bash
+     uv run --project <SKILL_DIR> polaris-local-forge --work-dir <WORK_DIR> init --runtime <user_choice>
+     ```
      
      (The `--runtime` flag bypasses the interactive prompt that would "Abort" in non-interactive shells)
    
    - **If `"status": "error"`**: Display the error message and stop
+   
+   After `init` completes, the `./bin/plf` wrapper is created. Use it for ALL subsequent commands.
 
    ---
    
@@ -208,7 +223,9 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
 - NEVER assume the cluster is running -- always check status with `k3d cluster list` before operations
 - NEVER run destructive commands (`cluster delete`, `polaris purge`) without explicit user confirmation
 - NEVER expose `principal.txt` contents in output -- show only the realm. Mask client_id: show `****` + last 4 chars. NEVER show client_secret at all. Example: `realm: POLARIS, client_id: ****a1b2, client_secret: ********`
-- NEVER modify files in the skill directory (`<SKILL_DIR>`) -- `k8s/`, `polaris-forge-setup/`, `src/` are read-only source. Only the user's `--work-dir` is writable
+- NEVER modify files in the skill directory (`<SKILL_DIR>`) -- `k8s/`, `polaris-forge-setup/`, `src/`, `example-manifests/` are read-only source. Only the user's `--work-dir` is writable
+- NEVER create `.snow-utils/` in the skill directory -- ALWAYS ask for a work directory FIRST, then create `.snow-utils/` there
+- NEVER start setup (with or without manifest) without a work directory -- the skill repo is READ-ONLY
 - NEVER guess or invent CLI commands or options -- ONLY use commands from the CLI Reference tables below (e.g., `plf cluster status` NOT `plf status`). If a command fails, run `./bin/plf --help` or `./bin/plf <group> --help` and use ONLY the commands/options shown there
 - NEVER run raw `duckdb` commands -- use `./bin/plf catalog verify-sql` or `./bin/plf catalog explore-sql` only
 - NEVER construct DuckDB SQL manually -- the CLI generates properly templated SQL with correct syntax
@@ -216,6 +233,8 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
 - NEVER use `uv run --project ... polaris-local-forge` after init -- ALWAYS use the `./bin/plf` wrapper script which handles paths, env vars, and suppresses warnings
 
 **INTERACTIVE PRINCIPLE:** This skill is designed to be interactive. At every decision point, ASK the user and WAIT for their response before proceeding. When presenting choices (e.g., runtime selection, execution mode), use the **AskQuestion tool** with radio options for better UX in Cortex Code.
+
+**EXCEPTION:** Once user selects **"Run all (recommended)"** at the config review step, the skill switches to **autonomous mode** for that setup flow. No further confirmation prompts until setup completes or an error occurs. Track this as `EXECUTION_MODE=run_all`.
 
 **DISPLAY PRINCIPLE:** When showing configuration or status, substitute actual values from `.env` and the manifest. The user should see real values, not raw `${...}` placeholders.
 
@@ -287,7 +306,41 @@ Pattern for file edits:
 
 ### Step 0: Initialize Project Directory
 
-**Detect if user already has a workspace set up:**
+**FIRST: Check if in skill directory (NEVER initialize here):**
+
+```bash
+if [ -f "SKILL.md" ] && [ -d "src/polaris_local_forge" ]; then
+  IN_SKILL_DIR="true"
+else
+  IN_SKILL_DIR="false"
+fi
+```
+
+**If IN_SKILL_DIR is true, show:**
+
+```
+⚠️  You're in the polaris-local-forge skill directory.
+
+This directory contains the source code and is READ-ONLY.
+All workspace files must be created in a separate directory.
+
+Where would you like to create your Apache Polaris workspace?
+
+  1. ~/polaris-dev (recommended)
+  2. Specify custom path: ___________
+```
+
+**STOP**: Wait for user input. NEVER offer "current directory" as an option when in skill directory.
+
+**After user provides work directory:**
+
+1. Create the directory if needed: `mkdir -p <path>`
+2. Change to that directory using Shell `working_directory` parameter for subsequent commands
+3. **PRESERVE any prior user choices** (e.g., if user already selected "Run all", continue in autonomous mode)
+
+---
+
+**If NOT in skill directory, detect if user already has a workspace set up:**
 
 ```bash
 if [ -f .env ] && [ -f pyproject.toml ]; then
@@ -298,7 +351,7 @@ fi
 
 **If existing workspace detected -> go to Step 0a (Prerequisites Check).**
 
-**If NOT in an existing workspace, ask user:**
+**If NOT in an existing workspace (and NOT in skill directory), ask user:**
 
 ```
 Where would you like to create your Apache Polaris workspace?
@@ -477,6 +530,41 @@ grep -q "^tools_verified:" .snow-utils/snow-utils-manifest.md 2>/dev/null || \
 
 ### Step 0c: Detect or Initialize Manifest
 
+#### CRITICAL: Work Directory Check
+
+**BEFORE any manifest operations, verify we are NOT in the skill directory:**
+
+```bash
+if [ -f "SKILL.md" ] && [ -d "src/polaris_local_forge" ]; then
+  echo "ERROR: Currently in skill directory (read-only source)"
+  echo "       Cannot create .snow-utils/ here"
+  exit 1
+fi
+```
+
+**If in skill directory, STOP and ask:**
+
+```
+⚠️  You're in the skill source directory (read-only).
+
+Where would you like to create your Apache Polaris workspace?
+
+  1. Create new directory: ~/polaris-dev
+  2. Specify custom path: ___________
+
+Enter choice [1]:
+```
+
+**STOP**: Wait for user input. NEVER proceed with manifest operations in skill directory.
+
+**After user provides work directory:**
+
+1. Create the directory if needed: `mkdir -p <path>`
+2. Change to that directory: Use Shell `working_directory` parameter
+3. THEN proceed with manifest detection below
+
+---
+
 #### Remote Manifest URL Detection
 
 If the user provides a URL (in their prompt or pasted), detect and normalize it **before** local manifest detection:
@@ -561,9 +649,12 @@ Which manifest should we use?
 
 **If using example manifest** (user says "get started with apache polaris using example manifest"):
 
+> **NOTE:** This assumes the Work Directory Check above has passed. The example manifest is copied FROM the skill's `example-manifests/` directory TO the user's work directory.
+
 ```bash
+# In user's work directory (NOT skill directory!)
 mkdir -p .snow-utils && chmod 700 .snow-utils
-cp example-manifests/polaris-local-forge-manifest.md .snow-utils/snow-utils-manifest.md
+cp <SKILL_DIR>/example-manifests/polaris-local-forge-manifest.md .snow-utils/snow-utils-manifest.md
 chmod 600 .snow-utils/snow-utils-manifest.md
 ```
 
@@ -694,10 +785,28 @@ uv sync --all-extras
 | `run_all` | Run all (recommended) | Execute all setup steps automatically |
 | `step_by_step` | Step by step | Pause after each step for confirmation |
 
+**CRITICAL: Track EXECUTION_MODE for the rest of the session:**
+
+```
+EXECUTION_MODE = user's choice ("run_all" or "step_by_step")
+```
+
 **Based on user choice:**
 
-- **If "run_all":** Execute ALL steps below without pausing. Only stop on errors.
+- **If "run_all":** Execute ALL steps below without pausing. NO confirmation prompts. Only stop on actual errors.
 - **If "step_by_step":** Run each step, show output, then ask "Continue?" before the next step.
+
+**IMPORTANT:** Once user selects "run_all", ALL subsequent stopping points in this session are SKIPPED. The skill proceeds automatically through Steps 1-8 without asking for confirmation. This includes:
+- Prerequisite checks (auto-proceed if passing)
+- Each CLI command execution (run immediately)
+- Manifest updates (update immediately)
+
+Only stop for:
+1. Fatal errors that prevent continuation
+2. Explicit destructive operations (teardown, purge) that were NOT part of the original setup flow
+
+> **NOTE:** Cortex Code will still show its command approval dialog (platform security feature).
+> Tell user: "Select **option 5** ('Allow using plf for this session') on the first `plf` command to avoid approval prompts for remaining steps."
 
 **DO -- Run each step as a SEPARATE command (REQUIRED for Cortex Code visibility):**
 
@@ -723,13 +832,14 @@ The `init --with-manifest` command creates the `.snow-utils/snow-utils-manifest.
 
 **CRITICAL RULES:**
 
-- Honor user's execution mode choice from config review
-- **Run all mode:** Execute full sequence, no prompts between steps
+- **HONOR EXECUTION_MODE:** If user selected "run_all", DO NOT ask for confirmation between steps. Proceed automatically.
+- **Run all mode:** Execute full sequence, NO prompts between steps. Just run each command and report results.
 - **Step by step mode:** Pause after each step, ask "Continue? [yes/no]"
 - Run EACH command above as a SEPARATE bash invocation (for Cortex Code visibility)
 - NEVER combine multiple commands (hides output from Cortex Code)
 - NEVER use `podman machine start` directly (use `doctor --fix`)
 - Use `--yes` for destructive commands (delete, cleanup, teardown) in both modes
+- **DO NOT re-ask** work directory, runtime, cluster name, etc. after user has already answered them
 
 **After setup completes, set the scoped cluster environment for this session:**
 
@@ -963,6 +1073,93 @@ When manifest has `Status: REMOVED`:
 6. Regenerate catalog-level files (new principal credentials)
 7. Update manifest to COMPLETE
 
+## Export for Sharing Flow
+
+**Trigger phrases:** "export manifest for sharing", "share polaris manifest"
+
+**Purpose:** Create a portable copy of the manifest that another developer can use to replay the entire setup on their machine.
+
+### Precondition
+
+Cortex Code MUST verify manifest has `Status: COMPLETE` or `Status: REMOVED`:
+
+```bash
+grep "^\*\*Status:\*\*" .snow-utils/snow-utils-manifest.md
+```
+
+If status is `IN_PROGRESS`, refuse with: "Cannot export incomplete setup. Complete the setup first or teardown to set status to REMOVED."
+
+### Export Steps
+
+1. **Read active manifest** from `.snow-utils/snow-utils-manifest.md`
+
+2. **Read `project_name`** from `## project_recipe` section
+
+3. **Determine `shared_by`** from machine username (fall back to asking user):
+
+   ```bash
+   SHARED_BY=$(whoami)
+   echo "Exporting as: ${SHARED_BY}"
+   ```
+
+4. **Ask user for export location:**
+
+   ```
+   Export manifest for sharing:
+
+     Filename: {project_name}-manifest.md
+     Default location: ./ (project root)
+
+   Save to [./]:
+   ```
+
+   **STOP**: Wait for user input.
+
+5. **Ask about container runtime:**
+
+   ```
+   Container Runtime Export Option
+   ───────────────────────────────
+   Your setup used: {container_runtime from manifest}
+
+   How should the exported manifest handle container runtime?
+
+     1. Keep current value ({container_runtime}) - recipient reproduces exact environment
+     2. Clear for auto-detection - recipient's CLI detects their runtime
+
+   Choice [2]:
+   ```
+
+   **STOP**: Wait for user input. Default is **2 (auto-detect)** for maximum flexibility.
+
+6. **If file already exists at target:** Ask overwrite / rename with timestamp / cancel
+
+7. **Create export file** with these transformations:
+   - Inject `<!-- CORTEX_CODE_INSTRUCTION -->` HTML comment at top (see `example-manifests/polaris-local-forge-manifest.md` for format)
+   - Add `## shared_info` section with `shared_by: {SHARED_BY}`, `shared_date`, `original_project_dir`, `notes`
+   - Preserve `## installed_skills` with skill URL (enables Cortex self-installation)
+   - Change `**Status:** COMPLETE` to `**Status:** REMOVED`
+   - Add `# ADAPT: customizable` markers on user-customizable values
+   - **If user chose option 2:** Set `container_runtime:  # Auto-detected by CLI`
+   - **If user chose option 1:** Keep `container_runtime: {value}`
+   - Remove `podman_machine` line (always auto-detected by CLI)
+
+8. **Show confirmation:**
+
+   ```
+   Exported: {project_name}-manifest.md
+
+     Location: ./{project_name}-manifest.md
+     Shared by: {SHARED_BY}
+     Container runtime: {kept|cleared for auto-detection}
+     Status set to: REMOVED
+
+   Share this file with your colleague. They can open it in Cursor and ask Cortex Code:
+     "setup from shared manifest"
+   ```
+
+> **Note:** The exported file is in the project root, NOT in `.snow-utils/`. Skills only read from `.snow-utils/snow-utils-manifest.md` so the export is invisible to all skill flows.
+
 ## Consuming Projects: Minimal Setup
 
 A separate project that wants to query the Apache Polaris catalog needs only:
@@ -1047,10 +1244,16 @@ SKILL_DIR=/path/to/polaris-local-forge
 | `plf cluster delete --yes` | Delete cluster (destructive) |
 | `plf teardown --yes` | Full cleanup (destructive) |
 
-**Recommended permission setting:** When Cortex Code prompts, select:
+**Recommended permission setting:** When Cortex Code prompts for command approval:
 
-- **"Allow using 'uv' for this session"** - Recommended for active work
-- **"Always allow using 'uv'"** - If you use this skill frequently
+**Before `init` (uses `uv`):**
+- **Option 5: "Allow using 'uv' for this session"** - Recommended
+
+**After `init` (uses `./bin/plf` wrapper):**
+- **Option 5: "Allow using 'plf' for this session"** - Recommended for "Run all" mode
+- **Option 4: "Always allow using 'plf'"** - If you use this skill frequently
+
+> **TIP:** When running "Run all (recommended)" mode, select option 5 on the first `plf` command to avoid approval prompts for each of the 8+ setup steps.
 
 This is safe because:
 

@@ -76,7 +76,7 @@ Choose your path:
 ### Option 1: CLI
 
 ```bash
-git clone https://github.com/kameshsampath/polaris-local-forge
+git clone https://github.com/Snowflake-Labs/polaris-local-forge
 cd polaris-local-forge
 task setup:python
 
@@ -94,7 +94,7 @@ mkdir -p ~/polaris-dev && task setup:all WORK_DIR=~/polaris-dev
 [Snowflake Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) automates setup through natural language.
 
 ```bash
-cortex skill add https://github.com/kameshsampath/polaris-local-forge
+cortex skill add https://github.com/Snowflake-Labs/polaris-local-forge
 ```
 
 Then just say:

@@ -1,3 +1,11 @@
+<!-- CORTEX_CODE_INSTRUCTION: This is a shared polaris-local-forge manifest.
+     project_name: polaris-dev
+     setup_steps:
+       1. Check if required skills are installed: cortex skill list
+       2. For each skill in ## installed_skills NOT in the list, run: cortex skill add <url>
+       3. Once all skills installed, ask "setup from shared manifest" or "replay from manifest"
+     To trigger: ask "setup from shared manifest" -->
+
 # Snow-Utils Manifest
 
 This manifest tracks resources created by polaris-local-forge.
@@ -8,26 +16,13 @@ This manifest tracks resources created by polaris-local-forge.
 
 ## shared_info
 
-shared_by: User
-shared_to: ALICE
-shared_date: 2026-02-20
-
-## CORTEX_CODE_INSTRUCTION
-
-ALICE, to set up this Polaris Local Forge environment on your machine:
-
-1. Save this file to your target directory
-2. Open Cortex Code and say: "setup from shared manifest" or "replay from manifest"
-3. Cortex Code will read this manifest and guide you through setup
-4. Values marked with `# ADAPT:` can be customized for your environment
-
-The setup will create a local Apache Polaris environment with:
-
-- k3d Kubernetes cluster
-- RustFS S3-compatible storage
-- PostgreSQL metastore
-- Polaris Iceberg REST catalog
-- Demo penguins dataset
+shared_by: your-username
+shared_date: 2026-02-21
+original_project_dir: polaris-dev
+notes: |
+  Polaris Local Forge - Local Apache Polaris with RustFS and k3d.
+  Container runtime is auto-detected (Docker or Podman).
+  To replay: open in Cortex Code, ask "setup from shared manifest"
 
 ## project_recipe
 
@@ -35,8 +30,7 @@ project_name: polaris-dev  # ADAPT: customizable
 
 ## configuration
 
-container_runtime: podman  # ADAPT: podman or docker
-podman_machine: k3d  # ADAPT: your podman machine name (macOS only)
+container_runtime:  # Auto-detected by CLI
 cluster_name: polaris-dev  # ADAPT: customizable
 
 ## resources
@@ -55,4 +49,4 @@ cluster_name: polaris-dev  # ADAPT: customizable
 
 ## installed_skills
 
-polaris-local-forge: <https://github.com/kameshsampath/polaris-local-forge>
+polaris-local-forge: <https://github.com/Snowflake-Labs/polaris-local-forge>

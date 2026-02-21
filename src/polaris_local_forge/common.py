@@ -127,7 +127,7 @@ cluster_name: {cluster_name}
 ## prereqs
 
 ## installed_skills
-polaris-local-forge: https://github.com/kameshsampath/polaris-local-forge
+polaris-local-forge: https://github.com/Snowflake-Labs/polaris-local-forge
 """
 
 

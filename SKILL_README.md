@@ -30,7 +30,7 @@ Apache Polaris Local Forge provides a complete local data lakehouse stack:
 ## Installation
 
 ```bash
-cortex skill add https://github.com/kameshsampath/polaris-local-forge
+cortex skill add https://github.com/Snowflake-Labs/polaris-local-forge
 ```
 
 Verify installation:
@@ -131,12 +131,15 @@ The skill can query the Apache Polaris REST API directly using natural language.
 
 An example manifest is included at `example-manifests/polaris-local-forge-manifest.md` with sane defaults for a quick start.
 
+> [!NOTE]
+> **Container runtime is auto-detected.** The example manifest leaves `container_runtime` empty — the CLI detects whether Docker or Podman is running on your system. No configuration needed.
+
 ### Quick Start with Example Manifest
 
 1. Install the skill:
 
 ```bash
-cortex skill add https://github.com/kameshsampath/polaris-local-forge
+cortex skill add https://github.com/Snowflake-Labs/polaris-local-forge
 ```
 
 1. Say: **"get started with apache polaris using example manifest"**
@@ -146,6 +149,36 @@ cortex skill add https://github.com/kameshsampath/polaris-local-forge
    - Show the pre-configured defaults (cluster name, S3 bucket, catalog, etc.)
    - Walk you through the full setup interactively
    - Update the manifest status as resources are created
+
+### Export Manifest for Sharing
+
+After completing setup, export your manifest to share with colleagues:
+
+```
+export manifest for sharing
+```
+
+The skill will:
+
+- Create `{project_name}-manifest.md` in project root
+- Ask whether to keep your runtime (`podman`/`docker`) or clear for auto-detection
+- Set status to `REMOVED` so recipient can replay from scratch
+- Add `# ADAPT:` markers on customizable values
+
+**Recipient usage:**
+
+```
+setup from shared manifest
+```
+
+Or from a URL:
+
+```
+setup from manifest URL https://example.com/my-manifest.md
+```
+
+> [!TIP]
+> Default is **clear runtime for auto-detection** — maximizes compatibility across Docker and Podman users.
 
 ### Manual Setup
 
@@ -243,7 +276,7 @@ Infrastructure lives in the `polaris-local-forge` repo. Your project only needs 
 
 | Repo | Purpose | Relationship |
 |------|---------|-------------|
-| [polaris-local-forge](https://github.com/kameshsampath/polaris-local-forge) | Local Apache Polaris infra | **This repo** — provides the local environment |
+| [polaris-local-forge](https://github.com/Snowflake-Labs/polaris-local-forge) | Local Apache Polaris infra | **This repo** — provides the local environment |
 | [snow-utils-skills](https://github.com/kameshsampath/snow-utils-skills) | Snowflake PAT, External Volumes | Provides real AWS S3 equivalent (Phase 2 interop) |
 | [kamesh-demo-skills](https://github.com/kameshsampath/kamesh-demo-skills) | Demo applications | Can consume polaris-local-forge as infrastructure |
 
