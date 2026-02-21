@@ -36,7 +36,24 @@ This skill requires the following tools installed on your machine:
 
 **Note:** Podman is a dependency of Cortex Code and should already be installed on your system. If not present, install via `brew install podman` or [podman.io](https://podman.io/).
 
-**Container Runtime:** Podman is the preferred runtime (fully OSS). Auto-detection checks for Podman first, then Docker. Set `PLF_CONTAINER_RUNTIME=docker` in `.env` to use Docker instead. See [docs/podman-setup.md](docs/podman-setup.md) for Podman machine setup.
+**Container Runtime (Auto-Detected):** The CLI automatically detects which runtime to use during `init`:
+
+```mermaid
+flowchart TD
+    Start[init command] --> CheckDockerRunning{Docker Desktop running?}
+    CheckDockerRunning -->|Yes| UseDocker[Use Docker]
+    CheckDockerRunning -->|No| CheckPodmanRunning{Podman machine running?}
+    CheckPodmanRunning -->|Yes| UsePodman[Use Podman]
+    CheckPodmanRunning -->|No| CheckInstalled{What's installed?}
+    CheckInstalled -->|Both| PromptUser[Prompt user to choose]
+    CheckInstalled -->|Podman only| UsePodman2[Use Podman]
+    CheckInstalled -->|Docker only| UseDocker2[Use Docker]
+    CheckInstalled -->|Neither| Fail[Fail with error]
+```
+
+**Detection priority:** Running runtime preferred over installed. Docker preferred when both running. Override by setting `PLF_CONTAINER_RUNTIME=docker` or `podman` in `.env`.
+
+**First-time Podman users:** Run `doctor --fix` after `init` to automatically create and start the Podman machine. See [docs/podman-setup.md](docs/podman-setup.md) for manual setup.
 
 **Optional:**
 
@@ -56,7 +73,7 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
 
 **SETUP APPROACH FOR CORTEX CODE (REQUIRED):**
 
-1. **First, show the plan and ask for configuration:**
+1. **First, show the plan:**
 
    ```
    ## Polaris Local Forge Setup (Total: ~2-5 minutes)
@@ -64,10 +81,14 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
    **Permissions:** On first command, Cursor will prompt for permission.
    Select "Allow using 'uv' for this session" to avoid repeated prompts.
    
+   **Container runtime:** Auto-detected based on what's running.
+   - Docker Desktop running → uses Docker
+   - Podman machine running → uses Podman
+   - Neither running → will prompt you to choose
+   
    Steps to complete:
-   - [ ] Step 0: Configuration
-   - [ ] Step 1: Doctor check (~5s)
-   - [ ] Step 2: Initialize work directory (~5s)
+   - [ ] Step 1: Initialize & detect runtime (~5s)
+   - [ ] Step 2: Doctor check & fix (~5-30s)
    - [ ] Step 3: Generate configuration files (~10s)
    - [ ] Step 4: Create k3d cluster (~30s)
    - [ ] Step 5: Wait for RustFS and PostgreSQL (~60-90s)
@@ -75,95 +96,110 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
    - [ ] Step 7: Setup catalog (~30s)
    - [ ] Step 8: Verify with DuckDB (~5s)
    
-   **Step 0: Configuration**
+   Ready to proceed with cluster name: "<directory-name>"
    
-   Q1: Container runtime?
-       (1) Podman [default]
-       (2) Docker
+   Say "proceed" to continue, or specify a different cluster name.
    ```
 
-   **STOP**: Wait for user response.
+   **STOP**: Wait for user response. If user says "proceed" or similar, use the default cluster name. If user provides a name, use that instead. Then proceed to Step 1.
 
-   **If user chooses Podman (macOS only), ask Q2:**
+2. **Then run each step individually** with a header message.
 
-   ```
-   Q2: Podman machine?
-       (0) Create new 'k3d' machine [recommended for isolation]
-       (1) Use existing: [run `podman machine ls` and list machines]
-       
-       Default: k3d (press Enter to accept)
-   ```
+   **FORMATTING**: Before each step header, output a blank line. This ensures proper visual separation in Cortex Code.
 
-   **STOP**: Wait for user response. If user selects "0", create the machine:
+   ---
+   
+   **Step 1: Initialize & detect runtime**
 
-   ```bash
-   podman machine init k3d --cpus 4 --memory 16384 --now
-   ```
+   First, detect runtime availability by running: `./bin/plf runtime detect --json`
+   
+   This outputs JSON with detection result:
+   - `{"status": "detected", "runtime": "docker|podman", ...}` - Runtime found, proceed
+   - `{"status": "choice", "options": ["docker", "podman"], ...}` - User choice required
+   - `{"status": "error", ...}` - Neither installed, show error
+   
+   **Based on detection result:**
+   
+   - **If `"status": "detected"`**: Run `./bin/plf init` (no extra flags needed)
+   
+   - **If `"status": "choice"`**: Present choice using **AskQuestion tool** with radio options:
 
-   **Then ask Q3:**
+     | Option | Label | Description |
+     |--------|-------|-------------|
+     | `docker` | Use Docker | User will start Docker Desktop manually |
+     | `podman` | Use Podman (recommended) | Machine will be created/started by `doctor --fix` |
+     
+     Then run: `./bin/plf init --runtime <user_choice>`
+     
+     (The `--runtime` flag bypasses the interactive prompt that would "Abort" in non-interactive shells)
+   
+   - **If `"status": "error"`**: Display the error message and stop
 
-   ```
-   Q3: Cluster name? [default: directory name]
-   ```
+   ---
+   
+   **Step 2: Doctor check & fix**
 
-   **STOP**: Wait for user response, then proceed to Step 1.
+   Run: `./bin/plf doctor --fix`
+   
+   This automatically:
+   - Creates Podman machine (`k3d`) if using Podman and machine doesn't exist
+   - Starts Podman machine if stopped
+   - Kills gvproxy if blocking port 19000 (required by RustFS)
+   - Sets up SSH config for Podman VM access
 
-2. **Then run each step individually** with a header message:
+   ---
+   
+   **Step 3: Generate configuration files**
 
-   ```
-   ### Step 1: Doctor check
-   ```
+   Run: `./bin/plf prepare`
 
-   Then run: `./bin/plf doctor`
-   If issues found, run: `./bin/plf doctor --fix`
+   ---
+   
+   **Step 4: Create k3d cluster**
 
-   ```
-   ### Step 2: Initialize work directory
-   ```
+   Run: `./bin/plf cluster create`
 
-   Then run: `./bin/plf init`
+   ---
+   
+   **Step 5: Wait for RustFS and PostgreSQL**
 
-   ```
-   ### Step 3: Generate configuration files
-   ```
+   Run: `./bin/plf cluster wait --tags bootstrap`
 
-   Then run: `./bin/plf prepare`
+   ---
+   
+   **Step 6: Deploy Polaris**
 
-   ```
-   ### Step 4: Create k3d cluster
-   ```
-
-   Then run: `./bin/plf cluster create`
-
-   ```
-   ### Step 5: Wait for RustFS and PostgreSQL
-   ```
-
-   Then run: `./bin/plf cluster wait --tags bootstrap`
-
-   ```
-   ### Step 6: Deploy Polaris
-   ```
-
-   Then run: `./bin/plf polaris deploy`
+   Run: `./bin/plf polaris deploy`
    Wait: `./bin/plf cluster wait --tags polaris`
-   Then run: `./bin/plf polaris bootstrap`
+   Run: `./bin/plf polaris bootstrap`
 
-   ```
-   ### Step 7: Setup catalog
-   ```
+   ---
+   
+   **Step 7: Setup catalog**
 
-   Then run: `./bin/plf catalog setup`
+   Run: `./bin/plf catalog setup`
 
-   ```
-   ### Step 8: Verify with DuckDB
-   ```
+   ---
+   
+   **Step 8: Verify with DuckDB**
 
-   Then run: `./bin/plf catalog verify-sql`
+   Run: `./bin/plf catalog verify-sql`
 
    For interactive exploration: `./bin/plf catalog explore-sql`
 
+   ---
+   
+   **All steps complete!**
+   
+   After Step 8 succeeds, output the completion summary (see "Step 4: Summary" section below).
+
 3. **After each step completes**, briefly confirm success before moving to next step.
+
+4. **FORMATTING RULES** (critical for Cortex Code display):
+   - Always output a **blank line** before headers and code blocks
+   - Always output a **blank line** after code blocks before continuing text
+   - Never concatenate output directly after closing triple backticks
+   - Use `---` horizontal rules between major sections
 
 **FORBIDDEN ACTIONS -- NEVER DO THESE:**
 
@@ -179,7 +215,7 @@ See [Cortex Code Permissions](#cortex-code-permissions) for details.
 - NEVER extract credentials from `principal.txt` to pass to other commands -- credentials are automatically loaded by CLI commands
 - NEVER use `uv run --project ... polaris-local-forge` after init -- ALWAYS use the `./bin/plf` wrapper script which handles paths, env vars, and suppresses warnings
 
-**INTERACTIVE PRINCIPLE:** This skill is designed to be interactive. At every decision point, ASK the user and WAIT for their response before proceeding.
+**INTERACTIVE PRINCIPLE:** This skill is designed to be interactive. At every decision point, ASK the user and WAIT for their response before proceeding. When presenting choices (e.g., runtime selection, execution mode), use the **AskQuestion tool** with radio options for better UX in Cortex Code.
 
 **DISPLAY PRINCIPLE:** When showing configuration or status, substitute actual values from `.env` and the manifest. The user should see real values, not raw `${...}` placeholders.
 
@@ -236,13 +272,12 @@ Pattern for file edits:
 | Command | Pre-Check | If Fails |
 |---------|-----------|----------|
 | Any command | NOT using direct podman/k3d/kubectl | Stop: "Use CLI commands only. See FORBIDDEN COMMANDS." |
+| `init` | Docker or Podman installed | Auto-detects runtime; prompts user if both installed but neither running; fails if neither installed |
 | `doctor` | Tools installed | Report missing tools with install instructions |
-| `doctor --fix` | Podman machine exists, ports available | Starts Podman; kills gvproxy and restarts if ports blocked; refer to podman-setup.md if machine missing |
-| `setup` | Podman running, k3d installed | Stop: "Prerequisites missing. Run `doctor --fix` first." |
-| `setup --fresh` | Podman running, k3d installed | Stop: "Prerequisites missing. Run `doctor --fix` first." |
+| `doctor --fix` | (none - fixes issues) | Creates Podman machine if missing; starts if stopped; kills gvproxy if blocking port 19000; sets up SSH config |
 | `cluster create` | Cluster doesn't exist | Stop: "Cluster already exists. Use `cluster delete` first or `setup` to resume." |
 | `cluster create` | Ports 19000, 19001, 18181 available | Stop: "Port in use. Run `doctor --fix` first." |
-| `catalog setup` | Cluster running, Polaris ready | Stop: "Cluster not ready. Run `setup` first." |
+| `catalog setup` | Cluster running, Polaris ready | Stop: "Cluster not ready. Run setup first." |
 | `polaris deploy` | Cluster running | Stop: "Cluster not running. Run `cluster create` first." |
 | `polaris purge` | Polaris deployed | Stop: "Polaris not deployed. Nothing to purge." |
 | `teardown` | Any resources exist | Proceed gracefully (idempotent with `--yes`) |
@@ -418,13 +453,14 @@ The doctor command checks:
 - SSH config for Podman VM access (macOS only)
 - Port availability: 19000 (RustFS), 19001 (RustFS Console), 18181 (Polaris), 6443 (k3d API)
 
-**With `--fix` flag** (macOS only):
+**With `--fix` flag** (macOS with Podman):
 
-- Starts Podman machine if stopped
-- Sets up SSH config for Podman VM access
-- Kills stale gvproxy processes blocking ports
+- **Creates Podman machine** (`k3d`) if it doesn't exist
+- **Starts Podman machine** if stopped
+- **Kills gvproxy** if blocking port 19000 (required by RustFS)
+- **Sets up SSH config** for Podman VM access
 
-If Podman machine is missing, refer to [docs/podman-setup.md](docs/podman-setup.md) for initial setup, then run `./bin/plf doctor --fix` to complete configuration.
+**Note:** `doctor --fix` is now fully automatic - it creates and configures the Podman machine without manual intervention. See [docs/podman-setup.md](docs/podman-setup.md) for advanced configuration options.
 
 If any tool is missing, stop and provide installation instructions from the Prerequisites table above.
 
@@ -648,16 +684,18 @@ uv sync --all-extras
 **STOP**: Ask user for execution preference:
 
 > How would you like to proceed?
->
-> 1. **Run all** - Execute all setup steps automatically (recommended)
-> 2. **Step by step** - Pause after each step for confirmation
->
-> Choose [1/2]:
+
+**Present using AskQuestion tool** with radio options:
+
+| Option | Label | Description |
+|--------|-------|-------------|
+| `run_all` | Run all (recommended) | Execute all setup steps automatically |
+| `step_by_step` | Step by step | Pause after each step for confirmation |
 
 **Based on user choice:**
 
-- **If "Run all" (1):** Execute ALL steps below without pausing. Only stop on errors.
-- **If "Step by step" (2):** Run each step, show output, then ask "Continue? [yes/no]" before the next step.
+- **If "run_all":** Execute ALL steps below without pausing. Only stop on errors.
+- **If "step_by_step":** Run each step, show output, then ask "Continue?" before the next step.
 
 **DO -- Run each step as a SEPARATE command (REQUIRED for Cortex Code visibility):**
 
@@ -789,6 +827,8 @@ Expected: all 7 resource rows show `DONE`, Status shows `COMPLETE`.
 
 **SUMMARIZE -- Setup Complete:**
 
+Output the following summary (substitute actual values from `.env`). **Remember:** blank line before AND after the code block.
+
 ```
 Polaris Local Forge -- Setup Complete!
 
@@ -888,10 +928,10 @@ Updates manifest status to REMOVED. Generated files are preserved in the work di
 
 ### Podman Machine (macOS)
 
-On macOS with Podman, the teardown prompts whether to stop the Podman machine. Stopping the machine fully releases ports (19000, 19001, 18181). For automation/skills, use `--stop-podman` to stop without prompting:
+On macOS with Podman, teardown stops the Podman machine by default when using `--yes` (fully releases ports 19000, 19001, 18181). To keep Podman running:
 
 ```bash
-./bin/plf teardown --yes --stop-podman
+./bin/plf teardown --yes --no-stop-podman
 ```
 
 ### Explicit Purge
@@ -1052,35 +1092,42 @@ This is safe because:
 | `echo "VAR=value" >> .env` | Edit/StrReplace tool |
 | `cat > .env << EOF` | Write tool (only for new files) |
 
-**If ports are blocked (gvproxy error):**
+**If ports are blocked (gvproxy error on port 19000):**
+
+Port 19000 is required by RustFS. On macOS with Podman, the `gvproxy` network process may hold this port. The `doctor --fix` command handles this automatically:
 
 ```bash
-# Kill gvproxy processes and restart Podman
-# Check and start Podman (macOS)
-podman machine list
-podman machine start k3d  # if not running
-
-# Setup steps
-./bin/plf prepare
-./bin/plf cluster create
-./bin/plf cluster wait --tags bootstrap       # Wait for RustFS + PostgreSQL
-./bin/plf polaris deploy
-./bin/plf cluster wait --tags polaris         # Wait for Polaris + bootstrap job
-./bin/plf polaris bootstrap
-./bin/plf catalog setup
-
-# Verify
-./bin/plf catalog verify-sql
+# Automatic fix (recommended)
+./bin/plf doctor --fix
 ```
 
-**For port issues (gvproxy holding ports):**
+This will:
+- Kill gvproxy processes blocking port 19000
+- Stop and restart the Podman machine
+- Set up SSH config for VM access
+
+**Manual fix (if automatic fails):**
 
 ```bash
-# Kill gvproxy processes and restart Podman
+# Only use if doctor --fix doesn't work
 pkill -f gvproxy
 podman machine stop k3d
 sleep 5
 podman machine start k3d
+./bin/plf doctor --fix  # Re-run to verify
+```
+
+**After fixing ports, continue setup:**
+
+```bash
+./bin/plf prepare
+./bin/plf cluster create
+./bin/plf cluster wait --tags bootstrap
+./bin/plf polaris deploy
+./bin/plf cluster wait --tags polaris
+./bin/plf polaris bootstrap
+./bin/plf catalog setup
+./bin/plf catalog verify-sql
 ```
 
 ### Doctor (Prerequisites Check)
@@ -1088,8 +1135,16 @@ podman machine start k3d
 | Command | Description |
 |---------|-------------|
 | `plf doctor` | Check prerequisites, tools, Podman machine, ports |
-| `plf doctor --fix` | Attempt to fix issues (start Podman, setup SSH config) |
+| `plf doctor --fix` | Auto-fix: create Podman machine if missing, start if stopped, kill gvproxy on port 19000, setup SSH |
 | `plf doctor --output json` | Output status as JSON |
+
+### Runtime
+
+| Command | Description |
+|---------|-------------|
+| `plf runtime detect` | Detect container runtime (docker/podman/choice) |
+| `plf runtime detect --json` | Output detection result as JSON (for agents) |
+| `plf runtime docker-host` | Output DOCKER_HOST value for current runtime |
 
 ### Init & Prepare
 
@@ -1097,6 +1152,7 @@ podman machine start k3d
 |---------|-------------|
 | `plf init` | Initialize project directory (.env, .envrc, .gitignore, directories) |
 | `plf init --force` | Re-initialize, overwriting existing files |
+| `plf init --runtime docker\|podman` | Initialize with explicit runtime (skips interactive prompt) |
 | `plf prepare` | Generate config files from templates (runs ansible prepare.yml) |
 | `plf prepare --tags <tags>` | Run specific ansible tags |
 | `plf prepare --dry-run` | Preview without executing |
@@ -1121,8 +1177,7 @@ podman machine start k3d
 | Command | Description |
 |---------|-------------|
 | `plf teardown` | Complete teardown: catalog cleanup, cluster delete, prompt to stop Podman |
-| `plf teardown --yes` | Teardown with confirmation skipped |
-| `plf teardown --yes --stop-podman` | Teardown and stop Podman machine (no prompt) |
+| `plf teardown --yes` | Teardown with confirmation skipped (stops Podman by default on macOS) |
 | `plf teardown --yes --no-stop-podman` | Teardown but keep Podman running |
 | `plf teardown --dry-run` | Preview teardown operations |
 

@@ -234,11 +234,12 @@ uv run polaris-local-forge --help
 | Command | Description |
 |---------|-------------|
 | `polaris-local-forge init` | Initialize project directory with .env and configuration |
+| `polaris-local-forge init --runtime docker\|podman` | Initialize with explicit runtime (skips interactive prompt) |
 | `polaris-local-forge doctor` | Check system prerequisites and health |
 | `polaris-local-forge doctor --fix` | Auto-fix issues (create/start Podman machine, kill gvproxy) |
 | `polaris-local-forge doctor --output json` | Prerequisites as JSON (for automation/skills) |
 | `polaris-local-forge prepare` | Generate configuration files from templates |
-| `polaris-local-forge teardown --yes` | Execute teardown |
+| `polaris-local-forge teardown --yes` | Execute teardown (stops Podman by default on macOS) |
 | `polaris-local-forge cluster create` | Create k3d cluster |
 | `polaris-local-forge cluster delete --yes` | Delete cluster |
 | `polaris-local-forge cluster status` | Cluster status |
@@ -250,6 +251,7 @@ uv run polaris-local-forge --help
 | `polaris-local-forge catalog cleanup --yes` | Clean up catalog resources |
 | `polaris-local-forge catalog verify-sql` | Run DuckDB verification |
 | `polaris-local-forge runtime detect` | Detect and display container runtime |
+| `polaris-local-forge runtime detect --json` | Detection result as JSON (for agents) |
 | `polaris-local-forge runtime docker-host` | Output DOCKER_HOST for current runtime |
 
 All destructive commands support `--dry-run` to preview and `--yes` to skip confirmation.

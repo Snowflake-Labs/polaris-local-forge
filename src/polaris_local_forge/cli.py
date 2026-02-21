@@ -93,8 +93,10 @@ cli.add_command(catalog)
 @click.option("--force", "-f", is_flag=True, help="Overwrite existing files")
 @click.option("--cluster-name", "-n", help="Cluster name (defaults to directory name)")
 @click.option("--with-manifest", "-m", is_flag=True, help="Initialize .snow-utils manifest")
+@click.option("--runtime", "-r", type=click.Choice(["docker", "podman"]), 
+              help="Container runtime (skips auto-detection prompt)")
 @click.pass_context
-def init_project(ctx, force: bool, cluster_name: str | None, with_manifest: bool):
+def init_project(ctx, force: bool, cluster_name: str | None, with_manifest: bool, runtime: str | None):
     """Initialize project directory with .env and configuration files."""
     work_dir = ctx.obj["WORK_DIR"]
     # Protect source directory from accidental initialization
@@ -149,30 +151,37 @@ def init_project(ctx, force: bool, cluster_name: str | None, with_manifest: bool
 
         # Auto-detect and set container runtime if not already set
         if not re.search(r'^PLF_CONTAINER_RUNTIME=', env_content, re.MULTILINE):
-            runtime, reason = detect_container_runtime(podman_machine="k3d")
-            if runtime is None:
-                click.echo(f"Error: {reason}", err=True)
-                click.echo("Install Docker Desktop or Podman before running init.", err=True)
-                sys.exit(1)
-            elif runtime == "choice":
-                # Both installed but neither running - prompt user
-                click.echo(f"\n{reason}")
-                click.echo("\nWhich container runtime would you like to use?")
-                click.echo("  1) Docker - Start Docker Desktop manually")
-                click.echo("  2) Podman - Machine will be created/started by 'doctor --fix'")
-                choice = click.prompt("Enter choice", type=click.Choice(["1", "2"]), default="2")
-                if choice == "1":
-                    runtime = "docker"
-                    click.echo("\nSelected: Docker")
-                    click.echo("Please start Docker Desktop, then run: task doctor")
-                else:
-                    runtime = "podman"
-                    click.echo("\nSelected: Podman")
-                    click.echo("Run 'task doctor -- --fix' to create and start the Podman machine")
+            if runtime:
+                # Runtime explicitly provided via --runtime flag
+                detected_runtime = runtime
+                click.echo(f"Container runtime: {detected_runtime} (specified via --runtime)")
             else:
-                click.echo(f"Container runtime: {runtime} ({reason})")
-            set_env_var(env_file, "PLF_CONTAINER_RUNTIME", runtime)
-            env_vars_added.append(f"PLF_CONTAINER_RUNTIME={runtime}")
+                detected_runtime, reason = detect_container_runtime(podman_machine="k3d")
+                if detected_runtime is None:
+                    click.echo(f"Error: {reason}", err=True)
+                    click.echo("Install Docker Desktop or Podman before running init.", err=True)
+                    sys.exit(1)
+                elif detected_runtime == "choice":
+                    # Both installed but neither running - prompt user (interactive mode)
+                    # In non-interactive shells (Cortex Code), use --runtime flag instead
+                    click.echo(f"\n{reason}")
+                    click.echo("\nWhich container runtime would you like to use?")
+                    click.echo("  1) Docker - Start Docker Desktop manually")
+                    click.echo("  2) Podman - Machine will be created/started by 'doctor --fix'")
+                    click.echo("\nTip: For non-interactive mode, use: ./bin/plf init --runtime docker|podman")
+                    choice = click.prompt("Enter choice", type=click.Choice(["1", "2"]), default="2")
+                    if choice == "1":
+                        detected_runtime = "docker"
+                        click.echo("\nSelected: Docker")
+                        click.echo("Please start Docker Desktop, then run: task doctor")
+                    else:
+                        detected_runtime = "podman"
+                        click.echo("\nSelected: Podman")
+                        click.echo("Run 'task doctor -- --fix' to create and start the Podman machine")
+                else:
+                    click.echo(f"Container runtime: {detected_runtime} ({reason})")
+            set_env_var(env_file, "PLF_CONTAINER_RUNTIME", detected_runtime)
+            env_vars_added.append(f"PLF_CONTAINER_RUNTIME={detected_runtime}")
 
     # Initialize manifest if requested
     if with_manifest:
@@ -466,12 +475,18 @@ def teardown(ctx, dry_run: bool, yes: bool, stop_podman: bool | None):
         state = get_podman_machine_state(machine)
         if state == "running":
             if stop_podman is None:
-                stop_podman = click.confirm(
-                    f"\nStop Podman machine '{machine}' to release ports?",
-                    default=True
-                )
+                if yes:
+                    # Non-interactive mode: default to stopping Podman
+                    stop_podman = True
+                    click.echo(f"\nStopping Podman machine '{machine}' (use --no-stop-podman to keep running)...")
+                else:
+                    stop_podman = click.confirm(
+                        f"\nStop Podman machine '{machine}' to release ports?",
+                        default=True
+                    )
             if stop_podman:
-                click.echo(f"\nStopping Podman machine '{machine}'...")
+                if not yes:
+                    click.echo(f"\nStopping Podman machine '{machine}'...")
                 subprocess.run(["podman", "machine", "stop", machine])
                 click.echo("Podman machine stopped.")
 
@@ -510,17 +525,47 @@ def runtime_docker_host(ctx):
 
 
 @runtime.command("detect")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON for programmatic use")
 @click.pass_context
-def runtime_detect(ctx):
-    """Detect and display current container runtime."""
+def runtime_detect(ctx, as_json: bool):
+    """Detect and display current container runtime.
+    
+    Exit codes:
+      0 - Runtime detected (docker or podman)
+      2 - User choice required (both installed, neither running)
+      1 - Error (neither installed)
+      
+    With --json flag, outputs structured data for agent parsing:
+      {"status": "detected|choice|error", "runtime": "...", "reason": "..."}
+    """
+    import json as json_lib
     cfg = ctx.obj["CONFIG"]
     machine = cfg.get("PLF_PODMAN_MACHINE") or "k3d"
     detected, reason = detect_container_runtime(podman_machine=machine)
-    if detected:
-        click.echo(f"{detected}: {reason}")
+    
+    if as_json:
+        if detected == "choice":
+            result = {"status": "choice", "runtime": None, "reason": reason,
+                      "options": ["docker", "podman"]}
+            click.echo(json_lib.dumps(result))
+            sys.exit(2)
+        elif detected:
+            result = {"status": "detected", "runtime": detected, "reason": reason}
+            click.echo(json_lib.dumps(result))
+        else:
+            result = {"status": "error", "runtime": None, "reason": reason}
+            click.echo(json_lib.dumps(result))
+            sys.exit(1)
     else:
-        click.echo(f"Error: {reason}", err=True)
-        sys.exit(1)
+        if detected == "choice":
+            click.echo(f"choice: {reason}")
+            click.echo("Use --runtime docker|podman with init command")
+            sys.exit(2)
+        elif detected:
+            click.echo(f"{detected}: {reason}")
+        else:
+            click.echo(f"Error: {reason}", err=True)
+            sys.exit(1)
 
 
 # =============================================================================
