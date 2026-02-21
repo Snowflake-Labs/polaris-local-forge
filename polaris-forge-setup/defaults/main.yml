@@ -19,7 +19,7 @@
 # These are used by both CLI (cli.py) and Ansible playbooks
 plf_cluster_name: polaris-local-forge
 plf_k3s_version: v1.35.1-k3s1
-plf_container_runtime: podman
+# Container Runtime Detection priority: running Docker > running Podman > installed Podman > installed Docker
 plf_podman_machine: k3d
 
 # AWS S3-Compatible Storage Configuration (RustFS)

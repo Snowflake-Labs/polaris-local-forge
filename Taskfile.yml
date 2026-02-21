@@ -16,6 +16,11 @@
 version: "3"
 
 vars:
+  # SKILL_DIR: where the polaris-local-forge source lives (follows symlinks)
+  # This allows running tasks from isolated test folders
+  SKILL_DIR:
+    sh: dirname "$(readlink -f Taskfile.yml 2>/dev/null || echo Taskfile.yml)"
+  # PROJECT_HOME: current working directory (may be isolated test folder)
   PROJECT_HOME:
     sh: pwd
   KUBECONFIG: "{{.PROJECT_HOME}}/.kube/config"
@@ -24,11 +29,16 @@ vars:
   K3S_VERSION: v1.35.1-k3s1
   FEATURES_DIR: "{{.PROJECT_HOME}}/k8s"
   PODMAN_MACHINE: k3d
+  # PLF command - uses --project to find source, --work-dir for output
+  PLF: uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}"
 
 silent: true
 
 env:
   KUBECONFIG: "{{.KUBECONFIG}}"
+  # DOCKER_HOST via CLI - single source of truth for Podman SSH socket
+  DOCKER_HOST:
+    sh: uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}" runtime docker-host 2>/dev/null || true
 
 includes:
   podman: ./taskfiles/podman.yml
@@ -81,7 +91,7 @@ tasks:
       - sh: test -f .venv/bin/activate || test -f .venv/Scripts/activate
         msg: "Python venv not found. Run 'task setup:python' first."
     cmds:
-      - uv run polaris-local-forge prepare {{if .TAGS}}--tags={{.TAGS}}{{end}}
+      - "{{.PLF}} prepare {{if .TAGS}}--tags={{.TAGS}}{{end}}"
 
   runtime:setup:
     desc: Ensure container runtime is ready (Podman machine setup if needed)
@@ -105,28 +115,32 @@ tasks:
         fi
 
   setup:all:
-    desc: Complete setup - runtime check, prepare files, create cluster, deploy Polaris, setup catalog
+    desc: Complete setup - init, doctor, cluster, Polaris, catalog (mirrors agentic workflow)
     cmds:
-      - task: runtime:setup
-      - task: prepare
-      - task: cluster:create
+      # Same sequence as SKILL.md agentic workflow - one base, multiple use
+      - "{{.PLF}} init"
+      - "{{.PLF}} doctor --fix"
+      - "{{.PLF}} prepare"
+      - "{{.PLF}} cluster create"
+      - "{{.PLF}} polaris deploy"
       - task: cluster:bootstrap-check
-      - task: polaris:deploy
+      - "{{.PLF}} polaris bootstrap"
       - task: cluster:polaris-check
-      - task: polaris:bootstrap
-      - task: catalog:setup
+      - "{{.PLF}} catalog setup"
+      - task: verify:sql
       - 'echo ""'
-      - 'echo "Setup complete. Verify with: task verify:sql"'
+      - 'echo "Setup complete! Test data verified."'
+      - 'echo "Explore further with: task catalog:generate-notebook"'
 
   teardown:
     desc: Complete teardown - cleanup catalog, delete cluster, prompt to stop Podman
     cmds:
-      - uv run polaris-local-forge teardown --yes
+      - "{{.PLF}} teardown --yes"
 
   teardown:full:
     desc: Complete teardown with Podman stop (no prompt)
     cmds:
-      - uv run polaris-local-forge teardown --yes --stop-podman
+      - "{{.PLF}} teardown --yes --stop-podman"
 
   reset:all:
     desc: Complete reset - delete cluster, recreate everything with fresh catalog
@@ -137,7 +151,7 @@ tasks:
   clean:all:
     desc: Delete cluster and all resources (use teardown for full cleanup)
     cmds:
-      - uv run polaris-local-forge teardown --yes --no-stop-podman
+      - "{{.PLF}} teardown --yes --no-stop-podman"
 
   cluster:reset:
     desc: Delete and recreate cluster with fresh catalog
@@ -171,30 +185,9 @@ tasks:
   # ============================================
 
   doctor:
-    desc: Check system prerequisites and health
+    desc: Check system prerequisites and health (uses CLI for consistent detection)
     cmds:
-      - |
-        echo "=== Podman Check ==="
-        if [ "$(uname)" = "Darwin" ]; then
-          podman machine list || echo "Podman not installed"
-        else
-          podman info --format "Version: {{`{{.Version.Version}}`}}" 2>/dev/null || echo "Podman not running"
-        fi
-        echo ""
-        echo "=== k3d Check ==="
-        k3d version 2>/dev/null || echo "k3d not installed"
-        echo ""
-        echo "=== Cluster Check ==="
-        k3d cluster list 2>/dev/null || echo "No clusters"
-        echo ""
-        echo "=== Port Check ==="
-        for port in 19000 19001 18181 6443; do
-          if lsof -i :$port > /dev/null 2>&1; then
-            echo "Port $port: IN USE"
-          else
-            echo "Port $port: available"
-          fi
-        done
+      - "{{.PLF}} doctor {{.CLI_ARGS}}"
 
   config:
     desc: Show current configuration from .env file
@@ -231,6 +224,25 @@ tasks:
         vars:
           CLI_ARGS: "{{.CLI_ARGS}}"
 
+
+  # ============================================
+  # Testing
+  # ============================================
+
+  test:isolated:
+    desc: Create isolated test environment (protects source tree)
+    cmds:
+      - ./test/isolated-test.sh setup
+
+  test:isolated:clean:
+    desc: Remove all isolated test folders
+    cmds:
+      - ./test/isolated-test.sh clean
+
+  test:isolated:list:
+    desc: List existing isolated test folders
+    cmds:
+      - ./test/isolated-test.sh list
 
   help:
     desc: Show available tasks with descriptions

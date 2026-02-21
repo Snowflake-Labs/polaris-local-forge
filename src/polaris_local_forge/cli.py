@@ -34,6 +34,16 @@ import click
 import yaml
 from dotenv import load_dotenv
 
+from polaris_local_forge.container_runtime import (
+    detect_container_runtime,
+    get_runtime_env,
+    get_podman_machine_state,
+    check_runtime_available,
+    setup_ssh_config,
+    kill_gvproxy,
+    check_port,
+)
+
 # Skill directory: where the source repo lives
 SKILL_DIR = Path(__file__).parent.parent.parent.resolve()
 ANSIBLE_DIR = SKILL_DIR / "polaris-forge-setup"
@@ -43,7 +53,6 @@ ANSIBLE_DEFAULTS_FILE = ANSIBLE_DIR / "defaults" / "main.yml"
 _ANSIBLE_TO_ENV = {
     "plf_cluster_name": "K3D_CLUSTER_NAME",
     "plf_k3s_version": "K3S_VERSION",
-    "plf_container_runtime": "PLF_CONTAINER_RUNTIME",
     "plf_podman_machine": "PLF_PODMAN_MACHINE",
     "plf_realm": "POLARIS_REALM",
     "plf_admin_username": "PLF_POLARIS_PRINCIPAL_NAME",
@@ -125,46 +134,61 @@ def get_config(work_dir: Path) -> dict:
     env_file = work_dir / ".env"
     if env_file.exists():
         load_dotenv(env_file, override=True)
-    return {k: os.getenv(k, default) for k, default in DEFAULTS.items()}
+    # Build config from defaults, plus always include runtime-related vars
+    cfg = {k: os.getenv(k, default) for k, default in DEFAULTS.items()}
+    # PLF_CONTAINER_RUNTIME may not be in DEFAULTS (removed to require detection)
+    # but we still need to read it from the environment
+    cfg["PLF_CONTAINER_RUNTIME"] = os.getenv("PLF_CONTAINER_RUNTIME")
+    cfg["PLF_PODMAN_MACHINE"] = os.getenv("PLF_PODMAN_MACHINE", "k3d")
+    return cfg
 
 
-def get_podman_ssh_uri(machine_name: str) -> str | None:
-    """Get SSH URI for a Podman machine (macOS only).
+def set_env_var(env_file: Path, key: str, value: str) -> bool:
+    """Set or update an environment variable in .env file, preventing duplicates.
 
-    On macOS, k3d must use an SSH-based DOCKER_HOST (not a local Unix socket)
-    to avoid volume-mount failures inside the Podman VM.
+    - If key exists (uncommented), updates it in-place
+    - If key doesn't exist, appends it
+    - Removes any duplicate entries of the same key
+
+    Returns True if the file was modified.
     """
-    try:
-        result = subprocess.run(
-            ["podman", "system", "connection", "ls", "--format", "json"],
-            capture_output=True, text=True, check=True
-        )
-        connections = json.loads(result.stdout)
-        # Look for the machine's root connection (e.g., "k3d-root")
-        for conn in connections:
-            if conn.get("Name") == f"{machine_name}-root":
-                return conn.get("URI")  # e.g., ssh://root@127.0.0.1:PORT/run/podman/podman.sock
-        # Fallback: try exact machine name
-        for conn in connections:
-            if conn.get("Name") == machine_name:
-                return conn.get("URI")
-    except (subprocess.CalledProcessError, json.JSONDecodeError, FileNotFoundError):
-        pass
-    return None
+    if not env_file.exists():
+        env_file.write_text(f"{key}={value}\n")
+        return True
 
+    content = env_file.read_text()
+    lines = content.splitlines(keepends=True)
 
-def get_runtime_env(cfg: dict) -> dict:
-    """Get environment variables for container runtime."""
-    env = os.environ.copy()
-    runtime = cfg.get("PLF_CONTAINER_RUNTIME", "podman")
-    machine = cfg.get("PLF_PODMAN_MACHINE", "k3d")
+    # Check if key exists (uncommented)
+    pattern = re.compile(rf'^{re.escape(key)}=.*$', re.MULTILINE)
+    matches = list(pattern.finditer(content))
 
-    if runtime == "podman" and platform.system() == "Darwin":
-        # macOS: use SSH-based DOCKER_HOST for Podman machine
-        ssh_uri = get_podman_ssh_uri(machine)
-        if ssh_uri:
-            env["DOCKER_HOST"] = ssh_uri
-    return env
+    if not matches:
+        # Key doesn't exist, append
+        with open(env_file, "a") as f:
+            if not content.endswith("\n"):
+                f.write("\n")
+            f.write(f"{key}={value}\n")
+        return True
+
+    # Key exists - update first occurrence, remove duplicates
+    new_lines = []
+    found_first = False
+    for line in lines:
+        stripped = line.rstrip('\n\r')
+        if stripped.startswith(f"{key}="):
+            if not found_first:
+                new_lines.append(f"{key}={value}\n")
+                found_first = True
+            # Skip duplicates
+        else:
+            new_lines.append(line)
+
+    new_content = "".join(new_lines)
+    if new_content != content:
+        env_file.write_text(new_content)
+        return True
+    return False
 
 
 def run_ansible(playbook: str, work_dir: Path, tags: str | None = None,
@@ -269,6 +293,12 @@ def cli(ctx, work_dir: str | None):
 def init_project(ctx, force: bool, cluster_name: str | None, with_manifest: bool):
     """Initialize project directory with .env and configuration files."""
     work_dir = ctx.obj["WORK_DIR"]
+    # Protect source directory from accidental initialization
+    if work_dir.resolve() == SKILL_DIR.resolve():
+        click.echo("Error: Cannot initialize the source directory as a project.", err=True)
+        click.echo("Use --work-dir to specify a different directory, or run:", err=True)
+        click.echo("  task test:isolated   # Creates isolated test environment", err=True)
+        sys.exit(1)
     project_name = cluster_name or work_dir.name
     created = []
     skipped = []
@@ -313,16 +343,43 @@ def init_project(ctx, force: bool, cluster_name: str | None, with_manifest: bool
             with open(env_file, "a") as f:
                 f.write("\n" + "\n".join(additions) + "\n")
 
+        # Auto-detect and set container runtime if not already set
+        if not re.search(r'^PLF_CONTAINER_RUNTIME=', env_content, re.MULTILINE):
+            runtime, reason = detect_container_runtime(podman_machine="k3d")
+            if runtime is None:
+                click.echo(f"Error: {reason}", err=True)
+                click.echo("Install Docker Desktop or Podman before running init.", err=True)
+                sys.exit(1)
+            elif runtime == "choice":
+                # Both installed but neither running - prompt user
+                click.echo(f"\n{reason}")
+                click.echo("\nWhich container runtime would you like to use?")
+                click.echo("  1) Docker - Start Docker Desktop manually")
+                click.echo("  2) Podman - Machine will be created/started by 'doctor --fix'")
+                choice = click.prompt("Enter choice", type=click.Choice(["1", "2"]), default="2")
+                if choice == "1":
+                    runtime = "docker"
+                    click.echo("\nSelected: Docker")
+                    click.echo("Please start Docker Desktop, then run: task doctor")
+                else:
+                    runtime = "podman"
+                    click.echo("\nSelected: Podman")
+                    click.echo("Run 'task doctor -- --fix' to create and start the Podman machine")
+            else:
+                click.echo(f"Container runtime: {runtime} ({reason})")
+            set_env_var(env_file, "PLF_CONTAINER_RUNTIME", runtime)
+            env_vars_added.append(f"PLF_CONTAINER_RUNTIME={runtime}")
+
     # Initialize manifest if requested
     if with_manifest:
         manifest_dir = work_dir / ".snow-utils"
         manifest_file = manifest_dir / "snow-utils-manifest.md"
         if not manifest_file.exists() or force:
             manifest_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-            # Get configuration values from .env or defaults
-            cfg = ctx.obj.get("CONFIG", {})
-            container_runtime = cfg.get("PLF_CONTAINER_RUNTIME", "podman")
-            podman_machine = cfg.get("PLF_PODMAN_MACHINE", "k3d")
+            # Reload config to get the runtime we just set
+            cfg = get_config(work_dir)
+            container_runtime = cfg.get("PLF_CONTAINER_RUNTIME") or "podman"
+            podman_machine = cfg.get("PLF_PODMAN_MACHINE") or "k3d"
             manifest_file.write_text(MANIFEST_TEMPLATE.format(
                 project_name=project_name,
                 container_runtime=container_runtime,
@@ -366,116 +423,6 @@ def check_tool(name: str) -> bool:
     return shutil.which(name) is not None
 
 
-def check_port(port: int) -> tuple[bool, str | None]:
-    """Check if a port is available. Returns (available, process_name)."""
-    try:
-        result = subprocess.run(
-            ["lsof", "-i", f":{port}", "-t"],
-            capture_output=True, text=True
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            pid = result.stdout.strip().split("\n")[0]
-            ps_result = subprocess.run(
-                ["ps", "-p", pid, "-o", "comm="],
-                capture_output=True, text=True
-            )
-            proc_name = ps_result.stdout.strip() if ps_result.returncode == 0 else "unknown"
-            return False, proc_name
-        return True, None
-    except Exception:
-        return True, None
-
-
-def get_podman_machine_state(machine_name: str) -> str | None:
-    """Get Podman machine state (running, stopped, etc.)."""
-    try:
-        result = subprocess.run(
-            ["podman", "machine", "inspect", machine_name, "--format", "{{.State}}"],
-            capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            return result.stdout.strip().lower()
-    except Exception:
-        pass
-    return None
-
-
-def check_runtime_available(cfg: dict) -> bool:
-    """Check if container runtime (Podman/Docker) is available."""
-    runtime = cfg.get("PLF_CONTAINER_RUNTIME", "podman")
-    machine = cfg.get("PLF_PODMAN_MACHINE", "k3d")
-
-    if platform.system() == "Darwin" and runtime == "podman":
-        state = get_podman_machine_state(machine)
-        return state == "running"
-
-    # For Docker or Linux Podman, check if daemon is accessible
-    try:
-        subprocess.run([runtime, "info"], capture_output=True, check=True)
-        return True
-    except Exception:
-        return False
-
-
-def get_podman_identity(machine_name: str) -> str | None:
-    """Get the identity file path for a Podman machine."""
-    try:
-        result = subprocess.run(
-            ["podman", "system", "connection", "ls", "--format", "json"],
-            capture_output=True, text=True, check=True
-        )
-        connections = json.loads(result.stdout)
-        for conn in connections:
-            if conn.get("Name") == f"{machine_name}-root":
-                return conn.get("Identity")
-    except Exception:
-        pass
-    return None
-
-
-def setup_ssh_config(machine_name: str) -> bool:
-    """Setup SSH config for Podman machine (macOS only)."""
-    identity = get_podman_identity(machine_name)
-    if not identity or not Path(identity).exists():
-        return False
-
-    # Add SSH key to agent
-    subprocess.run(["ssh-add", identity], capture_output=True)
-
-    # Update ~/.ssh/config
-    ssh_dir = Path.home() / ".ssh"
-    ssh_dir.mkdir(mode=0o700, exist_ok=True)
-    ssh_config = ssh_dir / "config"
-
-    marker = "# polaris-local-forge podman machine"
-    if ssh_config.exists() and marker in ssh_config.read_text():
-        return True  # Already configured
-
-    config_entry = f"""
-{marker}
-Host 127.0.0.1
-    IdentityFile {identity}
-    StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
-"""
-    with open(ssh_config, "a") as f:
-        f.write(config_entry)
-    ssh_config.chmod(0o600)
-    return True
-
-
-def kill_gvproxy() -> bool:
-    """Kill gvproxy processes that may be holding ports."""
-    try:
-        result = subprocess.run(
-            ["pkill", "-9", "gvproxy"],
-            capture_output=True
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
-
-
 @cli.command("doctor")
 @click.option("--fix", is_flag=True, help="Attempt to fix issues automatically")
 @click.option("--output", type=click.Choice(["text", "json"]), default="text",
@@ -484,6 +431,12 @@ def kill_gvproxy() -> bool:
 def doctor(ctx, fix: bool, output: str):
     """Check prerequisites and environment status."""
     work_dir = ctx.obj["WORK_DIR"]
+    # Protect source directory from accidental initialization
+    if work_dir.resolve() == SKILL_DIR.resolve() and not (work_dir / ".env").exists():
+        click.echo("Error: Cannot run doctor in source directory.", err=True)
+        click.echo("Use --work-dir to specify a project directory, or run:", err=True)
+        click.echo("  task test:isolated   # Creates isolated test environment", err=True)
+        sys.exit(1)
     # Auto-run init if .env doesn't exist
     if not (work_dir / ".env").exists():
         click.echo("Project not initialized. Running 'init' first...")
@@ -491,8 +444,8 @@ def doctor(ctx, fix: bool, output: str):
         # Reload config after init
         ctx.obj["CONFIG"] = get_config(work_dir)
     cfg = ctx.obj["CONFIG"]
-    runtime = cfg.get("PLF_CONTAINER_RUNTIME", "podman")
-    machine = cfg.get("PLF_PODMAN_MACHINE", "k3d")
+    runtime = cfg.get("PLF_CONTAINER_RUNTIME") or "podman"
+    machine = cfg.get("PLF_PODMAN_MACHINE") or "k3d"
     is_macos = platform.system() == "Darwin"
 
     issues = []
@@ -516,7 +469,32 @@ def doctor(ctx, fix: bool, output: str):
         state = get_podman_machine_state(machine)
         if state is None:
             checks.append({"name": f"podman-machine:{machine}", "ok": False, "state": "not found"})
-            issues.append(f"Podman machine '{machine}' not found. Run: task podman:setup:machine")
+            if fix:
+                click.echo(f"Creating Podman machine '{machine}'...")
+                init_cmd = [
+                    "podman", "machine", "init", machine,
+                    "--cpus", "4",
+                    "--memory", "8192",
+                    "--disk-size", "50"
+                ]
+                init_result = subprocess.run(init_cmd, capture_output=True, text=True)
+                if init_result.returncode == 0:
+                    click.echo(f"Created Podman machine '{machine}'")
+                    click.echo(f"Starting Podman machine '{machine}'...")
+                    start_result = subprocess.run(
+                        ["podman", "machine", "start", machine],
+                        capture_output=True, text=True
+                    )
+                    if start_result.returncode == 0:
+                        click.echo(f"Started Podman machine '{machine}'")
+                        checks[-1]["ok"] = True
+                        checks[-1]["state"] = "running"
+                    else:
+                        issues.append(f"Created machine but failed to start: {start_result.stderr}")
+                else:
+                    issues.append(f"Failed to create Podman machine: {init_result.stderr}")
+            else:
+                issues.append(f"Podman machine '{machine}' not found. Run with --fix to create, or manually: podman machine init {machine}")
         elif state != "running":
             checks.append({"name": f"podman-machine:{machine}", "ok": False, "state": state})
             if fix:
@@ -556,14 +534,23 @@ def doctor(ctx, fix: bool, output: str):
         checks.append({"name": f"port:{port}", "ok": available, "desc": desc, "blocker": proc})
         if not available:
             msg = f"Port {port} ({desc}) in use by {proc}"
-            if proc == "gvproxy" and fix:
-                click.echo(f"Killing gvproxy holding port {port}...")
-                kill_gvproxy()
-                # Recheck
-                available, _ = check_port(port)
-                if available:
-                    checks[-1]["ok"] = True
-                    click.echo(f"Port {port} now available")
+            if proc == "gvproxy":
+                # Enhanced gvproxy-specific recommendation for port 19000
+                if port == 19000:
+                    msg = (f"Port {port} ({desc}) blocked by gvproxy (Podman network proxy).\n"
+                           f"      Recommendations:\n"
+                           f"      - Stop the Podman machine: podman machine stop {machine}\n"
+                           f"      - OR switch to Docker: set PLF_CONTAINER_RUNTIME=docker in .env")
+                if fix:
+                    click.echo(f"Killing gvproxy holding port {port}...")
+                    kill_gvproxy()
+                    # Recheck
+                    available, _ = check_port(port)
+                    if available:
+                        checks[-1]["ok"] = True
+                        click.echo(f"Port {port} now available")
+                    else:
+                        issues.append(msg)
                 else:
                     issues.append(msg)
             else:
@@ -609,6 +596,11 @@ def doctor(ctx, fix: bool, output: str):
 def prepare(ctx, tags: str | None, dry_run: bool, verbose: bool):
     """Generate configuration files from templates."""
     work_dir = ctx.obj["WORK_DIR"]
+    # Protect source directory from accidental initialization
+    if work_dir.resolve() == SKILL_DIR.resolve() and not (work_dir / ".env").exists():
+        click.echo("Error: Cannot run prepare in source directory.", err=True)
+        click.echo("Use --work-dir to specify a project directory.", err=True)
+        sys.exit(1)
     # Auto-run init if .env doesn't exist
     if not (work_dir / ".env").exists():
         click.echo("Project not initialized. Running 'init' first...")
@@ -638,6 +630,11 @@ def cluster():
 def cluster_create(ctx, dry_run: bool):
     """Create k3d cluster using config/cluster-config.yaml."""
     work_dir = ctx.obj["WORK_DIR"]
+    # Protect source directory from accidental initialization
+    if work_dir.resolve() == SKILL_DIR.resolve() and not (work_dir / ".env").exists():
+        click.echo("Error: Cannot run cluster create in source directory.", err=True)
+        click.echo("Use --work-dir to specify a project directory.", err=True)
+        sys.exit(1)
     # Auto-run init if .env doesn't exist
     if not (work_dir / ".env").exists():
         click.echo("Project not initialized. Running 'init' first...")
@@ -830,8 +827,8 @@ def teardown(ctx, dry_run: bool, yes: bool, stop_podman: bool | None):
     cfg = ctx.obj["CONFIG"]
     work_dir = ctx.obj["WORK_DIR"]
     cluster_name = cfg["K3D_CLUSTER_NAME"]
-    runtime = cfg.get("PLF_CONTAINER_RUNTIME", "podman")
-    machine = cfg.get("PLF_PODMAN_MACHINE", "k3d")
+    runtime = cfg.get("PLF_CONTAINER_RUNTIME") or "podman"
+    machine = cfg.get("PLF_PODMAN_MACHINE") or "k3d"
     is_macos = platform.system() == "Darwin"
     env = get_runtime_env(cfg)
     env["KUBECONFIG"] = str(work_dir / ".kube" / "config")
@@ -881,6 +878,51 @@ def teardown(ctx, dry_run: bool, yes: bool, stop_podman: bool | None):
 
 
 # =============================================================================
+# Runtime Commands
+# =============================================================================
+
+@cli.group()
+def runtime():
+    """Container runtime utilities."""
+    pass
+
+
+@runtime.command("docker-host")
+@click.pass_context
+def runtime_docker_host(ctx):
+    """Output DOCKER_HOST value for current runtime.
+
+    Used by Taskfile for consistent DOCKER_HOST across workflows.
+    Outputs SSH URI for Podman on macOS, empty for Docker/Linux.
+    
+    Only outputs a value when PLF_CONTAINER_RUNTIME is explicitly set to 'podman'.
+    If runtime is not configured, outputs nothing (allows Docker detection to work).
+    """
+    cfg = ctx.obj["CONFIG"]
+    runtime = cfg.get("PLF_CONTAINER_RUNTIME")
+    if runtime != "podman":
+        return
+    env = get_runtime_env(cfg)
+    docker_host = env.get("DOCKER_HOST", "")
+    if docker_host:
+        click.echo(docker_host)
+
+
+@runtime.command("detect")
+@click.pass_context
+def runtime_detect(ctx):
+    """Detect and display current container runtime."""
+    cfg = ctx.obj["CONFIG"]
+    machine = cfg.get("PLF_PODMAN_MACHINE") or "k3d"
+    detected, reason = detect_container_runtime(podman_machine=machine)
+    if detected:
+        click.echo(f"{detected}: {reason}")
+    else:
+        click.echo(f"Error: {reason}", err=True)
+        sys.exit(1)
+
+
+# =============================================================================
 # Polaris Commands
 # =============================================================================
 
@@ -904,7 +946,18 @@ def polaris_deploy(ctx, dry_run: bool):
     polaris_dir = k8s_dir / "polaris"
     polaris_chart = k8s_dir / "features" / "polaris.yaml"
 
-    # Step 1: Apply secrets via kustomization (must be first)
+    # Step 1: Create polaris namespace (must exist before secrets)
+    cmd_ns = ["kubectl", "create", "namespace", "polaris", "--dry-run=client", "-o", "yaml"]
+    cmd_ns_apply = ["kubectl", "apply", "-f", "-"]
+    if dry_run:
+        click.echo("Would create namespace: polaris")
+    else:
+        click.echo("Creating polaris namespace...")
+        ns_result = subprocess.run(cmd_ns, capture_output=True, env=env)
+        if ns_result.returncode == 0:
+            subprocess.run(cmd_ns_apply, input=ns_result.stdout, env=env)
+
+    # Step 2: Apply secrets via kustomization (must be before Helm chart)
     cmd_secrets = ["kubectl", "apply", "-k", str(polaris_dir)]
     if dry_run:
         click.echo(f"Would run: {' '.join(cmd_secrets)}")
@@ -914,7 +967,7 @@ def polaris_deploy(ctx, dry_run: bool):
         if result.returncode != 0:
             sys.exit(result.returncode)
 
-    # Step 2: Apply Polaris HelmChart
+    # Step 3: Apply Polaris HelmChart
     if polaris_chart.exists():
         cmd_chart = ["kubectl", "apply", "-f", str(polaris_chart)]
         if dry_run:
