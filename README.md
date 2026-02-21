@@ -32,45 +32,6 @@ flowchart TB
     Polaris -->|"S3 API<br/>:19000"| RustFS
 ```
 
-## TL;DR (Quick Start)
-
-> [!TIP]
-> Just want to get started? Run these commands:
-
-```bash
-git clone https://github.com/kameshsampath/polaris-local-forge
-cd polaris-local-forge
-task setup:python
-
-# Recommended: Use a separate work directory to keep source clean
-mkdir -p ~/polaris-dev && task setup:all WORK_DIR=~/polaris-dev
-```
-
-Services will be available at:
-
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| Apache Polaris API | <http://localhost:18181> | See `k8s/polaris/.bootstrap-credentials.env` |
-| RustFS S3 | <http://localhost:19000> | `admin` / `password` |
-| RustFS Console | <http://localhost:19001> | `admin` / `password` |
-
-## Using with Cortex Code
-
-[Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) is Snowflake's AI-powered coding assistant. This repo includes a skill that automates Apache Polaris setup through natural language.
-
-```bash
-cortex skill add https://github.com/kameshsampath/polaris-local-forge
-```
-
-Then just say:
-
-| Say this... | What happens |
-|-------------|--------------|
-| *"get started with apache polaris"* | Full guided setup with cluster, storage, and catalog |
-| *"get started with apache polaris using example manifest"* | Setup using pre-configured manifest from `example-manifests/` |
-
-See [SKILL_README.md](SKILL_README.md) for the complete trigger list, API query examples, and manifest workflows.
-
 ## Prerequisites
 
 ### Required Tools
@@ -87,7 +48,89 @@ See [SKILL_README.md](SKILL_README.md) for the complete trigger list, API query 
 | uv | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | Same | [docs.astral.sh/uv](https://docs.astral.sh/uv/) |
 | Task | `brew install go-task` | `sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d` | [taskfile.dev](https://taskfile.dev/installation/) |
 
-### Container Runtime
+### Optional Tools
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| DuckDB CLI | SQL verification | `brew install duckdb` (macOS) or [duckdb.org](https://duckdb.org/docs/installation/) |
+| direnv | Auto-load env vars | `brew install direnv` (macOS) or [direnv.net](https://direnv.net/docs/installation.html) |
+
+### Verify Prerequisites
+
+```bash
+# Quick health check
+task doctor
+
+# Or manually verify
+podman --version  # or: docker --version
+k3d version
+python3 --version
+uv --version
+task --version
+```
+
+## Getting Started
+
+Choose your path:
+
+### Option 1: CLI
+
+```bash
+git clone https://github.com/kameshsampath/polaris-local-forge
+cd polaris-local-forge
+task setup:python
+
+# Recommended: Use a separate work directory to keep source clean
+mkdir -p ~/polaris-dev && task setup:all WORK_DIR=~/polaris-dev
+```
+
+> [!NOTE]
+> **Podman:** Auto-detected and started via `doctor --fix`. **Docker:** Start Docker Desktop first.
+
+### Option 2: Cortex Code (AI-assisted)
+
+[Cortex Code](https://docs.snowflake.com/en/developer-guide/cortex-code/overview) automates setup through natural language.
+
+```bash
+cortex skill add https://github.com/kameshsampath/polaris-local-forge
+```
+
+Then just say:
+
+| Say this... | What happens |
+|-------------|--------------|
+| *"get started with apache polaris"* | Full guided setup with cluster, storage, and catalog |
+| *"get started with apache polaris using example manifest"* | Setup using pre-configured manifest |
+
+See [SKILL_README.md](SKILL_README.md) for complete trigger list and API query examples.
+
+## Services
+
+After setup, services are available at:
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Apache Polaris API | <http://localhost:18181> | See `k8s/polaris/.bootstrap-credentials.env` |
+| RustFS S3 | <http://localhost:19000> | `admin` / `password` |
+| RustFS Console | <http://localhost:19001> | `admin` / `password` |
+
+## Verify Setup
+
+```bash
+# Check status
+task status
+
+# Verify with DuckDB SQL
+task catalog:verify:sql
+
+# Or use interactive DuckDB
+task catalog:explore:sql
+
+# Or run the Jupyter notebook
+jupyter notebook notebooks/verify_polaris.ipynb
+```
+
+## Runtime Detection
 
 The CLI **auto-detects** the container runtime during `init` based on what's actually running:
 
@@ -117,62 +160,6 @@ Override auto-detection by setting `PLF_CONTAINER_RUNTIME=docker` or `PLF_CONTAI
 
 > [!TIP]
 > **First-time Podman users:** See [docs/podman-setup.md](docs/podman-setup.md) for machine setup, cgroup configuration, and network creation.
-
-### Optional Tools
-
-| Tool | Purpose | Install |
-|------|---------|---------|
-| DuckDB CLI | SQL verification | `brew install duckdb` (macOS) or [duckdb.org](https://duckdb.org/docs/installation/) |
-| direnv | Auto-load env vars | `brew install direnv` (macOS) or [direnv.net](https://direnv.net/docs/installation.html) |
-
-### Verify Prerequisites
-
-```bash
-# Quick health check
-task doctor
-
-# Or manually verify
-podman --version  # or: docker --version
-k3d version
-python3 --version
-uv --version
-task --version
-```
-
-## Quick Start
-
-```bash
-# Clone the repository
-git clone https://github.com/kameshsampath/polaris-local-forge
-cd polaris-local-forge
-
-# Setup Python environment
-task setup:python
-
-# Deploy everything (cluster + Apache Polaris + catalog)
-# Recommended: Use WORK_DIR to keep source tree clean
-task setup:all WORK_DIR=~/polaris-dev
-```
-
-> [!NOTE]
-> **Podman:** Auto-detected and started via `doctor --fix`. **Docker:** Start Docker Desktop first.
-> The `WORK_DIR` parameter keeps generated files separate from source.
-
-## Verify Setup
-
-```bash
-# Check status
-task status
-
-# Verify with DuckDB SQL
-task catalog:verify:sql
-
-# Or use interactive DuckDB
-task catalog:explore:sql
-
-# Or run the Jupyter notebook
-jupyter notebook notebooks/verify_polaris.ipynb
-```
 
 ## Task Commands
 
