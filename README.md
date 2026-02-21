@@ -33,7 +33,30 @@ A complete local development environment for [Apache Polaris (Incubating)](https
 
 ### Container Runtime
 
-Podman is the preferred container runtime (fully open source, shipped with Cortex Code). The CLI auto-detects the available runtime, checking for Podman first, then Docker. Override with `PLF_CONTAINER_RUNTIME=docker` in `.env` to use Docker instead.
+The CLI **auto-detects** the container runtime during `init` based on what's actually running:
+
+```mermaid
+flowchart TD
+    Start[init command] --> CheckDockerRunning{Docker Desktop<br/>running?}
+    CheckDockerRunning -->|Yes| UseDocker[Use Docker]
+    CheckDockerRunning -->|No| CheckPodmanRunning{Podman machine<br/>running?}
+    CheckPodmanRunning -->|Yes| UsePodman[Use Podman]
+    CheckPodmanRunning -->|No| CheckInstalled{What's installed?}
+    CheckInstalled -->|Both| PromptUser[Prompt user<br/>to choose]
+    CheckInstalled -->|Podman only| UsePodmanInstalled[Use Podman<br/>doctor --fix starts it]
+    CheckInstalled -->|Docker only| UseDockerInstalled[Use Docker<br/>start manually]
+    CheckInstalled -->|Neither| Fail[Fail with error]
+    PromptUser --> UserChoice{User choice}
+    UserChoice -->|1| UseDockerInstalled
+    UserChoice -->|2| UsePodmanInstalled
+```
+
+**Detection priority:**
+1. Running runtime preferred over just installed
+2. Docker preferred when both are running
+3. User prompted when both installed but neither running
+
+Override auto-detection by setting `PLF_CONTAINER_RUNTIME=docker` or `PLF_CONTAINER_RUNTIME=podman` in `.env`.
 
 **First-time Podman users:** See [docs/podman-setup.md](docs/podman-setup.md) for machine setup, cgroup configuration, and network creation.
 
@@ -65,17 +88,17 @@ task --version
 git clone https://github.com/kameshsampath/polaris-local-forge
 cd polaris-local-forge
 
-# Podman users: set up the dedicated k3d machine first (one-time)
-task podman:setup
-
 # Setup Python environment
 task setup:python
 
 # Deploy everything (cluster + Polaris + catalog)
+# This auto-detects Docker/Podman and creates Podman machine if needed
 task setup:all
 ```
 
-> **Using Docker instead?** Set `PLF_CONTAINER_RUNTIME=docker` in `.env` and skip the `podman:setup` step.
+> **Note:** `task setup:all` runs `doctor --fix` which automatically creates and starts the Podman machine if using Podman. For manual Podman setup, run `task podman:setup` first.
+
+> **Using Docker instead?** Start Docker Desktop before running `task setup:all`. The runtime is auto-detected.
 
 After setup completes, you'll see:
 
@@ -203,22 +226,24 @@ uv run polaris-local-forge --help
 
 | Command | Description |
 |---------|-------------|
+| `polaris-local-forge init` | Initialize project directory with .env and configuration |
 | `polaris-local-forge doctor` | Check system prerequisites and health |
+| `polaris-local-forge doctor --fix` | Auto-fix issues (create/start Podman machine, kill gvproxy) |
 | `polaris-local-forge doctor --output json` | Prerequisites as JSON (for automation/skills) |
-| `polaris-local-forge config` | Show current configuration |
-| `polaris-local-forge config --output json` | Configuration as JSON |
-| `polaris-local-forge setup --dry-run` | Preview setup plan |
-| `polaris-local-forge setup --yes` | Execute setup |
+| `polaris-local-forge prepare` | Generate configuration files from templates |
 | `polaris-local-forge teardown --yes` | Execute teardown |
-| `polaris-local-forge cluster delete --yes --stop-podman` | Delete cluster and stop Podman (macOS) |
+| `polaris-local-forge cluster create` | Create k3d cluster |
+| `polaris-local-forge cluster delete --yes` | Delete cluster |
 | `polaris-local-forge cluster status` | Cluster status |
 | `polaris-local-forge cluster status --output json` | Cluster status as JSON |
-| `polaris-local-forge polaris status` | Polaris status |
-| `polaris-local-forge polaris status --output json` | Polaris status as JSON |
-| `polaris-local-forge catalog list` | List catalogs |
-| `polaris-local-forge catalog list --output json` | Catalogs as JSON |
-| `polaris-local-forge polaris bump-version` | Update Polaris version |
-| `polaris-local-forge cluster bump-k3s` | Update K3S version |
+| `polaris-local-forge polaris deploy` | Deploy Polaris to cluster |
+| `polaris-local-forge polaris bootstrap` | Run Polaris bootstrap job |
+| `polaris-local-forge polaris purge` | Delete Polaris deployment |
+| `polaris-local-forge catalog setup` | Configure Polaris catalog |
+| `polaris-local-forge catalog cleanup --yes` | Clean up catalog resources |
+| `polaris-local-forge catalog verify-sql` | Run DuckDB verification |
+| `polaris-local-forge runtime detect` | Detect and display container runtime |
+| `polaris-local-forge runtime docker-host` | Output DOCKER_HOST for current runtime |
 
 All destructive commands support `--dry-run` to preview and `--yes` to skip confirmation.
 
@@ -234,12 +259,14 @@ Key settings:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PLF_CONTAINER_RUNTIME` | (auto-detect) | `podman` or `docker`; auto-detects Podman first |
+| `PLF_CONTAINER_RUNTIME` | (auto-detect) | `podman` or `docker`; auto-detected during `init` based on what's running |
 | `PLF_PODMAN_MACHINE` | `k3d` | Podman machine name (macOS only) |
 | `K3D_CLUSTER_NAME` | `polaris-local-forge` | Cluster name |
 | `K3S_VERSION` | `v1.31.5-k3s1` | K3S version |
 | `AWS_ENDPOINT_URL` | `http://localhost:19000` | RustFS S3 endpoint |
 | `POLARIS_URL` | `http://localhost:18181` | Polaris API endpoint |
+
+> **Note:** `PLF_CONTAINER_RUNTIME` is auto-detected during `init`. It prefers running runtimes over installed ones. Set it manually in `.env` only to override auto-detection.
 
 View current configuration:
 
@@ -277,6 +304,24 @@ task troubleshoot:rustfs
 ```bash
 task logs:bootstrap
 task polaris:reset  # Reset Polaris
+```
+
+**Port 19000 blocked by gvproxy (Podman):**
+
+When using Podman, the `gvproxy` network proxy may occupy port 19000 (needed by RustFS). This happens when a previous Podman machine session didn't clean up properly.
+
+```bash
+# Check what's using port 19000
+lsof -i :19000
+
+# Option 1: Let doctor fix it
+task doctor -- --fix
+
+# Option 2: Stop the Podman machine
+podman machine stop k3d
+
+# Option 3: Switch to Docker
+# Edit .env and set PLF_CONTAINER_RUNTIME=docker
 ```
 
 ### Manual kubectl Commands
@@ -354,6 +399,47 @@ The CLI supports `--work-dir` to keep the skill repo pristine -- generated files
 
 See [SKILL_README.md](SKILL_README.md) for full details on triggers, example manifests, S3/RustFS configuration, and consuming project setup.
 
+## Development
+
+### Isolated Testing
+
+For development and testing without polluting the source tree, use isolated test environments:
+
+```bash
+# Create an isolated test environment in /tmp
+task test:isolated
+
+# This creates /tmp/plf-test-<pid>/ with:
+# - Symlinked Taskfile.yml pointing to source
+# - Fresh .env with auto-detected runtime
+# - Isolated .kube/, k8s/, work/ directories
+
+# Run full setup in the isolated environment
+cd /tmp/plf-test-*
+task setup:all
+
+# Clean up all isolated test folders
+task test:isolated:clean
+
+# List existing test folders
+task test:isolated:list
+```
+
+The isolated environment protects the source directory from accidental initialization. Commands like `init`, `doctor`, `prepare`, and `cluster create` will refuse to run in the source directory without `--work-dir`.
+
+### Project Structure (Python CLI)
+
+```
+src/polaris_local_forge/
+├── __init__.py           # Package init
+├── cli.py                # Main entry point, init, doctor, prepare, teardown
+├── common.py             # Shared utilities (config, ansible, templates)
+├── container_runtime.py  # Runtime detection and management
+├── cluster.py            # Cluster commands (create, delete, status, etc.)
+├── polaris_ops.py        # Polaris commands (deploy, purge, bootstrap)
+└── catalog.py            # Catalog commands (setup, cleanup, verify-sql)
+```
+
 ## Related Projects
 
 - [Apache Polaris](https://polaris.apache.org/) - Iceberg REST Catalog
@@ -362,6 +448,10 @@ See [SKILL_README.md](SKILL_README.md) for full details on triggers, example man
 - [k3d](https://k3d.io/) - k3s in Docker
 - [PyIceberg](https://py.iceberg.apache.org/) - Python Iceberg library
 - [DuckDB](https://duckdb.org/) - In-process SQL database
+
+## Acknowledgments
+
+Thanks to the contributors and reviewers who provided feedback, testing, and ideas that helped shape this project.
 
 ## License
 
