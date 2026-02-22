@@ -68,6 +68,7 @@ flowchart TD
 **CRITICAL: SETUP TAKES 2-5 MINUTES.** Tell user upfront so they don't wait anxiously.
 
 **PERMISSIONS:** Cortex Code prompts for approval on each new command.
+
 - Before `init`: Select **"Allow using 'uv' for this session"**
 - After `init`: Select **"Allow using 'plf' for this session"** (or option 5)
 
@@ -110,52 +111,55 @@ This avoids repeated prompts. See [Cortex Code Permissions](#cortex-code-permiss
    **FORMATTING**: Before each step header, output a blank line. This ensures proper visual separation in Cortex Code.
 
    ---
-   
+
    **Step 1: Initialize & detect runtime**
 
    > **NOTE:** Before `init`, there is no `./bin/plf` wrapper. Use `uv run --project <SKILL_DIR>` for these commands.
 
    First, detect runtime availability:
+
    ```bash
    uv run --project <SKILL_DIR> polaris-local-forge runtime detect --json
    ```
-   
+
    This outputs JSON with detection result:
    - `{"status": "detected", "runtime": "docker|podman", ...}` - Runtime found, proceed
    - `{"status": "choice", "options": ["docker", "podman"], ...}` - User choice required
    - `{"status": "error", ...}` - Neither installed, show error
-   
+
    **Based on detection result:**
-   
+
    - **If `"status": "detected"`**: Run init (runtime will be auto-set):
+
      ```bash
      uv run --project <SKILL_DIR> polaris-local-forge --work-dir <WORK_DIR> init
      ```
-   
+
    - **If `"status": "choice"`**: Present choice using **AskQuestion tool** with radio options:
 
      | Option | Label | Description |
      |--------|-------|-------------|
      | `docker` | Use Docker | User will start Docker Desktop manually |
      | `podman` | Use Podman (recommended) | Machine will be created/started by `doctor --fix` |
-     
+
      Then run init with explicit runtime:
+
      ```bash
      uv run --project <SKILL_DIR> polaris-local-forge --work-dir <WORK_DIR> init --runtime <user_choice>
      ```
-     
+
      (The `--runtime` flag bypasses the interactive prompt that would "Abort" in non-interactive shells)
-   
+
    - **If `"status": "error"`**: Display the error message and stop
-   
+
    After `init` completes, the `./bin/plf` wrapper is created. Use it for ALL subsequent commands.
 
    ---
-   
+
    **Step 2: Doctor check & fix**
 
    Run: `./bin/plf doctor --fix`
-   
+
    This automatically:
    - Creates Podman machine (`k3d`) if using Podman and machine doesn't exist
    - Starts Podman machine if stopped
@@ -163,25 +167,25 @@ This avoids repeated prompts. See [Cortex Code Permissions](#cortex-code-permiss
    - Sets up SSH config for Podman VM access
 
    ---
-   
+
    **Step 3: Generate configuration files**
 
    Run: `./bin/plf prepare`
 
    ---
-   
+
    **Step 4: Create k3d cluster**
 
    Run: `./bin/plf cluster create`
 
    ---
-   
+
    **Step 5: Wait for RustFS and PostgreSQL**
 
    Run: `./bin/plf cluster wait --tags bootstrap`
 
    ---
-   
+
    **Step 6: Deploy Apache Polaris**
 
    Run: `./bin/plf polaris deploy`
@@ -189,13 +193,13 @@ This avoids repeated prompts. See [Cortex Code Permissions](#cortex-code-permiss
    Run: `./bin/plf polaris bootstrap`
 
    ---
-   
+
    **Step 7: Setup catalog**
 
    Run: `./bin/plf catalog setup`
 
    ---
-   
+
    **Step 8: Verify with DuckDB**
 
    Run: `./bin/plf catalog verify-sql`
@@ -203,9 +207,9 @@ This avoids repeated prompts. See [Cortex Code Permissions](#cortex-code-permiss
    For interactive exploration: `./bin/plf catalog explore-sql`
 
    ---
-   
+
    **All steps complete!**
-   
+
    After Step 8 succeeds, output the completion summary (see "Step 4: Summary" section below).
 
 3. **After each step completes**, briefly confirm success before moving to next step.
@@ -222,6 +226,7 @@ This avoids repeated prompts. See [Cortex Code Permissions](#cortex-code-permiss
 - NEVER hardcode credentials in scripts -- always read from `.env` or `work/principal.txt`
 - NEVER assume the cluster is running -- always check status with `k3d cluster list` before operations
 - NEVER run destructive commands (`cluster delete`, `polaris purge`) without explicit user confirmation
+- NEVER skip teardown confirmation because user did setup in the same session -- ALWAYS confirm destruction regardless of session context
 - NEVER delete `.snow-utils/` directory -- this contains the manifest needed for replay/audit. Teardown and cleanup commands always preserve `.snow-utils/`
 - NEVER expose `principal.txt` contents in output -- show only the realm. Mask client_id: show `****` + last 4 chars. NEVER show client_secret at all. Example: `realm: POLARIS, client_id: ****a1b2, client_secret: ********`
 - NEVER modify files in the skill directory (`<SKILL_DIR>`) -- `k8s/`, `polaris-forge-setup/`, `src/`, `example-manifests/` are read-only source. Only the user's `--work-dir` is writable
@@ -237,6 +242,7 @@ This avoids repeated prompts. See [Cortex Code Permissions](#cortex-code-permiss
 - NEVER run `which polaris` or `polaris --help` -- the `polaris` binary does not exist
 
 **COMMAND ROUTING:**
+
 - **plf commands:** Only for CLI operations listed in [CLI Reference](#cli-reference) (init, prepare, cluster, catalog setup/cleanup, teardown, doctor, verify-sql, etc.)
 - **REST API queries:** For query intents (list/show/describe catalogs, namespaces, tables, principals, roles, views, grants) -- use `./bin/plf api query <endpoint>` (see [Apache Polaris API Queries](#apache-polaris-api-queries))
 - **General chat:** Explanations, questions, troubleshooting advice -- respond directly without running commands
@@ -252,10 +258,11 @@ When user is in a directory containing ANY of these files, treat it as an **acti
 | `bin/plf` wrapper script | `[ -x bin/plf ]` | CLI initialized (tertiary) |
 
 **CRITICAL - When context detected:**
-- For **cleanup/teardown** requests → Use `./bin/plf teardown` (see [Teardown Flow](#teardown-flow))
+
+- For **cleanup/teardown** requests → ALWAYS present confirmation dialog with options (see [Teardown Flow](#teardown-flow))
 - For **API queries** → Use `./bin/plf api query` (see [Apache Polaris API Queries](#apache-polaris-api-queries))
 - For **setup/replay** → Use appropriate flow from this skill
-- **NEVER** offer generic cleanup dialogs - always use `plf` commands
+- **NEVER** offer generic cleanup dialogs - always use `plf` commands with the structured teardown dialog
 
 **When context detected AND user asks API-related queries** (list/show/describe/what catalogs/namespaces/tables/principals/roles/views/grants):
 
@@ -276,6 +283,7 @@ Create/update/delete operations will be added in a future phase.
 **DO NOT** proceed to construct endpoints or run Ansible for write operations. Stop here.
 
 **DO NOT (FORBIDDEN):**
+
 - ❌ `polaris` CLI — DOES NOT EXIST (no `polaris namespaces list`, no `polaris --help`, no `polaris namespace list`)
 - ❌ `curl` to any Polaris endpoint — needs OAuth token you don't have (no `curl http://localhost:8181/...`, no `curl http://localhost:18181/...`)
 - ❌ `jq` piped from curl — same reason, curl won't work without OAuth
@@ -293,6 +301,7 @@ Create/update/delete operations will be added in a future phase.
 - ❌ Asking user for JSON input — not supported
 
 **DO (REQUIRED) — USE `plf api query` COMMAND:**
+
 ```bash
 ./bin/plf api query /api/catalog/v1/polardb/namespaces
 ./bin/plf api query /api/management/v1/catalogs
@@ -300,6 +309,7 @@ Create/update/delete operations will be added in a future phase.
 ```
 
 **Key points:**
+
 1. Use `./bin/plf api query <endpoint>` — clean, simple, handles all the complexity
 2. Endpoint must start with `/api/...` — construct from user intent (see table below)
 3. Only GET is supported (read-only phase)
@@ -307,12 +317,14 @@ Create/update/delete operations will be added in a future phase.
 5. Use `-v` for verbose Ansible output if debugging
 
 **Quick context check (run silently before API queries):**
+
 ```bash
 grep -q "polaris-local-forge:" .snow-utils/snow-utils-manifest.md 2>/dev/null || grep -q "PLF_POLARIS_CATALOG_NAME" .env 2>/dev/null || [ -x bin/plf ]
 ```
 
 **API QUERY ROUTING (CRITICAL):**
 When user asks about Apache Polaris data (catalogs, namespaces, tables, views, principals, roles, grants):
+
 1. Do NOT search for CLI tools (`polaris`, `plf query`, etc.) -- they don't exist
 2. Do NOT try `curl` to any endpoint -- it won't work (needs OAuth token)
 3. Do NOT run `kubectl` commands to check services or namespaces -- this is NOT Kubernetes
@@ -887,11 +899,13 @@ EXECUTION_MODE = user's choice ("run_all" or "step_by_step")
 - **If "step_by_step":** Run each step, show output, then ask "Continue?" before the next step.
 
 **IMPORTANT:** Once user selects "run_all", ALL subsequent stopping points in this session are SKIPPED. The skill proceeds automatically through Steps 1-8 without asking for confirmation. This includes:
+
 - Prerequisite checks (auto-proceed if passing)
 - Each CLI command execution (run immediately)
 - Manifest updates (update immediately)
 
 Only stop for:
+
 1. Fatal errors that prevent continuation
 2. Explicit destructive operations (teardown, purge) that were NOT part of the original setup flow
 
@@ -929,6 +943,7 @@ The `init --with-manifest` command creates the `.snow-utils/snow-utils-manifest.
 - NEVER combine multiple commands (hides output from Cortex Code)
 - NEVER use `podman machine start` directly (use `doctor --fix`)
 - **DESTRUCTIVE COMMANDS (teardown, delete, cleanup, purge):** ALWAYS STOP and ask user for explicit confirmation BEFORE running. After user confirms, pass `--yes` to skip CLI's interactive prompt (CLI prompts don't work in non-interactive shell)
+- **TEARDOWN AFTER SETUP:** Even if user completes setup in this session and then asks to teardown, you MUST still present the teardown confirmation dialog with options. Session context does NOT bypass destruction confirmation. See [Teardown Flow](#teardown-flow).
 - **DO NOT re-ask** work directory, runtime, cluster name, etc. after user has already answered them
 
 **After setup completes, set the scoped cluster environment for this session:**
@@ -1118,30 +1133,69 @@ Purges the entire Apache Polaris database and recreates from scratch.
 
 ## Teardown Flow
 
-**Trigger:** "teardown polaris", "delete everything", "clean up"
+**Trigger:** "teardown polaris", "delete everything", "clean up", "cleanup", "remove cluster"
 
-**STOP - MANDATORY USER CONFIRMATION:**
+**CRITICAL - ALWAYS CONFIRM, NO EXCEPTIONS:**
 
-Before running ANY teardown command, you MUST:
+Even if user just completed `setup:all` in this same session, you MUST STOP and confirm before any destruction.
 
-1. **Ask user explicitly:** "This will delete the cluster and all resources. Proceed? [yes/no]"
-2. **Wait for user response** - do NOT proceed without explicit "yes"
-3. Only after user confirms, run:
+**STOP - PRESENT OPTIONS TO USER:**
+
+Before running ANY teardown command, present this dialog:
+
+```
+Teardown Options:
+
+  1. Cluster only (default)
+     - Deletes k3d cluster, Polaris, RustFS, PostgreSQL
+     - Keeps all local files for quick replay
+     - Use `setup:replay` to restore
+
+  2. Cluster + generated files
+     - Deletes cluster AND cleans generated files
+     - Use `setup:all` for fresh start
+
+  CLEANUP_PATHS: .kube work k8s scripts bin notebooks .env .aws .envrc .gitignore .venv
+
+  NOTE: .snow-utils/ is ALWAYS preserved. Replay is possible after BOTH options
+        unless you manually delete .snow-utils/snow-utils-manifest.md
+
+Which option? [1/2] (or 'cancel' to abort)
+```
+
+**Wait for user response** - do NOT proceed without explicit selection.
+
+**After user selects option:**
+
+Option 1 (cluster only):
 
 ```bash
 ./bin/plf teardown --yes
 ```
 
+Option 2 (cluster + files):
+
+```bash
+# CLEANUP_PATHS from Taskfile.yml - keep in sync!
+./bin/plf teardown --yes
+rm -rf .kube work k8s scripts bin notebooks .env .aws .envrc .gitignore .venv
+```
+
 The `--yes` flag is passed because CLI prompts don't work in non-interactive shell, NOT to skip user confirmation from the agent.
 
-**After teardown completes, inform user:**
+**After completion, output EXACTLY this message (DO NOT list individual commands or resources):**
 
 ```
 Teardown complete.
-Note: .snow-utils/ preserved for audit and replay.
+
+.snow-utils/ preserved for audit and replay. 
+
+Run **replay** anytime to restore.
 ```
 
-Updates manifest status to REMOVED. Generated files are preserved in the work directory for future replay.
+DO NOT list individual CLI commands. The agent can run replay when user asks.
+
+Updates manifest status to REMOVED.
 
 ### Podman Machine (macOS)
 
@@ -1150,33 +1204,6 @@ On macOS with Podman, teardown stops the Podman machine by default when using `-
 ```bash
 ./bin/plf teardown --yes --no-stop-podman
 ```
-
-### Clean Generated Files
-
-**Trigger:** "clean up files", "remove generated files"
-
-**STOP - MANDATORY USER CONFIRMATION:**
-
-Before cleaning files, you MUST:
-
-1. **Ask user explicitly:** "This will remove generated files (work/, k8s/, bin/, etc.). The .snow-utils/ manifest is preserved for replay. Proceed? [yes/no]"
-2. **Wait for user response** - do NOT proceed without explicit "yes"
-
-After teardown, to clean generated files while preserving manifest for replay:
-
-```bash
-# CLEANUP_PATHS (same as Taskfile.yml for consistency)
-rm -rf .kube/ work/ k8s/ scripts/ bin/ notebooks/ .env .aws/ .envrc .gitignore .venv
-```
-
-**After cleanup completes, inform user:**
-
-```
-Local directory cleaned.
-Note: .snow-utils/ preserved for audit and replay.
-```
-
-The `.snow-utils/` directory is NEVER deleted by teardown or cleanup commands. It contains the manifest needed for replay and audit.
 
 ## Replay Flow
 
@@ -1202,6 +1229,7 @@ When manifest has `Status: REMOVED`:
 **When to use:** User asks to list, show, describe, or query catalogs, namespaces, tables, views, principals, roles, or grants.
 
 **IMPORTANT — GO DIRECTLY TO ANSIBLE:**
+
 - There is NO `polaris` CLI — do NOT run `which polaris` or `polaris --help`
 - There is NO `plf query` or `plf polaris` subcommand
 - Do NOT search for CLI tools — go DIRECTLY to the Ansible playbook
@@ -1211,11 +1239,13 @@ When manifest has `Status: REMOVED`:
 **How:** Use `./bin/plf api query <endpoint>` — the CLI handles Ansible, OAuth, and output formatting.
 
 > **SEMANTIC UNDERSTANDING:** Recognize intent variations — these all mean the same thing:
+>
 > - "list catalogs" = "show me catalogs" = "what catalogs exist" = "get all catalogs"
 > - "show namespaces" = "list namespaces" = "namespaces in catalog" = "what namespaces"
 > - "describe table X" = "show table X" = "get table X details" = "table X schema"
 
 > **CRITICAL DISAMBIGUATION — "namespaces" means POLARIS NAMESPACES:**
+>
 > - When user says "namespaces", "list namespaces", "show namespaces" — this means **Apache Polaris catalog namespaces**, NOT Kubernetes namespaces
 > - Do NOT run `kubectl get ns` or check Kubernetes namespaces
 > - Do NOT run `curl` to any endpoint — Ansible handles this
@@ -1311,6 +1341,7 @@ Running: `plf api query {endpoint}`
 ```
 
 Example:
+
 ```
 **Querying Apache Polaris:** list namespaces in polardb catalog
 
@@ -1504,9 +1535,11 @@ SKILL_DIR=/path/to/polaris-local-forge
 **Recommended permission setting:** When Cortex Code prompts for command approval:
 
 **Before `init` (uses `uv`):**
+
 - **Option 5: "Allow using 'uv' for this session"** - Recommended
 
 **After `init` (uses `./bin/plf` wrapper):**
+
 - **Option 5: "Allow using 'plf' for this session"** - Recommended for "Run all" mode
 - **Option 4: "Always allow using 'plf'"** - If you use this skill frequently
 
@@ -1564,6 +1597,7 @@ Port 19000 is required by RustFS. On macOS with Podman, the `gvproxy` network pr
 ```
 
 This will:
+
 - Kill gvproxy processes blocking port 19000
 - Stop and restart the Podman machine
 - Set up SSH config for VM access
