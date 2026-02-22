@@ -12,6 +12,14 @@ This manifest tracks resources created by polaris-local-forge.
 
 ---
 
+## prereqs
+
+## installed_skills
+
+polaris-local-forge: <https://github.com/Snowflake-Labs/polaris-local-forge>
+
+---
+
 **Status:** REMOVED
 
 ## shared_info
@@ -44,9 +52,3 @@ cluster_name: polaris-dev  # ADAPT: customizable
 | 5 | Catalog | data | REMOVED |
 | 6 | Principal | auth | REMOVED |
 | 7 | Demo data | data | REMOVED |
-
-## prereqs
-
-## installed_skills
-
-polaris-local-forge: <https://github.com/Snowflake-Labs/polaris-local-forge>

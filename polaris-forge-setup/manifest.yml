@@ -1,0 +1,128 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+- name: Manage snow-utils manifest for polaris-local-forge
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - defaults/main.yml
+
+  vars:
+    manifest_dir: "{{ plf_output_base }}/.snow-utils"
+    manifest_file: "{{ manifest_dir }}/snow-utils-manifest.md"
+
+  tasks:
+    # ==========================================================================
+    # init tag: Create manifest with PENDING status
+    # ==========================================================================
+    - name: Ensure manifest directory exists
+      ansible.builtin.file:
+        path: "{{ manifest_dir }}"
+        state: directory
+        mode: "0700"
+      tags:
+        - init
+
+    - name: Create manifest from template
+      ansible.builtin.template:
+        src: "templates/manifest.md.j2"
+        dest: "{{ manifest_file }}"
+        mode: "0600"
+        force: "{{ manifest_force | default(false) }}"
+      vars:
+        manifest_status: "PENDING"
+      tags:
+        - init
+
+    # ==========================================================================
+    # start tag: Set status to IN_PROGRESS
+    # ==========================================================================
+    - name: Update manifest status to IN_PROGRESS
+      ansible.builtin.replace:
+        path: "{{ manifest_file }}"
+        regexp: '^\*\*Status:\*\* .*$'
+        replace: '**Status:** IN_PROGRESS'
+      tags:
+        - start
+        - never
+
+    # ==========================================================================
+    # update tag: Update specific resource row to DONE
+    # Usage: ansible-playbook manifest.yml --tags update -e resource_num=1
+    # ==========================================================================
+    - name: Update resource {{ resource_num }} to DONE
+      ansible.builtin.replace:
+        path: "{{ manifest_file }}"
+        regexp: '^\| {{ resource_num }} \| ([^|]+) \| ([^|]+) \| \w+ \|$'
+        replace: '| {{ resource_num }} | \1 | \2 | DONE |'
+      when: resource_num is defined
+      tags:
+        - update
+        - never
+
+    # ==========================================================================
+    # complete tag: Set status to COMPLETE
+    # ==========================================================================
+    - name: Update manifest status to COMPLETE
+      ansible.builtin.replace:
+        path: "{{ manifest_file }}"
+        regexp: '^\*\*Status:\*\* .*$'
+        replace: '**Status:** COMPLETE'
+      tags:
+        - complete
+        - never
+
+    # ==========================================================================
+    # remove tag: Set status to REMOVED and all resources to REMOVED
+    # Idempotent: skips if manifest doesn't exist
+    # ==========================================================================
+    - name: Check if manifest exists for removal
+      ansible.builtin.stat:
+        path: "{{ manifest_file }}"
+      register: manifest_stat
+      tags:
+        - remove
+        - never
+
+    - name: Update manifest status to REMOVED
+      ansible.builtin.replace:
+        path: "{{ manifest_file }}"
+        regexp: '^\*\*Status:\*\* .*$'
+        replace: '**Status:** REMOVED'
+      when: manifest_stat.stat.exists
+      tags:
+        - remove
+        - never
+
+    - name: Update all resource statuses to REMOVED
+      ansible.builtin.replace:
+        path: "{{ manifest_file }}"
+        regexp: '^\| (\d) \| ([^|]+) \| ([^|]+) \| \w+ \|$'
+        replace: '| \1 | \2 | \3 | REMOVED |'
+      when: manifest_stat.stat.exists
+      tags:
+        - remove
+        - never
+
+    - name: Report manifest not found (idempotent skip)
+      ansible.builtin.debug:
+        msg: "Manifest not found at {{ manifest_file }} - skipping removal (already clean)"
+      when: not manifest_stat.stat.exists
+      tags:
+        - remove
+        - never

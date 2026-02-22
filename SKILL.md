@@ -1,6 +1,6 @@
 ---
 name: polaris-local-forge
-description: "**[REQUIRED]** Use for **ALL** requests involving local Apache Polaris: setup, API queries, catalog operations. **DO NOT** use `polaris` CLI (does not exist), curl to Polaris endpoints (needs OAuth), or docker ps checks - invoke this skill first. Context: if `.snow-utils/snow-utils-manifest.md` contains `polaris-local-forge:` or `.env` has PLF_POLARIS_CATALOG_NAME, this is an active project. Triggers: polaris local, local iceberg catalog, local polaris setup, rustfs setup, create polaris cluster, try polaris locally, get started with polaris, apache polaris quickstart, polaris dev environment, local data lakehouse, replay from manifest, reset polaris catalog, teardown polaris, polaris status, list catalogs, show namespaces, list tables, show catalog, describe table, list principals, show principal roles, list views, polaris namespaces, polaris catalogs."
+description: "**[REQUIRED]** Use for **ALL** requests involving local Apache Polaris: setup, API queries, catalog operations, cleanup, teardown. **AUTO-ACTIVATE:** If `.snow-utils/snow-utils-manifest.md` contains `polaris-local-forge:` this skill MUST handle ALL operations including cleanup. **DO NOT** use `polaris` CLI (does not exist), curl to Polaris endpoints (needs OAuth), or docker ps checks - invoke this skill first. Triggers: polaris local, local iceberg catalog, local polaris setup, rustfs setup, create polaris cluster, try polaris locally, get started with polaris, apache polaris quickstart, polaris dev environment, local data lakehouse, replay from manifest, reset polaris catalog, teardown polaris, clean up, cleanup, delete cluster, remove resources, polaris status, list catalogs, show namespaces, list tables, show catalog, describe table, list principals, show principal roles, list views, polaris namespaces, polaris catalogs."
 location: user
 ---
 
@@ -222,6 +222,7 @@ This avoids repeated prompts. See [Cortex Code Permissions](#cortex-code-permiss
 - NEVER hardcode credentials in scripts -- always read from `.env` or `work/principal.txt`
 - NEVER assume the cluster is running -- always check status with `k3d cluster list` before operations
 - NEVER run destructive commands (`cluster delete`, `polaris purge`) without explicit user confirmation
+- NEVER delete `.snow-utils/` directory -- this contains the manifest needed for replay/audit. Teardown and cleanup commands always preserve `.snow-utils/`
 - NEVER expose `principal.txt` contents in output -- show only the realm. Mask client_id: show `****` + last 4 chars. NEVER show client_secret at all. Example: `realm: POLARIS, client_id: ****a1b2, client_secret: ********`
 - NEVER modify files in the skill directory (`<SKILL_DIR>`) -- `k8s/`, `polaris-forge-setup/`, `src/`, `example-manifests/` are read-only source. Only the user's `--work-dir` is writable
 - NEVER create `.snow-utils/` in the skill directory -- ALWAYS ask for a work directory FIRST, then create `.snow-utils/` there
@@ -242,13 +243,19 @@ This avoids repeated prompts. See [Cortex Code Permissions](#cortex-code-permiss
 
 **PROJECT CONTEXT DETECTION (AUTO-ACTIVATION):**
 
-When user is in a directory containing ANY of these files, treat it as an **active polaris-local-forge project** and auto-activate this skill for API queries:
+When user is in a directory containing ANY of these files, treat it as an **active polaris-local-forge project** and auto-activate this skill for **ALL operations** (setup, queries, cleanup, teardown):
 
 | Context Signal | Check | Meaning |
 |----------------|-------|---------|
 | `.snow-utils/snow-utils-manifest.md` with `polaris-local-forge:` | `grep -q "polaris-local-forge:" .snow-utils/snow-utils-manifest.md` | This skill is installed (primary) |
 | `.env` with `PLF_POLARIS_CATALOG_NAME` | `grep -q "PLF_POLARIS_CATALOG_NAME" .env` | Polaris config exists (secondary) |
 | `bin/plf` wrapper script | `[ -x bin/plf ]` | CLI initialized (tertiary) |
+
+**CRITICAL - When context detected:**
+- For **cleanup/teardown** requests → Use `./bin/plf teardown` (see [Teardown Flow](#teardown-flow))
+- For **API queries** → Use `./bin/plf api query` (see [Apache Polaris API Queries](#apache-polaris-api-queries))
+- For **setup/replay** → Use appropriate flow from this skill
+- **NEVER** offer generic cleanup dialogs - always use `plf` commands
 
 **When context detected AND user asks API-related queries** (list/show/describe/what catalogs/namespaces/tables/principals/roles/views/grants):
 
@@ -921,7 +928,7 @@ The `init --with-manifest` command creates the `.snow-utils/snow-utils-manifest.
 - Run EACH command above as a SEPARATE bash invocation (for Cortex Code visibility)
 - NEVER combine multiple commands (hides output from Cortex Code)
 - NEVER use `podman machine start` directly (use `doctor --fix`)
-- Use `--yes` for destructive commands (delete, cleanup, teardown) in both modes
+- **DESTRUCTIVE COMMANDS (teardown, delete, cleanup, purge):** ALWAYS STOP and ask user for explicit confirmation BEFORE running. After user confirms, pass `--yes` to skip CLI's interactive prompt (CLI prompts don't work in non-interactive shell)
 - **DO NOT re-ask** work directory, runtime, cluster name, etc. after user has already answered them
 
 **After setup completes, set the scoped cluster environment for this session:**
@@ -1113,10 +1120,25 @@ Purges the entire Apache Polaris database and recreates from scratch.
 
 **Trigger:** "teardown polaris", "delete everything", "clean up"
 
-**STOP**: This is destructive. Confirm with user.
+**STOP - MANDATORY USER CONFIRMATION:**
+
+Before running ANY teardown command, you MUST:
+
+1. **Ask user explicitly:** "This will delete the cluster and all resources. Proceed? [yes/no]"
+2. **Wait for user response** - do NOT proceed without explicit "yes"
+3. Only after user confirms, run:
 
 ```bash
 ./bin/plf teardown --yes
+```
+
+The `--yes` flag is passed because CLI prompts don't work in non-interactive shell, NOT to skip user confirmation from the agent.
+
+**After teardown completes, inform user:**
+
+```
+Teardown complete.
+Note: .snow-utils/ preserved for audit and replay.
 ```
 
 Updates manifest status to REMOVED. Generated files are preserved in the work directory for future replay.
@@ -1129,18 +1151,32 @@ On macOS with Podman, teardown stops the Podman machine by default when using `-
 ./bin/plf teardown --yes --no-stop-podman
 ```
 
-### Explicit Purge
+### Clean Generated Files
 
-**Trigger:** "purge all generated files", "start completely fresh"
+**Trigger:** "clean up files", "remove generated files"
 
-**STOP**: This is irreversible. Confirm with user.
+**STOP - MANDATORY USER CONFIRMATION:**
+
+Before cleaning files, you MUST:
+
+1. **Ask user explicitly:** "This will remove generated files (work/, k8s/, bin/, etc.). The .snow-utils/ manifest is preserved for replay. Proceed? [yes/no]"
+2. **Wait for user response** - do NOT proceed without explicit "yes"
+
+After teardown, to clean generated files while preserving manifest for replay:
 
 ```bash
-./bin/plf teardown --yes
-rm -rf work/ k8s/ bin/ .kube/ notebooks/ scripts/
+# CLEANUP_PATHS (same as Taskfile.yml for consistency)
+rm -rf .kube/ work/ k8s/ scripts/ bin/ notebooks/ .env .aws/ .envrc .gitignore .venv
 ```
 
-Only offered when user explicitly asks to wipe everything.
+**After cleanup completes, inform user:**
+
+```
+Local directory cleaned.
+Note: .snow-utils/ preserved for audit and replay.
+```
+
+The `.snow-utils/` directory is NEVER deleted by teardown or cleanup commands. It contains the manifest needed for replay and audit.
 
 ## Replay Flow
 
@@ -1495,7 +1531,7 @@ This is safe because:
 > run `./bin/plf <command> --help` to see actual available options and
 > use ONLY those. NEVER invent, abbreviate, or rename options.
 
-**`--yes` is REQUIRED** when executing destructive commands after user has approved (CLIs prompt interactively which does not work in Cortex Code's non-interactive shell). All destructive commands support `--dry-run` to preview and `--yes` to skip interactive confirmation.
+**`--yes` flag:** Pass `--yes` ONLY after getting explicit user confirmation from the agent conversation. The flag skips the CLI's interactive prompt (which doesn't work in Cortex Code's non-interactive shell), but the agent MUST still ask the user for confirmation before running the command. All destructive commands support `--dry-run` to preview.
 
 **COMMAND NAMES (exact -- do NOT substitute):**
 

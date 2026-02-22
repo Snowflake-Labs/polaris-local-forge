@@ -188,11 +188,14 @@ All operations are available via Task commands:
 
 | Command | Description |
 |---------|-------------|
-| `task setup:all WORK_DIR=/path` | Complete setup in specified directory (recommended) |
+| `task setup:all WORK_DIR=/path` | Complete setup with manifest tracking (recommended) |
 | `task setup:all` | Complete setup in current directory |
-| `task teardown WORK_DIR=/path` | Teardown specific project directory |
-| `task teardown` | Complete teardown (cleanup + delete cluster) |
+| `task setup:replay WORK_DIR=/path` | Resume/replay from manifest |
+| `task teardown` | Teardown with confirmation prompt |
+| `task teardown -- all` | Teardown + clean local directory |
 | `task reset:all` | Teardown and setup fresh |
+
+> **Tip:** Use `task <name> --summary` for detailed help on any task, including available variables and examples.
 
 ### Status & Config
 
@@ -261,6 +264,52 @@ All operations are available via Task commands:
 | `task troubleshoot:postgresql` | Check PostgreSQL connectivity |
 | `task troubleshoot:rustfs` | Verify RustFS connectivity |
 | `task troubleshoot:events` | Show recent events |
+
+## Manifest Workflow
+
+The Task workflow tracks progress using a manifest file at `.snow-utils/snow-utils-manifest.md`. This enables:
+
+- **Progress tracking**: Each resource (k3d cluster, RustFS, PostgreSQL, Polaris, Catalog, Principal, Demo data) is marked PENDING → DONE
+- **Resume/replay**: If setup is interrupted, use `task setup:replay` to continue from where you left off
+- **Cross-workflow compatibility**: The same manifest is used by Cortex Code (AI-assisted) workflows
+
+### Manifest States
+
+| Status | Meaning |
+|--------|---------|
+| `PENDING` | Initial state, setup not started |
+| `IN_PROGRESS` | Setup in progress |
+| `COMPLETE` | All resources created successfully |
+| `REMOVED` | Teardown completed, ready for replay |
+
+### Usage Examples
+
+```bash
+# Fresh setup with manifest tracking
+task setup:all WORK_DIR=~/polaris-dev
+
+# Resume interrupted setup
+task setup:replay WORK_DIR=~/polaris-dev
+
+# Teardown (prompts for confirmation)
+task teardown WORK_DIR=~/polaris-dev
+
+# Teardown with full directory cleanup
+task teardown WORK_DIR=~/polaris-dev -- all
+
+# After teardown, replay from existing config
+task setup:replay WORK_DIR=~/polaris-dev
+```
+
+### Task Help
+
+For detailed help on any task, including available variables and options:
+
+```bash
+task setup:all --summary
+task teardown --summary
+task prepare --summary
+```
 
 ## CLI Reference
 

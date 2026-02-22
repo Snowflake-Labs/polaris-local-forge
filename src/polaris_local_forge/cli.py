@@ -43,7 +43,7 @@ from polaris_local_forge.common import (
     SKILL_DIR,
     TEMPLATES,
     INIT_DIRECTORIES,
-    MANIFEST_TEMPLATE,
+    render_manifest,
     get_config,
     set_env_var,
     run_ansible,
@@ -68,8 +68,20 @@ from polaris_local_forge.api import api
 # CLI Entry Point
 # =============================================================================
 
+def expand_path_callback(ctx, param, value):
+    """Expand ~ and validate path exists."""
+    if value is None:
+        return None
+    expanded = Path(value).expanduser()
+    if not expanded.exists():
+        raise click.BadParameter(f"Directory '{value}' does not exist.")
+    if not expanded.is_dir():
+        raise click.BadParameter(f"'{value}' is not a directory.")
+    return str(expanded)
+
+
 @click.group()
-@click.option("--work-dir", "-w", type=click.Path(exists=True, file_okay=False),
+@click.option("--work-dir", "-w", callback=expand_path_callback,
               help="Project directory (defaults to current directory)")
 @click.pass_context
 def cli(ctx, work_dir: str | None):
@@ -195,12 +207,13 @@ def init_project(ctx, force: bool, cluster_name: str | None, with_manifest: bool
             cfg = get_config(work_dir)
             container_runtime = cfg.get("PLF_CONTAINER_RUNTIME") or "podman"
             podman_machine = cfg.get("PLF_PODMAN_MACHINE") or "k3d"
-            manifest_file.write_text(MANIFEST_TEMPLATE.format(
+            manifest_content = render_manifest(
                 project_name=project_name,
                 container_runtime=container_runtime,
                 podman_machine=podman_machine if container_runtime == "podman" else "N/A",
-                cluster_name=project_name
-            ))
+                cluster_name=project_name,
+            )
+            manifest_file.write_text(manifest_content)
             manifest_file.chmod(0o600)
             created.append(".snow-utils/snow-utils-manifest.md")
 
@@ -472,7 +485,7 @@ def teardown(ctx, dry_run: bool, yes: bool, stop_podman: bool | None):
     env["KUBECONFIG"] = str(work_dir / ".kube" / "config")
 
     if not yes and not dry_run:
-        msg = f"Teardown will:\n  - Clean up catalog resources\n  - Delete cluster '{cluster_name}'"
+        msg = f"Teardown will:\n  - Delete cluster '{cluster_name}' (includes all data)"
         if is_macos and runtime == "podman":
             msg += f"\n  - Optionally stop Podman machine '{machine}'"
         click.echo(msg)
@@ -480,23 +493,18 @@ def teardown(ctx, dry_run: bool, yes: bool, stop_podman: bool | None):
             click.echo("Aborted.")
             return
 
-    steps = [
-        ("Catalog cleanup", ["uv", "run", "polaris-local-forge", "--work-dir", str(work_dir),
-                            "catalog", "cleanup", "--yes"]),
-        ("Delete cluster", ["k3d", "cluster", "delete", cluster_name]),
-    ]
+    # Note: No catalog cleanup needed - cluster deletion wipes everything
+    # (RustFS, PostgreSQL, Polaris, all data). Saves time and energy.
 
     if dry_run:
         click.echo("Would run:")
-        for name, cmd in steps:
-            click.echo(f"  {name}: {' '.join(cmd)}")
+        click.echo(f"  Delete cluster: k3d cluster delete {cluster_name}")
         if is_macos and runtime == "podman":
             click.echo(f"  Stop Podman: podman machine stop {machine} (if confirmed)")
         return
 
-    for name, cmd in steps:
-        click.echo(f"\n=== {name} ===")
-        subprocess.run(cmd, env=env)
+    click.echo(f"\n=== Delete cluster ===")
+    subprocess.run(["k3d", "cluster", "delete", cluster_name], env=env)
 
     # Handle Podman machine stop (macOS only)
     if is_macos and runtime == "podman":

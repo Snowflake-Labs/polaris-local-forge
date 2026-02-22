@@ -22,9 +22,17 @@ vars:
     sh: dirname "$(readlink -f Taskfile.yml 2>/dev/null || echo Taskfile.yml)"
   # WORK_DIR: explicit work directory override (empty = use pwd)
   # Usage: task setup:all WORK_DIR=/path/to/project
+  # Supports: ~/path, $HOME/path, $ENV_VAR/path
   WORK_DIR: ""
   # PROJECT_HOME: WORK_DIR if specified, otherwise current working directory
-  PROJECT_HOME: '{{if .WORK_DIR}}{{.WORK_DIR}}{{else}}{{env "PWD"}}{{end}}'
+  # Uses eval to expand ~ and $ENV_VARS that Go-Task doesn't expand
+  PROJECT_HOME:
+    sh: |
+      if [ -n "{{.WORK_DIR}}" ]; then
+        eval echo "{{.WORK_DIR}}"
+      else
+        echo "$PWD"
+      fi
   KUBECONFIG: "{{.PROJECT_HOME}}/.kube/config"
   K3D_CLUSTER_NAME:
     sh: basename $(pwd)
@@ -33,6 +41,13 @@ vars:
   PODMAN_MACHINE: k3d
   # PLF command - uses --project to find source, --work-dir for output
   PLF: uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}"
+  # Detect if running in source repo (has SKILL.md + src/polaris_local_forge)
+  # Used to prevent accidental writes to the read-only source directory
+  IS_SOURCE_REPO:
+    sh: '[ -f "{{.PROJECT_HOME}}/SKILL.md" ] && [ -d "{{.PROJECT_HOME}}/src/polaris_local_forge" ] && echo "true" || echo "false"'
+  # Files/directories to clean up on 'teardown -- all'
+  # .snow-utils is ALWAYS preserved for replay/audit
+  CLEANUP_PATHS: ".kube work k8s scripts bin notebooks .env .aws .envrc .gitignore .venv"
 
 silent: true
 
@@ -68,6 +83,137 @@ tasks:
       - command -v uv
 
   # ============================================
+  # Manifest Management
+  # ============================================
+
+  manifest:init:
+    desc: Initialize manifest with PENDING status
+    summary: |
+      Creates .snow-utils/snow-utils-manifest.md with all resources set to PENDING.
+      
+      Variables:
+        WORK_DIR    Target directory (default: current directory)
+      
+      Example:
+        task manifest:init
+        task manifest:init WORK_DIR=~/polaris-dev
+    cmds:
+      - |
+        # Auto-detect runtime
+        # Priority: existing .env > env var > running runtime > ERROR (no default)
+        RUNTIME=""
+        
+        # 1. Check existing .env (for replay scenarios)
+        if [ -f "{{.PROJECT_HOME}}/.env" ]; then
+          RUNTIME=$(grep -E '^PLF_CONTAINER_RUNTIME=' "{{.PROJECT_HOME}}/.env" | cut -d= -f2 | tr -d '"' | tr -d "'")
+          [ -n "$RUNTIME" ] && echo "Runtime from .env: $RUNTIME"
+        fi
+        
+        # 2. Check environment variable
+        if [ -z "$RUNTIME" ] && [ -n "$PLF_CONTAINER_RUNTIME" ]; then
+          RUNTIME="$PLF_CONTAINER_RUNTIME"
+          echo "Runtime from env var: $RUNTIME"
+        fi
+        
+        # 3. Auto-detect running runtime
+        if [ -z "$RUNTIME" ]; then
+          DETECTED=$({{.PLF}} detect-runtime 2>/dev/null | head -1 | cut -d: -f1) || DETECTED=""
+          if [ -n "$DETECTED" ] && [ "$DETECTED" != "choice" ] && [ "$DETECTED" != "Error" ]; then
+            RUNTIME="$DETECTED"
+            echo "Runtime auto-detected: $RUNTIME"
+          else
+            echo "ERROR: Could not detect container runtime."
+            echo "Ensure Docker or Podman is installed and running, or set PLF_CONTAINER_RUNTIME."
+            exit 1
+          fi
+        fi
+        
+        uv run --project "{{.SKILL_DIR}}" ansible-playbook \
+          "{{.SKILL_DIR}}/polaris-forge-setup/manifest.yml" \
+          --tags init \
+          -e "plf_output_base={{.PROJECT_HOME}}" \
+          -e "project_name=$(basename {{.PROJECT_HOME}})" \
+          -e "container_runtime=$RUNTIME" \
+          -e "podman_machine=${PLF_PODMAN_MACHINE:-k3d}" \
+          -e "cluster_name=$(basename {{.PROJECT_HOME}})"
+
+  manifest:start:
+    desc: Set manifest status to IN_PROGRESS
+    summary: |
+      Updates manifest status from PENDING to IN_PROGRESS.
+      Call this at the start of the setup workflow.
+      
+      Example:
+        task manifest:start
+    cmds:
+      - |
+        uv run --project "{{.SKILL_DIR}}" ansible-playbook \
+          "{{.SKILL_DIR}}/polaris-forge-setup/manifest.yml" \
+          --tags start \
+          -e "plf_output_base={{.PROJECT_HOME}}"
+
+  manifest:update:
+    desc: Update a resource row to DONE
+    summary: |
+      Updates a specific resource row status to DONE.
+      
+      Arguments (pass after --):
+        Resource number (1-7)
+          1 = k3d cluster
+          2 = RustFS
+          3 = PostgreSQL
+          4 = Polaris
+          5 = Catalog
+          6 = Principal
+          7 = Demo data
+      
+      Example:
+        task manifest:update -- 1   # Mark k3d cluster as DONE
+        task manifest:update -- 4   # Mark Polaris as DONE
+    cmds:
+      - |
+        RESOURCE_NUM="{{.CLI_ARGS}}"
+        if [ -z "$RESOURCE_NUM" ]; then
+          echo "Error: Resource number required. Usage: task manifest:update -- <1-7>"
+          exit 1
+        fi
+        uv run --project "{{.SKILL_DIR}}" ansible-playbook \
+          "{{.SKILL_DIR}}/polaris-forge-setup/manifest.yml" \
+          --tags update \
+          -e "plf_output_base={{.PROJECT_HOME}}" \
+          -e "resource_num=$RESOURCE_NUM"
+
+  manifest:complete:
+    desc: Set manifest status to COMPLETE
+    summary: |
+      Updates manifest status to COMPLETE.
+      Call this after all resources are successfully created.
+      
+      Example:
+        task manifest:complete
+    cmds:
+      - |
+        uv run --project "{{.SKILL_DIR}}" ansible-playbook \
+          "{{.SKILL_DIR}}/polaris-forge-setup/manifest.yml" \
+          --tags complete \
+          -e "plf_output_base={{.PROJECT_HOME}}"
+
+  manifest:remove:
+    desc: Set manifest status to REMOVED
+    summary: |
+      Updates manifest status and all resource statuses to REMOVED.
+      Called automatically by teardown.
+      
+      Example:
+        task manifest:remove
+    cmds:
+      - |
+        uv run --project "{{.SKILL_DIR}}" ansible-playbook \
+          "{{.SKILL_DIR}}/polaris-forge-setup/manifest.yml" \
+          --tags remove \
+          -e "plf_output_base={{.PROJECT_HOME}}"
+
+  # ============================================
   # Setup and Initialization
   # ============================================
 
@@ -89,7 +235,24 @@ tasks:
 
   prepare:
     desc: Generate required sensitive files from templates using Ansible
+    summary: |
+      Generates sensitive files from Ansible templates (RSA keys, K8s manifests, credentials).
+      
+      Variables:
+        WORK_DIR    Target directory (default: current directory)
+        TAGS        Comma-separated Ansible tags to run (default: all)
+                    Available: rsa, setup, bootstrap, k8s
+      
+      Example:
+        task prepare                     # Run all preparation steps
+        task prepare TAGS=rsa,k8s        # Only RSA keys and K8s manifests
     preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ]'
+        msg: |
+          ERROR: Cannot run prepare in the source repository.
+          
+          Use WORK_DIR to specify the target directory:
+            task prepare WORK_DIR=~/polaris-dev
       - sh: test -f .venv/bin/activate || test -f .venv/Scripts/activate
         msg: "Python venv not found. Run 'task setup:python' first."
     cmds:
@@ -99,7 +262,25 @@ tasks:
     desc: Ensure container runtime is ready (Podman machine setup if needed)
     cmds:
       - |
-        RUNTIME="${PLF_CONTAINER_RUNTIME:-podman}"
+        # Load runtime from .env if it exists (set by plf init)
+        if [ -f "{{.PROJECT_HOME}}/.env" ]; then
+          RUNTIME=$(grep -E '^PLF_CONTAINER_RUNTIME=' "{{.PROJECT_HOME}}/.env" | cut -d= -f2 | tr -d '"' | tr -d "'")
+        fi
+        # Fall back to env var or auto-detect
+        if [ -z "$RUNTIME" ]; then
+          RUNTIME="${PLF_CONTAINER_RUNTIME:-}"
+        fi
+        if [ -z "$RUNTIME" ]; then
+          DETECTED=$({{.PLF}} detect-runtime 2>/dev/null | head -1 | cut -d: -f1) || DETECTED=""
+          if [ -n "$DETECTED" ] && [ "$DETECTED" != "choice" ] && [ "$DETECTED" != "Error" ]; then
+            RUNTIME="$DETECTED"
+          else
+            echo "ERROR: Could not detect container runtime."
+            echo "Ensure Docker or Podman is installed and running, or set PLF_CONTAINER_RUNTIME."
+            exit 1
+          fi
+        fi
+        
         if [ "$RUNTIME" = "podman" ] && command -v podman > /dev/null 2>&1; then
           echo "Container runtime: podman"
           task podman:setup
@@ -111,38 +292,327 @@ tasks:
     desc: Stop container runtime after teardown (Podman machine stop if needed)
     cmds:
       - |
-        RUNTIME="${PLF_CONTAINER_RUNTIME:-podman}"
+        # Load runtime from .env if it exists
+        if [ -f "{{.PROJECT_HOME}}/.env" ]; then
+          RUNTIME=$(grep -E '^PLF_CONTAINER_RUNTIME=' "{{.PROJECT_HOME}}/.env" | cut -d= -f2 | tr -d '"' | tr -d "'")
+        fi
+        # Fall back to env var or auto-detect
+        if [ -z "$RUNTIME" ]; then
+          RUNTIME="${PLF_CONTAINER_RUNTIME:-}"
+        fi
+        if [ -z "$RUNTIME" ]; then
+          DETECTED=$({{.PLF}} detect-runtime 2>/dev/null | head -1 | cut -d: -f1) || DETECTED=""
+          if [ -n "$DETECTED" ] && [ "$DETECTED" != "choice" ] && [ "$DETECTED" != "Error" ]; then
+            RUNTIME="$DETECTED"
+          else
+            echo "WARNING: Could not detect container runtime. Skipping teardown."
+            exit 0
+          fi
+        fi
+        
         if [ "$RUNTIME" = "podman" ] && [ "$(uname)" = "Darwin" ] && command -v podman > /dev/null 2>&1; then
           task podman:stop
         fi
 
   setup:all:
-    desc: "Complete setup - init, doctor, cluster, Polaris, catalog. Use WORK_DIR=/path for isolated setup"
+    desc: "Complete setup with manifest tracking. Use WORK_DIR=/path for isolated setup"
+    summary: |
+      Creates a complete Apache Polaris environment with manifest tracking.
+      
+      Variables:
+        WORK_DIR    Isolated project directory (default: current directory)
+                    Creates all files in specified directory instead of pwd
+      
+      Steps performed:
+        1. Initialize manifest (PENDING)
+        2. Run doctor checks and prepare configs
+        3. Create k3d cluster, deploy RustFS + PostgreSQL
+        4. Deploy Polaris, bootstrap principal
+        5. Setup catalog with demo data
+        6. Verify with DuckDB
+      
+      Manifest: .snow-utils/snow-utils-manifest.md
+      
+      Example:
+        task setup:all                        # In current directory
+        task setup:all WORK_DIR=~/polaris-dev # Isolated directory
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ]'
+        msg: |
+          ERROR: Cannot run setup in the source repository.
+          
+          The skill directory is READ-ONLY. Use WORK_DIR to specify a separate directory:
+            task setup:all WORK_DIR=~/polaris-dev
     cmds:
-      # Same sequence as SKILL.md agentic workflow - one base, multiple use
+      # Initialize manifest with PENDING status
+      - task: manifest:init
+      # Set status to IN_PROGRESS
+      - task: manifest:start
+      # Same sequence as SKILL.md agentic workflow
       - "{{.PLF}} init"
       - "{{.PLF}} doctor --fix"
       - "{{.PLF}} prepare"
       - "{{.PLF}} cluster create"
-      - "{{.PLF}} polaris deploy"
+      # Mark k3d cluster as DONE
+      - task: manifest:update
+        vars: { CLI_ARGS: "1" }
       - task: cluster:bootstrap-check
+      # Mark RustFS and PostgreSQL as DONE (they come up with cluster)
+      - task: manifest:update
+        vars: { CLI_ARGS: "2" }
+      - task: manifest:update
+        vars: { CLI_ARGS: "3" }
+      - "{{.PLF}} polaris deploy"
       - "{{.PLF}} polaris bootstrap"
       - task: cluster:polaris-check
+      # Mark Polaris and Principal as DONE
+      - task: manifest:update
+        vars: { CLI_ARGS: "4" }
+      - task: manifest:update
+        vars: { CLI_ARGS: "6" }
       - "{{.PLF}} catalog setup"
+      # Mark Catalog and Demo data as DONE
+      - task: manifest:update
+        vars: { CLI_ARGS: "5" }
+      - task: manifest:update
+        vars: { CLI_ARGS: "7" }
       - task: verify:sql
+      # Set status to COMPLETE
+      - task: manifest:complete
       - 'echo ""'
       - 'echo "Setup complete! Test data verified."'
+      - 'echo "Manifest: .snow-utils/snow-utils-manifest.md"'
       - 'echo "Explore further with: task catalog:generate-notebook"'
 
+  setup:replay:
+    desc: "Replay or resume setup from manifest"
+    summary: |
+      Checks manifest status and continues appropriately:
+      
+      Status: REMOVED     → Full replay (re-run setup:all with existing config)
+      Status: IN_PROGRESS → Resume from first PENDING resource
+      Status: COMPLETE    → Already done, offer reset option
+      No manifest         → Error, run setup:all instead
+      
+      Variables:
+        WORK_DIR    Target directory containing the manifest
+      
+      Example:
+        task setup:replay WORK_DIR=~/polaris-dev
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ]'
+        msg: |
+          ERROR: Cannot run setup:replay in the source repository.
+          
+          Use WORK_DIR to specify the target directory:
+            task setup:replay WORK_DIR=~/polaris-dev
+    cmds:
+      - |
+        MANIFEST="{{.PROJECT_HOME}}/.snow-utils/snow-utils-manifest.md"
+        if [ ! -f "$MANIFEST" ]; then
+          echo "No manifest found at $MANIFEST"
+          echo "Run 'task setup:all' for fresh setup."
+          exit 1
+        fi
+        STATUS=$(grep "^\*\*Status:\*\*" "$MANIFEST" | head -1 | sed 's/.*\*\* //')
+        echo "Manifest status: $STATUS"
+        echo ""
+        case "$STATUS" in
+          REMOVED)
+            echo "Starting full replay from REMOVED state..."
+            task setup:all WORK_DIR="{{.PROJECT_HOME}}"
+            ;;
+          IN_PROGRESS|PENDING)
+            echo "Resuming from $STATUS state..."
+            task setup:resume WORK_DIR="{{.PROJECT_HOME}}"
+            ;;
+          COMPLETE)
+            echo "Setup already COMPLETE. Verifying cluster health..."
+            echo ""
+            # Check if cluster is actually running
+            if k3d cluster list 2>/dev/null | grep -q "{{.K3D_CLUSTER_NAME}}"; then
+              echo "✓ Cluster '{{.K3D_CLUSTER_NAME}}' is running"
+              # Quick health check on Polaris
+              if kubectl get deployment polaris -n polaris &>/dev/null; then
+                READY=$(kubectl get deployment polaris -n polaris -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+                if [ "$READY" -ge 1 ]; then
+                  echo "✓ Polaris is healthy (${READY} replica(s) ready)"
+                  echo ""
+                  echo "Your environment is ready to use!"
+                  echo "  - Polaris API: http://localhost:18181"
+                  echo "  - RustFS S3:   http://localhost:19000"
+                  echo ""
+                  echo "To reset or tear down:"
+                  echo "  task catalog:reset   # Reset catalog only"
+                  echo "  task teardown        # Full teardown (prompts for confirmation)"
+                else
+                  echo "⚠ Polaris deployment exists but not ready"
+                  echo "  Check with: task status"
+                fi
+              else
+                echo "⚠ Polaris deployment not found"
+                echo "  May need to run: {{.PLF}} polaris deploy"
+              fi
+            else
+              echo "⚠ Cluster not running but manifest shows COMPLETE"
+              echo ""
+              echo "The cluster may have been stopped externally."
+              echo "To fix, run 'task teardown WORK_DIR={{.PROJECT_HOME}}' first, then 'task setup:replay WORK_DIR={{.PROJECT_HOME}}'"
+            fi
+            ;;
+          *)
+            echo "Unknown manifest status: $STATUS"
+            exit 1
+            ;;
+        esac
+
+  setup:resume:
+    desc: "Resume setup from IN_PROGRESS manifest (internal)"
+    summary: |
+      Resumes setup from an IN_PROGRESS manifest by checking which resources
+      are still PENDING and running only those steps.
+      
+      This is typically called by setup:replay, not directly.
+    cmds:
+      - |
+        MANIFEST="{{.PROJECT_HOME}}/.snow-utils/snow-utils-manifest.md"
+        
+        # Check each resource status and run if PENDING
+        check_and_run() {
+          local num=$1
+          local name=$2
+          local cmd=$3
+          if grep -q "| $num |.*| PENDING |" "$MANIFEST"; then
+            echo "Resource $num ($name) is PENDING, running..."
+            eval "$cmd"
+            task manifest:update -- $num
+          else
+            echo "Resource $num ($name) is DONE, skipping."
+          fi
+        }
+        
+        # Resource 1: k3d cluster
+        if grep -q "| 1 |.*| PENDING |" "$MANIFEST"; then
+          echo "Creating k3d cluster..."
+          {{.PLF}} cluster create
+          task manifest:update -- 1
+        fi
+        
+        # Wait for bootstrap if resources 2-3 pending
+        if grep -q "| 2 |.*| PENDING |" "$MANIFEST" || grep -q "| 3 |.*| PENDING |" "$MANIFEST"; then
+          task cluster:bootstrap-check
+          task manifest:update -- 2
+          task manifest:update -- 3
+        fi
+        
+        # Resource 4: Polaris
+        if grep -q "| 4 |.*| PENDING |" "$MANIFEST"; then
+          echo "Deploying Polaris..."
+          {{.PLF}} polaris deploy
+          {{.PLF}} polaris bootstrap
+          task cluster:polaris-check
+          task manifest:update -- 4
+        fi
+        
+        # Resource 6: Principal
+        if grep -q "| 6 |.*| PENDING |" "$MANIFEST"; then
+          task manifest:update -- 6
+        fi
+        
+        # Resource 5: Catalog
+        if grep -q "| 5 |.*| PENDING |" "$MANIFEST"; then
+          echo "Setting up catalog..."
+          {{.PLF}} catalog setup
+          task manifest:update -- 5
+        fi
+        
+        # Resource 7: Demo data
+        if grep -q "| 7 |.*| PENDING |" "$MANIFEST"; then
+          task verify:sql
+          task manifest:update -- 7
+        fi
+        
+        # Mark complete
+        task manifest:complete
+        echo ""
+        echo "Resume complete! All resources are DONE."
+
   teardown:
-    desc: "Complete teardown - cleanup catalog, delete cluster. Use WORK_DIR=/path to target specific project"
+    desc: "Teardown cluster with confirmation prompt"
+    summary: |
+      Deletes the k3d cluster and all Polaris resources.
+      Always prompts for confirmation before proceeding.
+      
+      Options (pass after --):
+        (none)      Cluster only - keeps all local files for replay
+        all         Clean generated files, preserves .snow-utils for replay/audit
+      
+      Example:
+        task teardown                  # Cluster only (keeps all local files)
+        task teardown -- all           # Clean files, keep .snow-utils
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ]'
+        msg: |
+          ERROR: Cannot run teardown in the source repository.
+          
+          Use WORK_DIR to specify the target directory:
+            task teardown WORK_DIR=~/polaris-dev
+    prompt: |
+      This will delete the k3d cluster and all resources.
+      
+      Cleanup scope:
+        - Default:      Cluster only (keeps all local files)
+        - With 'all':   Clean generated files (preserves .snow-utils)
+      
+      Continue?
     cmds:
       - "{{.PLF}} teardown --yes"
+      - task: manifest:remove
+      - |
+        if [ "{{.CLI_ARGS}}" = "all" ]; then
+          echo "Cleaning local directory..."
+          for item in {{.CLEANUP_PATHS}}; do
+            rm -rf "{{.PROJECT_HOME}}/$item"
+          done
+          echo ""
+          echo "Local directory cleaned."
+          echo "Note: .snow-utils/ preserved for audit and replay."
+        fi
+      - 'echo ""'
+      - 'echo "Teardown complete."'
 
   teardown:full:
-    desc: Complete teardown with Podman stop (no prompt)
+    desc: Complete teardown with Podman stop and confirmation
+    summary: |
+      Deletes the k3d cluster, all Polaris resources, and stops Podman machine.
+      Always prompts for confirmation before proceeding.
+      
+      Options (pass after --):
+        (none)      Cluster + Podman stop, keeps all local files
+        all         Clean generated files, preserves .snow-utils for replay/audit
+      
+      Example:
+        task teardown:full             # Cluster + Podman stop
+        task teardown:full -- all      # + clean files, keep .snow-utils
+    prompt: |
+      This will delete the k3d cluster, all resources, AND stop the Podman machine.
+      
+      Continue?
     cmds:
       - "{{.PLF}} teardown --yes --stop-podman"
+      - task: manifest:remove
+      - |
+        if [ "{{.CLI_ARGS}}" = "all" ]; then
+          echo "Cleaning local directory..."
+          for item in {{.CLEANUP_PATHS}}; do
+            rm -rf "{{.PROJECT_HOME}}/$item"
+          done
+          echo ""
+          echo "Local directory cleaned."
+          echo "Note: .snow-utils/ preserved for audit and replay."
+        fi
+      - 'echo ""'
+      - 'echo "Teardown complete."'
 
   reset:all:
     desc: Complete reset - delete cluster, recreate everything with fresh catalog
@@ -188,11 +658,34 @@ tasks:
 
   doctor:
     desc: Check system prerequisites and health (uses CLI for consistent detection)
+    summary: |
+      Checks system prerequisites and attempts to fix issues.
+      
+      Options (pass after --):
+        --fix       Attempt to fix issues automatically (e.g., start Podman machine)
+        --verbose   Show detailed output
+      
+      Checks performed:
+        - Required tools: podman/docker, k3d, kubectl, uv
+        - Podman machine status (macOS only)
+        - SSH config for Podman VM access (macOS only)
+        - Port availability: 19000 (RustFS), 19001 (RustFS Console), 18181 (Polaris)
+      
+      Example:
+        task doctor               # Check only
+        task doctor -- --fix      # Check and fix
     cmds:
       - "{{.PLF}} doctor {{.CLI_ARGS}}"
 
   config:
     desc: Show current configuration from .env file
+    summary: |
+      Displays the current configuration values from .env file.
+      
+      Shows all non-commented, non-empty lines sorted alphabetically.
+      
+      Example:
+        task config
     cmds:
       - |
         if [ -f .env ]; then
@@ -204,6 +697,15 @@ tasks:
 
   status:
     desc: Show status of cluster and Polaris
+    summary: |
+      Shows the current status of the k3d cluster and Polaris deployment.
+      
+      Displays:
+        - k3d cluster list
+        - Polaris namespace deployments and pods
+      
+      Example:
+        task status
     cmds:
       - |
         echo "=== Cluster Status ==="
@@ -214,6 +716,13 @@ tasks:
 
   verify:
     desc: Verify Polaris catalog setup (alias for catalog:verify:duckdb)
+    summary: |
+      Verifies the Polaris catalog setup using DuckDB.
+      
+      Queries the demo table to confirm data is accessible through Polaris.
+      
+      Example:
+        task verify
     cmds:
       - task: catalog:verify:duckdb
         vars:
@@ -221,6 +730,13 @@ tasks:
 
   verify:sql:
     desc: Verify Polaris catalog setup using SQL (alias for catalog:verify:sql)
+    summary: |
+      Verifies the Polaris catalog setup using DuckDB CLI with SQL script.
+      
+      Runs a SQL script that queries the demo table through Polaris.
+      
+      Example:
+        task verify:sql
     cmds:
       - task: catalog:verify:sql
         vars:
@@ -248,5 +764,18 @@ tasks:
 
   help:
     desc: Show available tasks with descriptions
+    summary: |
+      Lists all available tasks with their descriptions.
+      
+      For detailed help on a specific task, use:
+        task <task-name> --summary
+      
+      Common variables (pass as VAR=value):
+        WORK_DIR    Isolated project directory (default: current dir)
+        TAGS        Filter Ansible tags for prepare/catalog commands
+      
+      Example:
+        task help                    # List all tasks
+        task setup:all --summary     # Detailed help for setup:all
     cmds:
       - task --list

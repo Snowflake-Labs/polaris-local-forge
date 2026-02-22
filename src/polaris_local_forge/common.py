@@ -29,6 +29,7 @@ from pathlib import Path
 import click
 import yaml
 from dotenv import load_dotenv
+from jinja2 import Environment, FileSystemLoader
 
 __all__ = [
     "SKILL_DIR",
@@ -38,7 +39,7 @@ __all__ = [
     "STATIC_K8S_FILES",
     "TEMPLATES",
     "INIT_DIRECTORIES",
-    "MANIFEST_TEMPLATE",
+    "render_manifest",
     "get_config",
     "set_env_var",
     "run_ansible",
@@ -95,40 +96,40 @@ TEMPLATES = [
 # Directories to create during init
 INIT_DIRECTORIES = [".kube", "work", "bin", "k8s/features", "k8s/polaris/jobs"]
 
-# Manifest template for .snow-utils/snow-utils-manifest.md
-MANIFEST_TEMPLATE = """# Snow-Utils Manifest
 
-This manifest tracks resources created by polaris-local-forge.
-
----
-
-**Status:** PENDING
-
-## project_recipe
-project_name: {project_name}
-
-## configuration
-container_runtime: {container_runtime}
-podman_machine: {podman_machine}
-cluster_name: {cluster_name}
-
-## resources
-
-| # | Resource | Type | Status |
-|---|----------|------|--------|
-| 1 | k3d cluster | infrastructure | PENDING |
-| 2 | RustFS | storage | PENDING |
-| 3 | PostgreSQL | database | PENDING |
-| 4 | Polaris | service | PENDING |
-| 5 | Catalog | data | PENDING |
-| 6 | Principal | auth | PENDING |
-| 7 | Demo data | data | PENDING |
-
-## prereqs
-
-## installed_skills
-polaris-local-forge: https://github.com/Snowflake-Labs/polaris-local-forge
-"""
+def render_manifest(
+    project_name: str,
+    container_runtime: str,
+    podman_machine: str,
+    cluster_name: str,
+    manifest_status: str = "PENDING",
+) -> str:
+    """Render manifest from shared Jinja2 template.
+    
+    Uses the same template as Ansible playbooks for cross-workflow compatibility.
+    Both the CLI (plf init --with-manifest) and Taskfile (task setup:all) produce
+    identical manifests that can be read/updated by either workflow.
+    
+    Args:
+        project_name: Name of the project
+        container_runtime: Container runtime (docker or podman)
+        podman_machine: Podman machine name (or N/A for docker)
+        cluster_name: K3d cluster name
+        manifest_status: Initial status (default: PENDING)
+        
+    Returns:
+        Rendered manifest content as string
+    """
+    template_dir = ANSIBLE_DIR / "templates"
+    env = Environment(loader=FileSystemLoader(template_dir))
+    template = env.get_template("manifest.md.j2")
+    return template.render(
+        project_name=project_name,
+        container_runtime=container_runtime,
+        podman_machine=podman_machine,
+        cluster_name=cluster_name,
+        manifest_status=manifest_status,
+    )
 
 
 def get_config(work_dir: Path) -> dict:

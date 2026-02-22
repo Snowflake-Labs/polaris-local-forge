@@ -231,6 +231,26 @@ setup from manifest URL https://example.com/my-manifest.md
 > [!TIP]
 > Default is **clear runtime for auto-detection** — maximizes compatibility across Docker and Podman users.
 
+### Cross-Workflow Compatibility with Task Commands
+
+The manifest created by Cortex Code (this skill) is fully compatible with the Task workflow and vice versa. Both use the same manifest format at `.snow-utils/snow-utils-manifest.md`.
+
+**This means you can:**
+
+- Start with `task setup:all` → later use Cortex Code for queries and operations
+- Start with Cortex Code → later use `task setup:replay` to resume
+- Mix and match based on preference
+
+**Task commands that work with the skill manifest:**
+
+| Task Command | Description |
+|--------------|-------------|
+| `task setup:replay WORK_DIR=...` | Resume/replay from manifest (equivalent to "replay from manifest") |
+| `task teardown WORK_DIR=...` | Teardown with confirmation (equivalent to "teardown polaris") |
+| `task status` | Check cluster status (equivalent to "polaris status") |
+
+For detailed Task workflow documentation, see [README.md](README.md#manifest-workflow).
+
 ### Manual Setup
 
 Say **"get started with apache polaris"** and the skill will guide you step by step:

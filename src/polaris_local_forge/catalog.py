@@ -52,8 +52,18 @@ def catalog_setup(ctx, tags: str | None, dry_run: bool, verbose: bool):
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 @click.pass_context
 def catalog_cleanup(ctx, tags: str | None, dry_run: bool, verbose: bool, yes: bool):
-    """Clean up Polaris catalog via Ansible."""
+    """Clean up Polaris catalog via Ansible.
+    
+    Idempotent: skips if prerequisites don't exist (nothing to clean up).
+    """
     work_dir = ctx.obj["WORK_DIR"]
+    
+    # Check prerequisites - if they don't exist, nothing to clean up (idempotent)
+    aws_config = work_dir / ".aws" / "config"
+    if not aws_config.exists():
+        click.echo("Catalog cleanup: skipping (no .aws/config - nothing to clean up)")
+        return
+    
     if not yes and not dry_run:
         if not click.confirm("Clean up catalog?"):
             click.echo("Aborted.")

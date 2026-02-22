@@ -1,0 +1,36 @@
+{# Copyright 2025 Snowflake Inc.
+   SPDX-License-Identifier: Apache-2.0 #}
+# Snow-Utils Manifest
+
+This manifest tracks resources created by polaris-local-forge.
+
+---
+
+## prereqs
+
+## installed_skills
+polaris-local-forge: https://github.com/Snowflake-Labs/polaris-local-forge
+
+---
+
+**Status:** {{ manifest_status | default('PENDING') }}
+
+## project_recipe
+project_name: {{ project_name }}
+
+## configuration
+container_runtime: {{ container_runtime }}
+podman_machine: {{ podman_machine }}
+cluster_name: {{ cluster_name }}
+
+## resources
+
+| # | Resource | Type | Status |
+|---|----------|------|--------|
+| 1 | k3d cluster | infrastructure | {{ resource_1_status | default('PENDING') }} |
+| 2 | RustFS | storage | {{ resource_2_status | default('PENDING') }} |
+| 3 | PostgreSQL | database | {{ resource_3_status | default('PENDING') }} |
+| 4 | Polaris | service | {{ resource_4_status | default('PENDING') }} |
+| 5 | Catalog | data | {{ resource_5_status | default('PENDING') }} |
+| 6 | Principal | auth | {{ resource_6_status | default('PENDING') }} |
+| 7 | Demo data | data | {{ resource_7_status | default('PENDING') }} |
