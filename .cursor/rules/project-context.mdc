@@ -17,6 +17,17 @@ When working with this project, reference these docs:
 - **Apache Polaris:** https://polaris.apache.org/
 - **Apache Iceberg:** https://iceberg.apache.org/
 
+## Snowflake Documentation
+
+For Snowflake-related work, always reference:
+
+- **Snowflake Open Catalog:** https://docs.snowflake.com/en/user-guide/opencatalog/overview
+  - Managed service for Apache Polaris (incubating)
+  - Iceberg REST protocol, catalogs, namespaces, credential vending, RBAC
+- **Snowflake SQL & Features:** https://docs.snowflake.com/en/
+  - SQL commands, functions, data types
+  - User guides, developer guides, tutorials
+
 ## Apache Polaris API Reference
 
 - **Catalog API (Iceberg REST):** https://editor.swagger.io/?url=https://raw.githubusercontent.com/apache/polaris/refs/heads/main/spec/generated/bundled-polaris-catalog-service.yaml
