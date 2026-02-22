@@ -98,44 +98,7 @@ tasks:
         task manifest:init
         task manifest:init WORK_DIR=~/polaris-dev
     cmds:
-      - |
-        # Auto-detect runtime
-        # Priority: existing .env > env var > running runtime > ERROR (no default)
-        RUNTIME=""
-        
-        # 1. Check existing .env (for replay scenarios)
-        if [ -f "{{.PROJECT_HOME}}/.env" ]; then
-          RUNTIME=$(grep -E '^PLF_CONTAINER_RUNTIME=' "{{.PROJECT_HOME}}/.env" | cut -d= -f2 | tr -d '"' | tr -d "'")
-          [ -n "$RUNTIME" ] && echo "Runtime from .env: $RUNTIME"
-        fi
-        
-        # 2. Check environment variable
-        if [ -z "$RUNTIME" ] && [ -n "$PLF_CONTAINER_RUNTIME" ]; then
-          RUNTIME="$PLF_CONTAINER_RUNTIME"
-          echo "Runtime from env var: $RUNTIME"
-        fi
-        
-        # 3. Auto-detect running runtime
-        if [ -z "$RUNTIME" ]; then
-          DETECTED=$({{.PLF}} detect-runtime 2>/dev/null | head -1 | cut -d: -f1) || DETECTED=""
-          if [ -n "$DETECTED" ] && [ "$DETECTED" != "choice" ] && [ "$DETECTED" != "Error" ]; then
-            RUNTIME="$DETECTED"
-            echo "Runtime auto-detected: $RUNTIME"
-          else
-            echo "ERROR: Could not detect container runtime."
-            echo "Ensure Docker or Podman is installed and running, or set PLF_CONTAINER_RUNTIME."
-            exit 1
-          fi
-        fi
-        
-        uv run --project "{{.SKILL_DIR}}" ansible-playbook \
-          "{{.SKILL_DIR}}/polaris-forge-setup/manifest.yml" \
-          --tags init \
-          -e "plf_output_base={{.PROJECT_HOME}}" \
-          -e "project_name=$(basename {{.PROJECT_HOME}})" \
-          -e "container_runtime=$RUNTIME" \
-          -e "podman_machine=${PLF_PODMAN_MACHINE:-k3d}" \
-          -e "cluster_name=$(basename {{.PROJECT_HOME}})"
+      - "{{.PLF}} setup manifest init"
 
   manifest:start:
     desc: Set manifest status to IN_PROGRESS
@@ -146,11 +109,7 @@ tasks:
       Example:
         task manifest:start
     cmds:
-      - |
-        uv run --project "{{.SKILL_DIR}}" ansible-playbook \
-          "{{.SKILL_DIR}}/polaris-forge-setup/manifest.yml" \
-          --tags start \
-          -e "plf_output_base={{.PROJECT_HOME}}"
+      - "{{.PLF}} setup manifest start"
 
   manifest:update:
     desc: Update a resource row to DONE
@@ -171,17 +130,7 @@ tasks:
         task manifest:update -- 1   # Mark k3d cluster as DONE
         task manifest:update -- 4   # Mark Polaris as DONE
     cmds:
-      - |
-        RESOURCE_NUM="{{.CLI_ARGS}}"
-        if [ -z "$RESOURCE_NUM" ]; then
-          echo "Error: Resource number required. Usage: task manifest:update -- <1-7>"
-          exit 1
-        fi
-        uv run --project "{{.SKILL_DIR}}" ansible-playbook \
-          "{{.SKILL_DIR}}/polaris-forge-setup/manifest.yml" \
-          --tags update \
-          -e "plf_output_base={{.PROJECT_HOME}}" \
-          -e "resource_num=$RESOURCE_NUM"
+      - "{{.PLF}} setup manifest update {{.CLI_ARGS}}"
 
   manifest:complete:
     desc: Set manifest status to COMPLETE
@@ -192,11 +141,7 @@ tasks:
       Example:
         task manifest:complete
     cmds:
-      - |
-        uv run --project "{{.SKILL_DIR}}" ansible-playbook \
-          "{{.SKILL_DIR}}/polaris-forge-setup/manifest.yml" \
-          --tags complete \
-          -e "plf_output_base={{.PROJECT_HOME}}"
+      - "{{.PLF}} setup manifest complete"
 
   manifest:remove:
     desc: Set manifest status to REMOVED
@@ -207,11 +152,7 @@ tasks:
       Example:
         task manifest:remove
     cmds:
-      - |
-        uv run --project "{{.SKILL_DIR}}" ansible-playbook \
-          "{{.SKILL_DIR}}/polaris-forge-setup/manifest.yml" \
-          --tags remove \
-          -e "plf_output_base={{.PROJECT_HOME}}"
+      - "{{.PLF}} setup manifest remove"
 
   # ============================================
   # Setup and Initialization
@@ -261,58 +202,12 @@ tasks:
   runtime:setup:
     desc: Ensure container runtime is ready (Podman machine setup if needed)
     cmds:
-      - |
-        # Load runtime from .env if it exists (set by plf init)
-        if [ -f "{{.PROJECT_HOME}}/.env" ]; then
-          RUNTIME=$(grep -E '^PLF_CONTAINER_RUNTIME=' "{{.PROJECT_HOME}}/.env" | cut -d= -f2 | tr -d '"' | tr -d "'")
-        fi
-        # Fall back to env var or auto-detect
-        if [ -z "$RUNTIME" ]; then
-          RUNTIME="${PLF_CONTAINER_RUNTIME:-}"
-        fi
-        if [ -z "$RUNTIME" ]; then
-          DETECTED=$({{.PLF}} detect-runtime 2>/dev/null | head -1 | cut -d: -f1) || DETECTED=""
-          if [ -n "$DETECTED" ] && [ "$DETECTED" != "choice" ] && [ "$DETECTED" != "Error" ]; then
-            RUNTIME="$DETECTED"
-          else
-            echo "ERROR: Could not detect container runtime."
-            echo "Ensure Docker or Podman is installed and running, or set PLF_CONTAINER_RUNTIME."
-            exit 1
-          fi
-        fi
-        
-        if [ "$RUNTIME" = "podman" ] && command -v podman > /dev/null 2>&1; then
-          echo "Container runtime: podman"
-          task podman:setup
-        else
-          echo "Container runtime: docker"
-        fi
+      - "{{.PLF}} setup runtime ensure"
 
   runtime:teardown:
     desc: Stop container runtime after teardown (Podman machine stop if needed)
     cmds:
-      - |
-        # Load runtime from .env if it exists
-        if [ -f "{{.PROJECT_HOME}}/.env" ]; then
-          RUNTIME=$(grep -E '^PLF_CONTAINER_RUNTIME=' "{{.PROJECT_HOME}}/.env" | cut -d= -f2 | tr -d '"' | tr -d "'")
-        fi
-        # Fall back to env var or auto-detect
-        if [ -z "$RUNTIME" ]; then
-          RUNTIME="${PLF_CONTAINER_RUNTIME:-}"
-        fi
-        if [ -z "$RUNTIME" ]; then
-          DETECTED=$({{.PLF}} detect-runtime 2>/dev/null | head -1 | cut -d: -f1) || DETECTED=""
-          if [ -n "$DETECTED" ] && [ "$DETECTED" != "choice" ] && [ "$DETECTED" != "Error" ]; then
-            RUNTIME="$DETECTED"
-          else
-            echo "WARNING: Could not detect container runtime. Skipping teardown."
-            exit 0
-          fi
-        fi
-        
-        if [ "$RUNTIME" = "podman" ] && [ "$(uname)" = "Darwin" ] && command -v podman > /dev/null 2>&1; then
-          task podman:stop
-        fi
+      - "{{.PLF}} setup runtime stop"
 
   setup:all:
     desc: "Complete setup with manifest tracking. Use WORK_DIR=/path for isolated setup"
@@ -408,62 +303,13 @@ tasks:
             task setup:replay WORK_DIR=~/polaris-dev
     cmds:
       - |
-        MANIFEST="{{.PROJECT_HOME}}/.snow-utils/snow-utils-manifest.md"
-        if [ ! -f "$MANIFEST" ]; then
-          echo "No manifest found at $MANIFEST"
-          echo "Run 'task setup:all' for fresh setup."
-          exit 1
-        fi
-        STATUS=$(grep "^\*\*Status:\*\*" "$MANIFEST" | head -1 | sed 's/.*\*\* //')
-        echo "Manifest status: $STATUS"
-        echo ""
-        case "$STATUS" in
-          REMOVED)
-            echo "Starting full replay from REMOVED state..."
-            task setup:all WORK_DIR="{{.PROJECT_HOME}}"
-            ;;
-          IN_PROGRESS|PENDING)
-            echo "Resuming from $STATUS state..."
-            task setup:resume WORK_DIR="{{.PROJECT_HOME}}"
-            ;;
-          COMPLETE)
-            echo "Setup already COMPLETE. Verifying cluster health..."
-            echo ""
-            # Check if cluster is actually running
-            if k3d cluster list 2>/dev/null | grep -q "{{.K3D_CLUSTER_NAME}}"; then
-              echo "✓ Cluster '{{.K3D_CLUSTER_NAME}}' is running"
-              # Quick health check on Polaris
-              if kubectl get deployment polaris -n polaris &>/dev/null; then
-                READY=$(kubectl get deployment polaris -n polaris -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-                if [ "$READY" -ge 1 ]; then
-                  echo "✓ Polaris is healthy (${READY} replica(s) ready)"
-                  echo ""
-                  echo "Your environment is ready to use!"
-                  echo "  - Polaris API: http://localhost:18181"
-                  echo "  - RustFS S3:   http://localhost:19000"
-                  echo ""
-                  echo "To reset or tear down:"
-                  echo "  task catalog:reset   # Reset catalog only"
-                  echo "  task teardown        # Full teardown (prompts for confirmation)"
-                else
-                  echo "⚠ Polaris deployment exists but not ready"
-                  echo "  Check with: task status"
-                fi
-              else
-                echo "⚠ Polaris deployment not found"
-                echo "  May need to run: {{.PLF}} polaris deploy"
-              fi
-            else
-              echo "⚠ Cluster not running but manifest shows COMPLETE"
-              echo ""
-              echo "The cluster may have been stopped externally."
-              echo "To fix, run 'task teardown WORK_DIR={{.PROJECT_HOME}}' first, then 'task setup:replay WORK_DIR={{.PROJECT_HOME}}'"
-            fi
-            ;;
-          *)
-            echo "Unknown manifest status: $STATUS"
-            exit 1
-            ;;
+        {{.PLF}} setup replay
+        EXIT_CODE=$?
+        case $EXIT_CODE in
+          0)  ;; # COMPLETE and healthy - nothing to do
+          10) task setup:all WORK_DIR="{{.PROJECT_HOME}}" ;;
+          11) task setup:resume WORK_DIR="{{.PROJECT_HOME}}" ;;
+          *)  exit $EXIT_CODE ;;
         esac
 
   setup:resume:
@@ -474,68 +320,7 @@ tasks:
       
       This is typically called by setup:replay, not directly.
     cmds:
-      - |
-        MANIFEST="{{.PROJECT_HOME}}/.snow-utils/snow-utils-manifest.md"
-        
-        # Check each resource status and run if PENDING
-        check_and_run() {
-          local num=$1
-          local name=$2
-          local cmd=$3
-          if grep -q "| $num |.*| PENDING |" "$MANIFEST"; then
-            echo "Resource $num ($name) is PENDING, running..."
-            eval "$cmd"
-            task manifest:update -- $num
-          else
-            echo "Resource $num ($name) is DONE, skipping."
-          fi
-        }
-        
-        # Resource 1: k3d cluster
-        if grep -q "| 1 |.*| PENDING |" "$MANIFEST"; then
-          echo "Creating k3d cluster..."
-          {{.PLF}} cluster create
-          task manifest:update -- 1
-        fi
-        
-        # Wait for bootstrap if resources 2-3 pending
-        if grep -q "| 2 |.*| PENDING |" "$MANIFEST" || grep -q "| 3 |.*| PENDING |" "$MANIFEST"; then
-          task cluster:bootstrap-check
-          task manifest:update -- 2
-          task manifest:update -- 3
-        fi
-        
-        # Resource 4: Polaris
-        if grep -q "| 4 |.*| PENDING |" "$MANIFEST"; then
-          echo "Deploying Polaris..."
-          {{.PLF}} polaris deploy
-          {{.PLF}} polaris bootstrap
-          task cluster:polaris-check
-          task manifest:update -- 4
-        fi
-        
-        # Resource 6: Principal
-        if grep -q "| 6 |.*| PENDING |" "$MANIFEST"; then
-          task manifest:update -- 6
-        fi
-        
-        # Resource 5: Catalog
-        if grep -q "| 5 |.*| PENDING |" "$MANIFEST"; then
-          echo "Setting up catalog..."
-          {{.PLF}} catalog setup
-          task manifest:update -- 5
-        fi
-        
-        # Resource 7: Demo data
-        if grep -q "| 7 |.*| PENDING |" "$MANIFEST"; then
-          task verify:sql
-          task manifest:update -- 7
-        fi
-        
-        # Mark complete
-        task manifest:complete
-        echo ""
-        echo "Resume complete! All resources are DONE."
+      - "{{.PLF}} setup resume"
 
   teardown:
     desc: "Teardown cluster with confirmation prompt"
