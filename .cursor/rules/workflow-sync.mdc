@@ -1,0 +1,49 @@
+# Workflow Synchronization
+
+## Critical: CLI and SKILL Workflows Must Stay in Sync
+
+The project has two parallel workflows that MUST remain synchronized:
+
+1. **CLI Workflow (Taskfile.yml)** - `task setup:all`, `task teardown`, etc.
+2. **SKILL Workflow (SKILL.md)** - Cortex Code agentic workflow
+
+### Files That Must Stay in Sync
+
+| CLI Path | SKILL Path | Must Match |
+|----------|------------|------------|
+| `Taskfile.yml` setup:all steps | `SKILL.md` "Run all mode" section | Execution order, manifest updates |
+| `Taskfile.yml` teardown task | `SKILL.md` "Teardown Flow" section | Confirmation behavior, cleanup paths |
+| `Taskfile.yml` CLEANUP_PATHS | `SKILL.md` "Clean Generated Files" | Exact same file list |
+| `src/polaris_local_forge/setup.py` | `SKILL.md` workflow logic | Exit codes, status handling |
+
+### When Changing Either Workflow
+
+1. **Check the other workflow** - Does it need the same change?
+2. **Update both** - Keep behavior identical
+3. **Verify constants** - `CLEANUP_PATHS` must match between Taskfile and SKILL.md
+4. **Test both paths** - Run `task setup:all` AND test via Cortex Code
+
+### Key Synchronization Points
+
+- **Manifest format**: Single template at `polaris-forge-setup/templates/manifest.md.j2`
+- **Runtime detection**: `plf setup runtime ensure` used by both
+- **Cleanup paths**: `.kube work k8s scripts bin notebooks .env .aws .envrc .gitignore .venv`
+- **Preserved paths**: `.snow-utils/` always preserved for replay/audit
+- **Confirmation**: Destructive operations require user confirmation in BOTH paths
+
+### Commands That Wrap CLI
+
+The SKILL.md workflow uses CLI commands - changes to CLI affect SKILL:
+
+```
+./bin/plf teardown --yes     # SKILL calls this AFTER getting user confirmation
+./bin/plf setup manifest *   # Used by both workflows
+./bin/plf setup runtime *    # Used by both workflows
+```
+
+### Never Change Independently
+
+- Exit codes from `plf setup replay` (0, 10, 11)
+- Manifest status values (PENDING, IN_PROGRESS, COMPLETE, REMOVED)
+- Resource numbering in manifest (1-7)
+- File/directory cleanup list
