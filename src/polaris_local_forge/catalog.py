@@ -15,14 +15,16 @@
 
 """Catalog management commands for Polaris Local Forge.
 
-This module provides catalog operations: setup, cleanup, verify-sql, explore-sql.
+This module provides catalog operations: setup, cleanup, verify-sql, explore-sql, query.
 """
 
+import os
 import shutil
 import subprocess
 import sys
 
 import click
+from dotenv import load_dotenv
 
 from polaris_local_forge.common import run_ansible
 
@@ -118,4 +120,73 @@ def catalog_explore_sql(ctx):
     click.echo("Type '.exit' or Ctrl+D to quit.")
 
     result = subprocess.run(["duckdb", "-init", str(sql_file)])
+    sys.exit(result.returncode)
+
+
+@catalog.command("query")
+@click.option("--sql", "-s", required=True, help="SQL query to execute (use polaris_catalog.schema.table)")
+@click.pass_context
+def catalog_query(ctx, sql: str):
+    """Execute read-only SQL query against catalog.
+    
+    Thin wrapper that handles connection setup automatically.
+    Table references should use: polaris_catalog.<schema>.<table>
+    
+    Examples:
+    
+        plf catalog query --sql "SELECT COUNT(*) FROM polaris_catalog.wildlife.penguins"
+        
+        plf catalog query --sql "SHOW ALL TABLES"
+    """
+    work_dir = ctx.obj["WORK_DIR"]
+    
+    # Load .env for config
+    env_file = work_dir / ".env"
+    if env_file.exists():
+        load_dotenv(env_file, override=True)
+    
+    # Read credentials from principal.txt
+    principal_file = work_dir / "work" / "principal.txt"
+    if not principal_file.exists():
+        click.echo(f"Principal file not found: {principal_file}", err=True)
+        click.echo("Run 'catalog setup' first.", err=True)
+        sys.exit(1)
+    
+    try:
+        realm, client_id, client_secret = principal_file.read_text().strip().split(",")
+    except ValueError:
+        click.echo(f"Invalid principal file format: {principal_file}", err=True)
+        sys.exit(1)
+    
+    if not shutil.which("duckdb"):
+        click.echo("DuckDB CLI not found. Install with: brew install duckdb", err=True)
+        sys.exit(1)
+    
+    # Get config from environment
+    polaris_url = os.getenv("POLARIS_URL", "http://localhost:18181")
+    catalog_name = os.getenv("PLF_POLARIS_CATALOG_NAME", "polardb")
+    
+    # Build connection setup SQL
+    setup_sql = f"""
+INSTALL iceberg;
+LOAD iceberg;
+CREATE OR REPLACE SECRET polaris_secret (
+    TYPE iceberg,
+    CLIENT_ID '{client_id}',
+    CLIENT_SECRET '{client_secret}',
+    OAUTH2_SERVER_URI '{polaris_url}/api/catalog/v1/oauth/tokens'
+);
+ATTACH '{catalog_name}' AS polaris_catalog (
+    TYPE iceberg,
+    SECRET polaris_secret,
+    ENDPOINT '{polaris_url}/api/catalog'
+);
+"""
+    # Combine setup + user query
+    full_sql = setup_sql + sql + ";"
+    
+    result = subprocess.run(
+        ["duckdb", "-c", full_sql],
+        capture_output=False
+    )
     sys.exit(result.returncode)

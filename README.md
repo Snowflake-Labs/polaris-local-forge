@@ -236,7 +236,8 @@ All operations are available via Task commands:
 | `task catalog:cleanup` | Cleanup catalog resources |
 | `task catalog:reset` | Cleanup and recreate catalog |
 | `task catalog:list` | List catalogs |
-| `task catalog:verify:sql` | Verify with DuckDB (non-interactive) |
+| `task catalog:verify:sql` | Verify with DuckDB (loads + inserts data) |
+| `task catalog:query SQL="..."` | Execute read-only SQL query (no inserts) |
 | `task catalog:explore:sql` | Explore with DuckDB (interactive) |
 | `task catalog:verify:duckdb` | Verify with Python DuckDB |
 | `task catalog:generate-notebook` | Generate verification notebook |
@@ -339,7 +340,8 @@ uv run polaris-local-forge --help
 | `polaris-local-forge polaris purge` | Delete Apache Polaris deployment |
 | `polaris-local-forge catalog setup` | Configure Apache Polaris catalog |
 | `polaris-local-forge catalog cleanup --yes` | Clean up catalog resources |
-| `polaris-local-forge catalog verify-sql` | Run DuckDB verification |
+| `polaris-local-forge catalog verify-sql` | Run DuckDB verification (loads + inserts data) |
+| `polaris-local-forge catalog query --sql "..."` | Execute read-only SQL query (no inserts) |
 | `polaris-local-forge runtime detect` | Detect and display container runtime |
 | `polaris-local-forge runtime detect --json` | Detection result as JSON (for agents) |
 | `polaris-local-forge runtime docker-host` | Output DOCKER_HOST for current runtime |

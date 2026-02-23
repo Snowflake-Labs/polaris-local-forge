@@ -1700,8 +1700,37 @@ podman machine start k3d
 | `plf catalog setup --dry-run` | Preview catalog setup |
 | `plf catalog cleanup --yes` | Clean up catalog via Ansible |
 | `plf catalog cleanup --dry-run` | Preview catalog cleanup |
-| `plf catalog verify-sql` | Run DuckDB verification using generated SQL script |
+| `plf catalog verify-sql` | Run DuckDB verification (loads + inserts data) |
 | `plf catalog explore-sql` | Open interactive DuckDB session with catalog pre-loaded |
+| `plf catalog query --sql "..."` | Execute read-only SQL query (no inserts) |
+
+### Data Query Triggers (Read-Only)
+
+**CRITICAL:** When user asks about existing data (counts, stats, queries), use `catalog query` NOT `verify-sql`.
+
+`verify-sql` **inserts data every time** - running it twice doubles the penguin count!
+
+**Trigger phrases:** "how many penguins", "count penguins", "penguin count", "query data", "show data"
+
+| User Intent | SQL to Pass |
+|-------------|-------------|
+| "how many penguins we load?" | `SELECT COUNT(*) as total_penguins FROM polaris_catalog.wildlife.penguins` |
+| "show penguins by species" | `SELECT species, COUNT(*) as count FROM polaris_catalog.wildlife.penguins GROUP BY species ORDER BY species` |
+| "show tables" / "list tables" | `SHOW ALL TABLES` |
+| "show island distribution" | `SELECT island, COUNT(*) as count FROM polaris_catalog.wildlife.penguins GROUP BY island` |
+
+**Example command:**
+
+```bash
+./bin/plf catalog query --sql "SELECT COUNT(*) as total_penguins FROM polaris_catalog.wildlife.penguins"
+```
+
+**When to use each:**
+
+| Command | Use When |
+|---------|----------|
+| `catalog verify-sql` | Initial setup verification (runs once after `catalog setup`) |
+| `catalog query --sql` | Any subsequent data queries (read-only, safe to run multiple times) |
 
 ### Status & Verification Commands
 
@@ -1716,6 +1745,7 @@ Use CLI commands for all status checks and verification:
 | Wait for bootstrap (RustFS + PostgreSQL) | `plf cluster wait --tags bootstrap` |
 | Wait for Apache Polaris | `plf cluster wait --tags polaris` |
 | Verify catalog with DuckDB | `plf catalog verify-sql` |
+| Query existing data (read-only) | `plf catalog query --sql "SELECT ..."` |
 | Interactive SQL exploration | `plf catalog explore-sql` |
 | View config | Read `.env` file directly |
 

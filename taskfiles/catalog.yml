@@ -39,6 +39,18 @@ tasks:
       - sh: command -v duckdb
         msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
 
+  query:
+    desc: Execute read-only SQL query against catalog (no data insertion)
+    cmds:
+      - '{{.PLF}} catalog query --sql "{{.SQL}}"'
+    requires:
+      vars: [SQL]
+    preconditions:
+      - sh: command -v duckdb
+        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
+        msg: "Credentials file not found. Run 'task catalog:setup' first."
+
   info:
     desc: Get catalog configuration details from Polaris API
     cmds:
