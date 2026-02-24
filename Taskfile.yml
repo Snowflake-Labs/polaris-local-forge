@@ -367,35 +367,37 @@ tasks:
       - 'echo "Teardown complete."'
 
   teardown:full:
-    desc: Complete teardown with Podman stop and confirmation
+    desc: Complete teardown - cluster + Podman stop + clean generated files
     summary: |
-      Deletes the k3d cluster, all Polaris resources, and stops Podman machine.
+      Deletes the k3d cluster, all Polaris resources, stops Podman machine,
+      and cleans generated files. Preserves .snow-utils for replay/audit.
       Always prompts for confirmation before proceeding.
       
-      Options (pass after --):
-        (none)      Cluster + Podman stop, keeps all local files
-        all         Clean generated files, preserves .snow-utils for replay/audit
-      
       Example:
-        task teardown:full             # Cluster + Podman stop
-        task teardown:full -- all      # + clean files, keep .snow-utils
+        task teardown:full WORK_DIR=~/polaris-dev
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ]'
+        msg: |
+          ERROR: Cannot run teardown:full in the source repository.
+          
+          Use WORK_DIR to specify the target directory:
+            task teardown:full WORK_DIR=~/polaris-dev
     prompt: |
-      This will delete the k3d cluster, all resources, AND stop the Podman machine.
+      This will delete the k3d cluster, all resources, stop the Podman machine,
+      AND clean generated files (preserves .snow-utils for replay/audit).
       
       Continue?
     cmds:
       - "{{.PLF}} teardown --yes --stop-podman"
       - task: manifest:remove
       - |
-        if [ "{{.CLI_ARGS}}" = "all" ]; then
-          echo "Cleaning local directory..."
-          for item in {{.CLEANUP_PATHS}}; do
-            rm -rf "{{.PROJECT_HOME}}/$item"
-          done
-          echo ""
-          echo "Local directory cleaned."
-          echo "Note: .snow-utils/ preserved for audit and replay."
-        fi
+        echo "Cleaning local directory..."
+        for item in {{.CLEANUP_PATHS}}; do
+          rm -rf "{{.PROJECT_HOME}}/$item"
+        done
+        echo ""
+        echo "Local directory cleaned."
+        echo "Note: .snow-utils/ preserved for audit and replay."
       - 'echo ""'
       - 'echo "Teardown complete."'
 
