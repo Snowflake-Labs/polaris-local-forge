@@ -41,6 +41,9 @@ cortex skill list
 
 ## Usage Triggers
 
+> [!TIP]
+> **Shorthand invocation:** You can use `$plf` instead of `$polaris-local-forge` when explicitly invoking the skill. Cortex Code supports partial matching on skill names.
+
 Say any of these to activate the skill:
 
 ### Getting Started

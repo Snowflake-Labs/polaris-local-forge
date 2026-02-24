@@ -8,6 +8,10 @@
 
 A complete local development environment for [Apache Polaris](https://polaris.apache.org/) with [RustFS](https://rustfs.com/) S3-compatible storage running on k3s Kubernetes.
 
+### Demo
+
+[![Watch the demo](https://img.youtube.com/vi/mQiPrIXOoUE/maxresdefault.jpg)](https://youtu.be/mQiPrIXOoUE)
+
 **Why polaris-local-forge?**
 
 - **Quickly try Apache Iceberg** — Get hands-on with Iceberg tables via Apache Polaris in minutes
