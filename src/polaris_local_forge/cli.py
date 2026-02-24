@@ -49,6 +49,7 @@ from polaris_local_forge.common import (
     run_ansible,
     copy_static_files,
     check_tool,
+    prompt_runtime_choice,
 )
 from polaris_local_forge.container_runtime import (
     detect_container_runtime,
@@ -178,22 +179,7 @@ def init_project(ctx, force: bool, cluster_name: str | None, with_manifest: bool
                     click.echo("Install Docker Desktop or Podman before running init.", err=True)
                     sys.exit(1)
                 elif detected_runtime == "choice":
-                    # Both installed but neither running - prompt user (interactive mode)
-                    # In non-interactive shells (Cortex Code), use --runtime flag instead
-                    click.echo(f"\n{reason}")
-                    click.echo("\nWhich container runtime would you like to use?")
-                    click.echo("  1) Docker - Start Docker Desktop manually")
-                    click.echo("  2) Podman - Machine will be created/started by 'doctor --fix'")
-                    click.echo("\nTip: For non-interactive mode, use: ./bin/plf init --runtime docker|podman")
-                    choice = click.prompt("Enter choice", type=click.Choice(["1", "2"]), default="2")
-                    if choice == "1":
-                        detected_runtime = "docker"
-                        click.echo("\nSelected: Docker")
-                        click.echo("Please start Docker Desktop, then run: task doctor")
-                    else:
-                        detected_runtime = "podman"
-                        click.echo("\nSelected: Podman")
-                        click.echo("Run 'task doctor -- --fix' to create and start the Podman machine")
+                    detected_runtime = prompt_runtime_choice(reason)
                 else:
                     click.echo(f"Container runtime: {detected_runtime} ({reason})")
             set_env_var(env_file, "PLF_CONTAINER_RUNTIME", detected_runtime)

@@ -38,6 +38,8 @@ from polaris_local_forge.common import (
     ANSIBLE_DIR,
     get_config,
     render_manifest,
+    set_env_var,
+    prompt_runtime_choice,
 )
 from polaris_local_forge.container_runtime import (
     detect_container_runtime,
@@ -76,6 +78,9 @@ def _detect_runtime(work_dir: Path) -> tuple[str | None, str]:
     
     if detected and detected != "choice":
         return detected, f"auto-detected ({reason})"
+    
+    if detected == "choice":
+        return "choice", reason
     
     return None, reason if reason else "no runtime found"
 
@@ -184,11 +189,19 @@ def manifest_init(ctx, runtime: str | None):
         click.echo(f"Runtime: {detected_runtime} (specified via --runtime)")
     else:
         detected_runtime, reason = _detect_runtime(work_dir)
-        if not detected_runtime:
-            click.echo(f"ERROR: Could not detect container runtime.", err=True)
+        if detected_runtime == "choice":
+            detected_runtime = prompt_runtime_choice(reason)
+        elif not detected_runtime:
+            click.echo("ERROR: Could not detect container runtime.", err=True)
             click.echo("Ensure Docker or Podman is installed and running, or use --runtime.", err=True)
             sys.exit(1)
-        click.echo(f"Runtime: {detected_runtime} ({reason})")
+        else:
+            click.echo(f"Runtime: {detected_runtime} ({reason})")
+    
+    # Persist to .env so downstream commands (plf init) don't prompt again
+    env_file = work_dir / ".env"
+    if env_file.exists():
+        set_env_var(env_file, "PLF_CONTAINER_RUNTIME", detected_runtime)
     
     project_name = cfg.get("K3D_CLUSTER_NAME") or work_dir.name
     podman_machine = cfg.get("PLF_PODMAN_MACHINE") or "k3d"
@@ -305,8 +318,11 @@ def runtime_ensure(ctx):
     is_macos = platform.system() == "Darwin"
     
     runtime_name, reason = _detect_runtime(work_dir)
-    if not runtime_name:
-        click.echo(f"ERROR: Could not detect container runtime.", err=True)
+    if runtime_name == "choice":
+        runtime_name = prompt_runtime_choice(reason)
+        set_env_var(work_dir / ".env", "PLF_CONTAINER_RUNTIME", runtime_name)
+    elif not runtime_name:
+        click.echo("ERROR: Could not detect container runtime.", err=True)
         click.echo("Ensure Docker or Podman is installed and running.", err=True)
         sys.exit(1)
     
@@ -347,7 +363,10 @@ def runtime_stop(ctx):
     cfg = ctx.obj["CONFIG"]
     is_macos = platform.system() == "Darwin"
     
-    runtime_name, _ = _detect_runtime(work_dir)
+    runtime_name, reason = _detect_runtime(work_dir)
+    if runtime_name == "choice":
+        runtime_name = prompt_runtime_choice(reason)
+        set_env_var(work_dir / ".env", "PLF_CONTAINER_RUNTIME", runtime_name)
     
     if runtime_name == "podman" and is_macos:
         machine = cfg.get("PLF_PODMAN_MACHINE") or "k3d"

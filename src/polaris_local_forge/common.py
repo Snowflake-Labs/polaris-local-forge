@@ -45,6 +45,7 @@ __all__ = [
     "run_ansible",
     "copy_static_files",
     "check_tool",
+    "prompt_runtime_choice",
 ]
 
 # Skill directory: where the source repo lives
@@ -310,3 +311,24 @@ def check_tool(name: str) -> bool:
         True if the tool is found in PATH
     """
     return shutil.which(name) is not None
+
+
+def prompt_runtime_choice(reason: str) -> str:
+    """Prompt user to choose between Docker and Podman.
+    
+    Called when both are installed but neither is running.
+    
+    Args:
+        reason: Description of why a choice is needed
+        
+    Returns:
+        "docker" or "podman" based on user selection
+    """
+    click.echo(f"\n{reason}")
+    click.echo("\nWhich container runtime would you like to use?")
+    click.echo("  1) Docker - Start Docker Desktop manually")
+    click.echo("  2) Podman - Machine will be created/started by 'doctor --fix'")
+    choice = click.prompt("Enter choice", type=click.Choice(["1", "2"]), default="2")
+    selected = "docker" if choice == "1" else "podman"
+    click.echo(f"\nRuntime: {selected} (user selected)")
+    return selected
