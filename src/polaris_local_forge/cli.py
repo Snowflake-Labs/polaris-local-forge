@@ -126,25 +126,26 @@ def init_project(ctx, force: bool, cluster_name: str | None, with_manifest: bool
     created = []
     skipped = []
 
+    # Create directories first (templates may target nested paths)
+    for d in INIT_DIRECTORIES:
+        dir_path = work_dir / d
+        if not dir_path.exists():
+            dir_path.mkdir(parents=True, exist_ok=True)
+            created.append(f"{d}/")
+
     # Copy template files
     for src_rel, dst_name, mode in TEMPLATES:
         src = SKILL_DIR / src_rel
         dst = work_dir / dst_name
         if src.exists():
             if not dst.exists() or force:
+                dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
                 if mode:
                     dst.chmod(mode)
                 created.append(dst_name)
             else:
                 skipped.append(dst_name)
-
-    # Create directories
-    for d in INIT_DIRECTORIES:
-        dir_path = work_dir / d
-        if not dir_path.exists():
-            dir_path.mkdir(parents=True, exist_ok=True)
-            created.append(f"{d}/")
 
     # Set PROJECT_HOME, K3D_CLUSTER_NAME, and SKILL_DIR in .env
     env_file = work_dir / ".env"
