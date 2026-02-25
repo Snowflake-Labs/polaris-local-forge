@@ -58,6 +58,23 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def resolve_aws_region(region: str | None, aws_profile: str | None = None) -> str:
+    """Resolve AWS region: explicit flag > L2C_AWS_REGION > AWS profile config > us-east-1."""
+    if region:
+        return region
+    profile = _resolve_profile(aws_profile)
+    try:
+        result = subprocess.run(
+            ["aws", "configure", "get", "region", "--profile", profile],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except FileNotFoundError:
+        pass
+    return "us-east-1"
+
+
 def preflight_aws_check(aws_profile: str | None = None) -> str:
     """Verify AWS credentials are valid before starting.
 
@@ -113,6 +130,51 @@ def get_local_polaris_url(cfg: dict) -> str:
 def get_local_catalog_name(cfg: dict) -> str:
     """Get the local catalog name from config."""
     return cfg.get("PLF_POLARIS_CATALOG_NAME") or os.getenv("PLF_POLARIS_CATALOG_NAME", "polardb")
+
+
+def ensure_snowflake_connection(work_dir: Path, connection_name: str | None = None) -> str:
+    """Ensure SNOWFLAKE_USER is available, running connection discovery if needed.
+
+    Supports both interactive (Power CLI) and non-interactive (Cortex Code) modes:
+    - If SNOWFLAKE_USER is already in .env/env, returns it immediately.
+    - Otherwise delegates to snow_utils_common.discover_snowflake_connection().
+    - For Cortex Code: pass connection_name explicitly, or set
+      SNOWFLAKE_DEFAULT_CONNECTION_NAME in .env so discovery is non-interactive.
+
+    Returns:
+        The Snowflake username (lowercase, for use as resource prefix).
+    """
+    from dotenv import dotenv_values
+    from polaris_local_forge.common import set_env_var
+    from snow_utils_common import discover_snowflake_connection
+
+    env_file = work_dir / ".env"
+    cfg = dotenv_values(env_file) if env_file.exists() else {}
+
+    sf_user = cfg.get("SNOWFLAKE_USER") or os.environ.get("SNOWFLAKE_USER")
+    if sf_user:
+        return sf_user.lower()
+
+    # For non-interactive mode, try SNOWFLAKE_DEFAULT_CONNECTION_NAME as fallback
+    conn = connection_name or cfg.get("SNOWFLAKE_DEFAULT_CONNECTION_NAME") or os.environ.get("SNOWFLAKE_DEFAULT_CONNECTION_NAME")
+
+    click.echo("SNOWFLAKE_USER not found in .env -- running connection discovery.\n")
+    info = discover_snowflake_connection(connection_name=conn)
+
+    set_env_var(env_file, "SNOWFLAKE_DEFAULT_CONNECTION_NAME", info["connection_name"])
+    if info.get("account"):
+        set_env_var(env_file, "SNOWFLAKE_ACCOUNT", info["account"])
+    if info.get("user"):
+        set_env_var(env_file, "SNOWFLAKE_USER", info["user"])
+    if info.get("host"):
+        set_env_var(env_file, "SNOWFLAKE_ACCOUNT_URL", f"https://{info['host']}")
+
+    sf_user = info.get("user", "")
+    click.echo(f"\nSaved connection '{info['connection_name']}' to .env")
+    click.echo(f"  SNOWFLAKE_USER={sf_user}")
+    click.echo(f"  SNOWFLAKE_ACCOUNT={info.get('account', '')}\n")
+
+    return sf_user.lower()
 
 
 def run_snow_sql(query: str, *, role: str | None = None, check: bool = True):

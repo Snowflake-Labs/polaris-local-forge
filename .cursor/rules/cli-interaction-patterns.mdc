@@ -1,0 +1,47 @@
+---
+description: CLI dual-mode patterns for Power CLI + Cortex Code interactions
+globs: "**/l2c/**/*.py,**/snow_utils*/**/*.py"
+alwaysApply: false
+---
+
+# CLI Dual-Mode: Power CLI + Cortex Code
+
+Every interactive CLI function MUST support both modes:
+
+## Pattern
+
+- **Power CLI (interactive):** Prompt the user, show menus, wait for input.
+- **Cortex Code (non-interactive):** Accept explicit parameters to skip prompts. Never hang waiting for stdin.
+
+## Rules
+
+1. **Every `click.prompt()` / `click.confirm()` must have a bypass parameter.**
+   - Confirmations: `--yes / -y` flag skips `click.confirm()`.
+   - Selection prompts: Accept the value as a function parameter; only prompt when `None`.
+
+2. **Connection discovery** (`discover_snowflake_connection`):
+   - `connection_name=None` → interactive (list + prompt)
+   - `connection_name="my-conn"` → non-interactive (test directly)
+   - Cortex Code MUST always pass `connection_name` explicitly.
+
+3. **Env var fallback chain** for non-interactive context:
+   - CLI flag → env var (e.g., `SNOWFLAKE_DEFAULT_CONNECTION_NAME`) → interactive prompt
+   - If both flag and env var are missing, only then prompt.
+
+4. **SKILL.md must pass all required values explicitly** — never rely on interactive prompts.
+
+## Example
+
+```python
+# GOOD: supports both modes
+def ensure_snowflake_connection(work_dir, connection_name=None):
+    if sf_user_in_env:
+        return sf_user
+    conn = connection_name or env_var_fallback
+    info = discover_snowflake_connection(connection_name=conn)  # None = interactive
+    ...
+
+# BAD: always prompts, hangs in Cortex Code
+def ensure_snowflake_connection(work_dir):
+    choice = click.prompt("Select connection")  # ← blocks agent
+```
