@@ -20,6 +20,8 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "pyyaml>=6.0",
     "requests>=2.31.0",
+    "snow-utils",
+    "snow-utils-common",
 ]
 
 [project.scripts]
@@ -46,6 +48,10 @@ test = [
     "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
 ]
+
+[tool.uv.sources]
+snow-utils = { git = "https://github.com/kameshsampath/snow-utils", branch = "main" }
+snow-utils-common = { git = "https://github.com/kameshsampath/snow-utils", subdirectory = "common", branch = "main" }
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
