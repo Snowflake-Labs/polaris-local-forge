@@ -38,7 +38,7 @@ from polaris_local_forge.l2c.common import (
     resolve_aws_region,
     save_state,
 )
-from polaris_local_forge.l2c.sessions import create_cloud_session
+from polaris_local_forge.l2c.sessions import create_cloud_session, scrubbed_aws_env
 
 BUCKET_SUFFIX = "plf-migration"
 POLICY_SUFFIX = "plf-migration-policy"
@@ -107,17 +107,21 @@ def setup_aws(ctx, aws_profile, region, prefix, no_prefix, dry_run, yes):
     if not yes:
         click.confirm("Create these AWS resources?", abort=True)
 
-    preflight_aws_check(aws_profile)
+    with scrubbed_aws_env():
+        preflight_aws_check(aws_profile)
 
-    cloud_s3, cloud_iam, cloud_sts = create_cloud_session(aws_profile, region)
-    account_id = get_aws_account_id(cloud_sts)
+        cloud_s3, cloud_iam, cloud_sts = create_cloud_session(aws_profile, region)
+        account_id = get_aws_account_id(cloud_sts)
 
-    create_s3_bucket(cloud_s3, names["bucket"], region, versioning=True, tags=tags)
-    policy_arn = create_iam_policy(cloud_iam, names["policy"], names["bucket"], tags=tags)
-    role_arn = create_iam_role(
-        cloud_iam, names["role"], policy_arn, account_id,
-        names["external_id"], tags=tags,
-    )
+        create_s3_bucket(cloud_s3, names["bucket"], region, versioning=True, tags=tags)
+        policy_arn = create_iam_policy(
+            cloud_iam, names["policy"], names["bucket"],
+            tags=tags, sts_client=cloud_sts,
+        )
+        role_arn = create_iam_role(
+            cloud_iam, names["role"], policy_arn, account_id,
+            names["external_id"], tags=tags,
+        )
 
     state = load_state(work_dir)
     state["aws"] = {

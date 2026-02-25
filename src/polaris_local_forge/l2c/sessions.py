@@ -18,9 +18,11 @@
 Creates two fully isolated boto3 sessions:
 - rustfs_session: targets local RustFS S3 (explicit creds, never reads ~/.aws/)
 - cloud_session: targets real AWS (reads ~/.aws/, env vars scrubbed)
+- scrubbed_aws_env: context manager that keeps RustFS vars scrubbed for an entire block
 """
 
 import os
+from contextlib import contextmanager
 
 import boto3
 import click
@@ -63,37 +65,49 @@ def _resolve_profile(aws_profile: str | None = None) -> str:
     return aws_profile or os.environ.get("L2C_AWS_PROFILE") or "default"
 
 
+@contextmanager
+def scrubbed_aws_env():
+    """Context manager that strips RustFS AWS_* vars for the entire block.
+
+    Use this to wrap any code that calls AWS -- including snow-utils functions
+    that internally create their own boto3 clients. Vars are restored on exit.
+
+    Example::
+
+        with scrubbed_aws_env():
+            cloud_s3, cloud_iam, cloud_sts = create_cloud_session(profile, region)
+            create_s3_bucket(cloud_s3, ...)   # snow-utils, safe
+            create_iam_policy(cloud_iam, ...)  # internally calls boto3.client("sts"), safe
+    """
+    saved = {k: os.environ.pop(k) for k in _AWS_ENV_VARS if k in os.environ}
+    try:
+        yield
+    finally:
+        os.environ.update(saved)
+
+
 def create_cloud_session(
     aws_profile: str | None = None,
     region: str = "us-east-1",
 ):
     """Create an isolated boto3 session for real AWS.
 
-    Scrubs all AWS_* env vars from os.environ before creating
-    the session, then restores them. This prevents RustFS credentials
-    (AWS_ACCESS_KEY_ID=admin, AWS_ENDPOINT_URL=localhost:19000) from
-    contaminating the real AWS session.
-
-    The session reads ONLY from ~/.aws/ (user's real AWS config).
+    IMPORTANT: Call this inside a `scrubbed_aws_env()` context manager
+    so that the env stays clean for the entire duration of AWS operations.
 
     Returns:
         (cloud_s3, cloud_iam, cloud_sts) tuple of boto3 clients
     """
     profile = _resolve_profile(aws_profile)
+    session = boto3.Session(profile_name=profile, region_name=region)
+    cloud_s3 = session.client("s3", region_name=region)
+    cloud_iam = session.client("iam")
+    cloud_sts = session.client("sts")
 
-    saved = {k: os.environ.pop(k) for k in _AWS_ENV_VARS if k in os.environ}
-    try:
-        session = boto3.Session(profile_name=profile, region_name=region)
-        cloud_s3 = session.client("s3", region_name=region)
-        cloud_iam = session.client("iam")
-        cloud_sts = session.client("sts")
-        # Defense-in-depth: confirm scrubbed session points to real AWS
-        account_id = cloud_sts.get_caller_identity()["Account"]
-        click.echo(
-            f"Cloud session: AWS account {account_id}, "
-            f"profile '{profile}', region '{region}'"
-        )
-    finally:
-        os.environ.update(saved)
+    account_id = cloud_sts.get_caller_identity()["Account"]
+    click.echo(
+        f"Cloud session: AWS account {account_id}, "
+        f"profile '{profile}', region '{region}'"
+    )
 
     return cloud_s3, cloud_iam, cloud_sts

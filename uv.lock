@@ -2418,7 +2418,7 @@ wheels = [
 [[package]]
 name = "snow-utils"
 version = "0.1.0"
-source = { git = "https://github.com/kameshsampath/snow-utils?branch=main#f4b770faf0ff519113c2b216d21909fea20172e9" }
+source = { git = "https://github.com/kameshsampath/snow-utils?branch=main#c0f1004af4645635d3c4b878918e8604915da29b" }
 dependencies = [
     { name = "boto3" },
     { name = "click" },
@@ -2430,7 +2430,7 @@ dependencies = [
 [[package]]
 name = "snow-utils-common"
 version = "0.1.0"
-source = { git = "https://github.com/kameshsampath/snow-utils?subdirectory=common&branch=main#f4b770faf0ff519113c2b216d21909fea20172e9" }
+source = { git = "https://github.com/kameshsampath/snow-utils?subdirectory=common&branch=main#c0f1004af4645635d3c4b878918e8604915da29b" }
 dependencies = [
     { name = "click" },
     { name = "requests" },

@@ -58,6 +58,16 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _clean_aws_env() -> dict:
+    """Build a copy of os.environ with RustFS AWS_* vars stripped.
+
+    Prevents RustFS credentials (AWS_ACCESS_KEY_ID=admin, AWS_ENDPOINT_URL=localhost)
+    from contaminating subprocess calls to the real AWS CLI.
+    """
+    from polaris_local_forge.l2c.sessions import _AWS_ENV_VARS
+    return {k: v for k, v in os.environ.items() if k not in _AWS_ENV_VARS}
+
+
 def resolve_aws_region(region: str | None, aws_profile: str | None = None) -> str:
     """Resolve AWS region: explicit flag > L2C_AWS_REGION > AWS profile config > us-east-1."""
     if region:
@@ -66,7 +76,7 @@ def resolve_aws_region(region: str | None, aws_profile: str | None = None) -> st
     try:
         result = subprocess.run(
             ["aws", "configure", "get", "region", "--profile", profile],
-            capture_output=True, text=True,
+            capture_output=True, text=True, env=_clean_aws_env(),
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -78,15 +88,16 @@ def resolve_aws_region(region: str | None, aws_profile: str | None = None) -> st
 def preflight_aws_check(aws_profile: str | None = None) -> str:
     """Verify AWS credentials are valid before starting.
 
-    Uses `aws sts get-caller-identity` via subprocess (reads ~/.aws/ directly,
-    unaffected by RustFS env vars). Returns the AWS account ID on success.
+    Runs `aws sts get-caller-identity` with RustFS env vars scrubbed so the
+    subprocess reads only from ~/.aws/ (user's real AWS config).
 
     On failure (expired SSO, missing creds), raises ClickException with
     a clear message telling the user how to fix it.
     """
     profile = _resolve_profile(aws_profile)
     cmd = ["aws", "sts", "get-caller-identity", "--profile", profile, "--output", "json"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    clean_env = _clean_aws_env()
+    result = subprocess.run(cmd, capture_output=True, text=True, env=clean_env)
 
     if result.returncode != 0:
         stderr = result.stderr.strip()
@@ -153,6 +164,7 @@ def ensure_snowflake_connection(work_dir: Path, connection_name: str | None = No
 
     sf_user = cfg.get("SNOWFLAKE_USER") or os.environ.get("SNOWFLAKE_USER")
     if sf_user:
+        click.echo(f"Using Snowflake user: {sf_user} (from .env)")
         return sf_user.lower()
 
     # For non-interactive mode, try SNOWFLAKE_DEFAULT_CONNECTION_NAME as fallback
