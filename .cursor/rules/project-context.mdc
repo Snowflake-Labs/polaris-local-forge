@@ -27,6 +27,8 @@ For Snowflake-related work, always reference:
 - **Snowflake SQL & Features:** https://docs.snowflake.com/en/
   - SQL commands, functions, data types
   - User guides, developer guides, tutorials
+- **Snowflake Managed Iceberg Tables:** https://docs.snowflake.com/en/user-guide/tutorials/create-your-first-iceberg-table
+  - Tutorial for creating and working with Apache Iceberg tables in Snowflake
 
 ## Apache Polaris API Reference
 
