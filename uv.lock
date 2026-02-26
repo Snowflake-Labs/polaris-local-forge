@@ -1575,8 +1575,8 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.31.0" },
-    { name = "snow-utils", git = "https://github.com/kameshsampath/snow-utils?branch=main" },
-    { name = "snow-utils-common", git = "https://github.com/kameshsampath/snow-utils?subdirectory=common&branch=main" },
+    { name = "snow-utils", editable = "../../../../git/kameshsampath/snow-utils" },
+    { name = "snow-utils-common", editable = "../../../../git/kameshsampath/snow-utils/common" },
 ]
 
 [package.metadata.requires-dev]
@@ -2418,7 +2418,7 @@ wheels = [
 [[package]]
 name = "snow-utils"
 version = "0.1.0"
-source = { git = "https://github.com/kameshsampath/snow-utils?branch=main#c0f1004af4645635d3c4b878918e8604915da29b" }
+source = { editable = "../../../../git/kameshsampath/snow-utils" }
 dependencies = [
     { name = "boto3" },
     { name = "click" },
@@ -2427,14 +2427,37 @@ dependencies = [
     { name = "snow-utils-common" },
 ]
 
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.35.0" },
+    { name = "click", specifier = ">=8.0" },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
+    { name = "requests", specifier = ">=2.28" },
+    { name = "snow-utils-common", editable = "../../../../git/kameshsampath/snow-utils/common" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "duckdb", specifier = ">=1.4.2" },
+    { name = "ipykernel", specifier = ">=7.1.0" },
+    { name = "ruff", specifier = ">=0.8.0" },
+]
+
 [[package]]
 name = "snow-utils-common"
 version = "0.1.0"
-source = { git = "https://github.com/kameshsampath/snow-utils?subdirectory=common&branch=main#c0f1004af4645635d3c4b878918e8604915da29b" }
+source = { editable = "../../../../git/kameshsampath/snow-utils/common" }
 dependencies = [
     { name = "click" },
     { name = "requests" },
     { name = "snowflake-cli" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "requests", specifier = ">=2.28" },
+    { name = "snowflake-cli", specifier = ">=3.14.0" },
 ]
 
 [[package]]

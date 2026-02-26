@@ -48,7 +48,10 @@ def setup(ctx, dry_run, yes):
     """
     if ctx.invoked_subcommand is not None:
         return
-    click.echo("setup orchestrator: not yet implemented (step 1.4)")
+
+    click.echo("Running setup orchestrator: aws → snowflake\n")
+    ctx.invoke(setup_aws, dry_run=dry_run, yes=yes)
+    ctx.invoke(setup_snowflake, dry_run=dry_run, yes=yes)
 
 
 setup.add_command(setup_aws, "aws")

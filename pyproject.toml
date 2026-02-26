@@ -50,8 +50,9 @@ test = [
 ]
 
 [tool.uv.sources]
-snow-utils = { git = "https://github.com/kameshsampath/snow-utils", branch = "main" }
-snow-utils-common = { git = "https://github.com/kameshsampath/snow-utils", subdirectory = "common", branch = "main" }
+# Local paths during active development -- switch to git URLs before merge
+snow-utils = { path = "/Users/ksampath/git/kameshsampath/snow-utils", editable = true }
+snow-utils-common = { path = "/Users/ksampath/git/kameshsampath/snow-utils/common", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

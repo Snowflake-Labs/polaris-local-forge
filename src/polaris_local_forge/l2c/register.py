@@ -19,22 +19,22 @@ import click
 
 
 @click.command("register")
-@click.option("--sf-database", "-D", envvar="L2C_SF_DATABASE", required=True,
-              help="Target Snowflake database")
-@click.option("--sf-schema", "-S", envvar="L2C_SF_SCHEMA", default="PUBLIC",
+@click.option("--sf-database", "-D", envvar="L2C_SF_DATABASE", default=None,
+              help="Target Snowflake database (default: from state)")
+@click.option("--sf-schema", "-S", envvar="L2C_SF_SCHEMA", default="L2C",
               help="Target Snowflake schema")
-@click.option("--sa-role", envvar="SA_ROLE", default="PLF_MIGRATION_ROLE",
-              help="Service account role")
-@click.option("--catalog-integration", envvar="L2C_CATALOG_INTEGRATION",
-              default="PLF_L2C_CATALOG_INT",
-              help="Catalog integration for Iceberg table creation")
+@click.option("--prefix", "-p", default=None,
+              help="Override SNOWFLAKE_USER prefix for resource names")
+@click.option("--no-prefix", is_flag=True,
+              help="Drop user prefix from resource names")
 @click.option("--dry-run", "-n", is_flag=True, help="Preview without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 @click.pass_context
-def register(ctx, sf_database, sf_schema, sa_role, catalog_integration, dry_run, yes):
+def register(ctx, sf_database, sf_schema, prefix, no_prefix, dry_run, yes):
     """Register migrated tables as Snowflake External Iceberg Tables.
 
     Uses catalog integration + METADATA_FILE_PATH (schema inferred
-    from existing Iceberg metadata).
+    from existing Iceberg metadata). SA_ROLE, catalog integration, and
+    database are resolved from state (set by setup commands).
     """
     click.echo("register: not yet implemented")

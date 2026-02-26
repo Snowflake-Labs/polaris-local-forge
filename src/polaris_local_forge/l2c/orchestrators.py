@@ -13,27 +13,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""L2C orchestrator commands -- migrate, status, clear, cleanup."""
+"""L2C orchestrator commands -- migrate, status, clear, cleanup.
+
+All resource names (sa_role, catalog_integration, database, bucket, etc.)
+are resolved from the state file written by setup commands. No hardcoded
+defaults -- naming follows the project-scoped convention.
+"""
 
 import click
 
 
 @click.command("migrate")
 @click.option("--aws-profile", envvar="L2C_AWS_PROFILE", help="AWS profile name")
-@click.option("--region", "-r", envvar="L2C_AWS_REGION", default="us-east-1",
+@click.option("--region", "-r", envvar="L2C_AWS_REGION", default=None,
               help="AWS region")
-@click.option("--prefix", "-p", envvar="L2C_PREFIX", default=None,
-              help="Prefix for AWS resources (default: SNOWFLAKE_USER, lowercase)")
-@click.option("--no-prefix", is_flag=True,
-              help="Disable username prefix for AWS resources")
-@click.option("--sf-database", "-D", envvar="L2C_SF_DATABASE",
-              help="Snowflake target database")
-@click.option("--sf-schema", "-S", envvar="L2C_SF_SCHEMA", default="PUBLIC",
+@click.option("--sf-database", "-D", envvar="L2C_SF_DATABASE", default=None,
+              help="Snowflake target database (default: from state)")
+@click.option("--sf-schema", "-S", envvar="L2C_SF_SCHEMA", default="L2C",
               help="Snowflake target schema")
-@click.option("--sa-role", envvar="SA_ROLE", help="Service account role")
 @click.option("--admin-role", help="Admin role for setup operations")
-@click.option("--catalog-integration", envvar="L2C_CATALOG_INTEGRATION",
-              help="Catalog integration name")
+@click.option("--prefix", "-p", default=None,
+              help="Override SNOWFLAKE_USER prefix for resource names")
+@click.option("--no-prefix", is_flag=True,
+              help="Drop user prefix from resource names")
 @click.option("--dry-run", "-n", is_flag=True, help="Preview without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 @click.pass_context
@@ -53,32 +55,35 @@ def status(ctx, output):
 
 @click.command("clear")
 @click.option("--aws-profile", envvar="L2C_AWS_PROFILE", help="AWS profile name")
-@click.option("--prefix", "-p", envvar="L2C_PREFIX", default=None,
-              help="Prefix for AWS resources (default: SNOWFLAKE_USER, lowercase)")
+@click.option("--prefix", "-p", default=None,
+              help="Override SNOWFLAKE_USER prefix for resource names")
 @click.option("--no-prefix", is_flag=True,
-              help="Disable username prefix for AWS resources")
-@click.option("--sa-role", envvar="SA_ROLE", help="Service account role")
+              help="Drop user prefix from resource names")
 @click.option("--dry-run", "-n", is_flag=True, help="Preview without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 @click.pass_context
-def clear(ctx, aws_profile, prefix, no_prefix, sa_role, dry_run, yes):
+def clear(ctx, aws_profile, prefix, no_prefix, dry_run, yes):
     """Remove migrated data (S3 objects + Snowflake tables), keep infrastructure.
 
-    Resets table state to pending for re-sync.
+    Resets table state to pending for re-sync. All resource names are
+    resolved from the state file.
     """
     click.echo("clear: not yet implemented")
 
 
 @click.command("cleanup")
 @click.option("--aws-profile", envvar="L2C_AWS_PROFILE", help="AWS profile name")
-@click.option("--prefix", "-p", envvar="L2C_PREFIX", default=None,
-              help="Prefix for AWS resources (default: SNOWFLAKE_USER, lowercase)")
-@click.option("--no-prefix", is_flag=True,
-              help="Disable username prefix for AWS resources")
 @click.option("--admin-role", help="Admin role for teardown operations")
+@click.option("--prefix", "-p", default=None,
+              help="Override SNOWFLAKE_USER prefix for resource names")
+@click.option("--no-prefix", is_flag=True,
+              help="Drop user prefix from resource names")
 @click.option("--dry-run", "-n", is_flag=True, help="Preview without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 @click.pass_context
-def cleanup(ctx, aws_profile, prefix, no_prefix, admin_role, dry_run, yes):
-    """Full teardown -- remove all L2C infrastructure and data."""
+def cleanup(ctx, aws_profile, admin_role, prefix, no_prefix, dry_run, yes):
+    """Full teardown -- remove all L2C infrastructure and data.
+
+    All resource names are resolved from the state file.
+    """
     click.echo("cleanup: not yet implemented")

@@ -189,26 +189,69 @@ def ensure_snowflake_connection(work_dir: Path, connection_name: str | None = No
     return sf_user.lower()
 
 
-def run_snow_sql(query: str, *, role: str | None = None, check: bool = True):
-    """Execute a snow sql command and return parsed JSON output."""
-    cmd = ["snow", "sql", "--query", query, "--format", "json"]
-    if role:
-        cmd.extend(["--role", role])
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if check and result.returncode != 0:
-        raise click.ClickException(f"snow sql failed: {result.stderr}")
-    if result.stdout.strip():
-        try:
-            return json.loads(result.stdout)
-        except json.JSONDecodeError:
-            return None
-    return None
+def resolve_resource_base(
+    work_dir: Path,
+    *,
+    prefix_override: str | None = None,
+    no_prefix: bool = False,
+) -> dict:
+    """Return resource naming components.
+
+    Pattern: <prefix>-<project>-<catalog> (AWS) / <PREFIX>_<PROJECT>_<CATALOG> (SF)
+
+    Sources (auto-derived by default):
+      prefix  = SNOWFLAKE_USER (from .env or connection discovery)
+      project = basename(work_dir)  e.g. polaris-dev
+      catalog = PLF_POLARIS_CATALOG_NAME from .env  e.g. polardb
+
+    Override behavior:
+      --prefix foo   -> foo-polaris-dev-polardb  (replaces user portion)
+      --no-prefix    -> polaris-dev-polardb      (drops user, keeps project+catalog)
+
+    Returns dict with keys: aws_base, sf_base, prefix, project, catalog
+    """
+    from dotenv import dotenv_values
+
+    env_file = work_dir / ".env"
+    cfg = dotenv_values(env_file) if env_file.exists() else {}
+
+    if no_prefix:
+        prefix = None
+    elif prefix_override:
+        prefix = prefix_override.lower()
+    else:
+        prefix = ensure_snowflake_connection(work_dir)
+
+    project = Path(work_dir).name
+    catalog = get_local_catalog_name(cfg)
+
+    base_parts = [p for p in [prefix, project, catalog] if p]
+    aws_base = "-".join(base_parts).lower()
+    sf_base = "_".join(base_parts).upper().replace("-", "_")
+    return {
+        "aws_base": aws_base,
+        "sf_base": sf_base,
+        "prefix": prefix,
+        "project": project,
+        "catalog": catalog,
+    }
 
 
-def run_snow_sql_stdin(sql: str, *, check: bool = True):
-    """Execute multi-statement SQL via stdin."""
-    cmd = ["snow", "sql", "--stdin"]
-    result = subprocess.run(cmd, input=sql, capture_output=True, text=True)
-    if check and result.returncode != 0:
-        raise click.ClickException(f"snow sql failed: {result.stderr}")
-    return result
+SQL_DIR = Path(__file__).parent / "sql"
+
+
+def run_l2c_sql_file(
+    sql_file: str,
+    variables: dict[str, str] | None = None,
+    *,
+    check: bool = True,
+    dry_run: bool = False,
+) -> subprocess.CompletedProcess | None:
+    """Execute an L2C SQL template via snow_utils_common.run_snow_sql_file.
+
+    Resolves sql_file relative to the L2C sql/ directory.
+    """
+    from snow_utils_common import run_snow_sql_file
+    return run_snow_sql_file(
+        SQL_DIR / sql_file, variables, check=check, dry_run=dry_run,
+    )
