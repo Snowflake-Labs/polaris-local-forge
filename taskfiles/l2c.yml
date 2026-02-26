@@ -225,6 +225,65 @@ tasks:
     cmds:
       - "{{.PLF}} l2c migrate {{.CLI_ARGS}}"
 
+  refresh:
+    desc: Refresh registered Iceberg tables to latest metadata (zero-downtime)
+    summary: |
+      For each registered table, compares the stored metadata path with
+      the latest Iceberg metadata file on S3. When a newer snapshot
+      exists (e.g. after local data mutation + sync), runs ALTER ICEBERG
+      TABLE ... REFRESH to update Snowflake without DROP.
+      
+      Tables not yet registered are skipped (use 'register' for those).
+      Tables whose S3 metadata matches the stored path are skipped.
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Options (pass after --):
+        --dry-run / -n    Preview what would be refreshed
+        --yes / -y        Skip confirmation
+        --prefix TEXT     Override user prefix
+        --no-prefix       Drop user prefix
+      
+      Example:
+        task l2c:refresh WORK_DIR=~/polaris-dev -- --dry-run
+        task l2c:refresh WORK_DIR=~/polaris-dev -- --yes
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: *work_dir_msg
+    cmds:
+      - "{{.PLF}} l2c refresh {{.CLI_ARGS}}"
+
+  update:
+    desc: Push local changes to Snowflake (sync -> refresh -> register)
+    summary: |
+      Incremental update pipeline:
+        1. sync     -- smart sync (delta only) + metadata rewrite
+        2. refresh  -- ALTER REFRESH for already-registered tables (zero-downtime)
+        3. register -- CREATE ICEBERG TABLE for newly added tables only
+      
+      Use --force (passed through to sync) to re-upload after local
+      data mutations. Without --force, sync only picks up new tables.
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Options (pass after --):
+        --dry-run / -n    Preview all steps
+        --yes / -y        Skip confirmation
+        --force / -f      Force re-sync (needed after local data mutation)
+      
+      Example:
+        task l2c:update WORK_DIR=~/polaris-dev -- --dry-run
+        task l2c:update WORK_DIR=~/polaris-dev -- --force --yes
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: *work_dir_msg
+    cmds:
+      - "{{.PLF}} l2c sync {{.CLI_ARGS}}"
+      - "{{.PLF}} l2c refresh {{.CLI_ARGS}}"
+      - "{{.PLF}} l2c register {{.CLI_ARGS}}"
+
   clear:
     desc: Remove migrated data (S3 objects + SF tables), keep infrastructure
     summary: |

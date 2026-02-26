@@ -143,6 +143,80 @@ task catalog:explore:sql
 jupyter notebook notebooks/verify_polaris.ipynb
 ```
 
+## L2C: Local to Cloud Migration (Experimental)
+
+> [!WARNING]
+> **L2C is experimental.** The migration workflow and Iceberg metadata rewriting approach are being validated with Apache Iceberg experts. APIs and behavior may change.
+
+Migrate your local Polaris Iceberg tables to **AWS S3** and register them as **Snowflake External Iceberg Tables** -- queryable in Snowflake with zero data duplication effort.
+
+```mermaid
+flowchart LR
+    subgraph local [Local]
+        Polaris["Polaris + RustFS<br/>(k3d cluster)"]
+    end
+    subgraph aws [AWS]
+        S3["S3 Bucket"]
+    end
+    subgraph sf [Snowflake]
+        Iceberg["External Iceberg<br/>Tables"]
+    end
+    Polaris -->|"plf l2c sync"| S3
+    S3 -->|"plf l2c register"| Iceberg
+```
+
+### L2C Prerequisites
+
+| Requirement | Verify |
+|-------------|--------|
+| Local Polaris running | `task status` |
+| AWS CLI + profile configured | `aws sts get-caller-identity` |
+| Snowflake CLI configured | `snow connection test` |
+
+### L2C Quick Start
+
+```bash
+# Preview the full migration plan
+task l2c:migrate WORK_DIR=~/polaris-dev -- --dry-run
+
+# Execute: setup AWS/Snowflake infra, sync data, register tables
+task l2c:migrate WORK_DIR=~/polaris-dev -- --yes
+
+# Verify in Snowflake
+snow sql -q "SELECT * FROM <DATABASE>.L2C.<TABLE> LIMIT 10;" --role <SA_ROLE>
+```
+
+### L2C Task Commands
+
+| Command | Description |
+|---------|-------------|
+| `task l2c:inventory` | List tables in local Polaris catalog |
+| `task l2c:setup` | Provision AWS + Snowflake infrastructure |
+| `task l2c:setup:aws` | Create S3 bucket + IAM role/policy |
+| `task l2c:setup:snowflake` | Create external volume, catalog integration, SA_ROLE, DB/Schema |
+| `task l2c:sync` | Copy Iceberg data from local RustFS to AWS S3 |
+| `task l2c:register` | Register synced tables as Snowflake External Iceberg Tables |
+| `task l2c:refresh` | Update registered tables to latest metadata (zero-downtime) |
+| `task l2c:update` | Combined: sync + refresh + register (for incremental updates) |
+| `task l2c:migrate` | Full pipeline: setup + sync + register |
+| `task l2c:status` | Show migration state (AWS, Snowflake, per-table status) |
+| `task l2c:clear` | Remove migrated data, keep infrastructure (for iteration) |
+| `task l2c:cleanup` | Full teardown of all L2C infrastructure and data |
+
+> **Tip:** Use `task l2c:<name> --summary` for detailed help on any L2C task.
+
+### Incremental Updates
+
+After mutating data locally (adding rows, changing schema), push changes to Snowflake with zero downtime:
+
+```bash
+task l2c:update WORK_DIR=~/polaris-dev -- --force --yes
+```
+
+This syncs the delta to S3, refreshes the metadata pointer in Snowflake, and registers any new tables.
+
+For full design details, see [docs/cli-design.md](docs/cli-design.md#l2c-migration).
+
 ## Runtime Detection
 
 The CLI **auto-detects** the container runtime during `init` based on what's actually running:

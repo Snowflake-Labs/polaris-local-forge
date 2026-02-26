@@ -26,13 +26,14 @@ from polaris_local_forge.l2c.setup_aws import setup_aws
 from polaris_local_forge.l2c.setup_snowflake import setup_snowflake
 from polaris_local_forge.l2c.sync import sync
 from polaris_local_forge.l2c.register import register
+from polaris_local_forge.l2c.refresh import refresh
 from polaris_local_forge.l2c.orchestrators import migrate, status, clear, cleanup
 
 
 @click.group()
 @click.pass_context
 def l2c(ctx):
-    """Migrate local Polaris to AWS S3 + Snowflake."""
+    """[EXPERIMENTAL] Migrate local Polaris to AWS S3 + Snowflake."""
     pass
 
 
@@ -60,6 +61,7 @@ setup.add_command(setup_snowflake, "snowflake")
 l2c.add_command(inventory)
 l2c.add_command(sync)
 l2c.add_command(register)
+l2c.add_command(refresh)
 l2c.add_command(migrate)
 l2c.add_command(status)
 l2c.add_command(clear)
