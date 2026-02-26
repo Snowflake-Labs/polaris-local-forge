@@ -1,0 +1,279 @@
+# Copyright 2025 Snowflake Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+silent: true
+
+tasks:
+  inventory:
+    desc: List tables in local Polaris catalog
+    summary: |
+      Discovers all tables from the running local Polaris instance.
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Options (pass after --):
+        -o json     JSON output format
+      
+      Example:
+        task l2c:inventory WORK_DIR=~/polaris-dev
+        task l2c:inventory -- -o json
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: &work_dir_msg |
+          ERROR: WORK_DIR is required when running from the source repository.
+          
+          Usage: task l2c:inventory WORK_DIR=~/polaris-dev
+    cmds:
+      - "{{.PLF}} l2c inventory {{.CLI_ARGS}}"
+
+  status:
+    desc: Show L2C migration state (AWS, Snowflake, tables)
+    summary: |
+      Reads .snow-utils/l2c-state.json and displays:
+        - AWS infrastructure (bucket, IAM role, region)
+        - Snowflake resources (SA_ROLE, ext vol, catalog int, DB/schema)
+        - Per-table sync and register status with color coding
+        - Drift detection between AWS and Snowflake naming
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Options (pass after --):
+        -o json     Full state as JSON
+      
+      Example:
+        task l2c:status WORK_DIR=~/polaris-dev
+        task l2c:status -- -o json
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: *work_dir_msg
+    cmds:
+      - "{{.PLF}} l2c status {{.CLI_ARGS}}"
+
+  setup:
+    desc: Provision AWS + Snowflake infrastructure (orchestrator)
+    summary: |
+      Runs setup aws then setup snowflake in sequence.
+      Creates S3 bucket, IAM role/policy, external volume, catalog
+      integration, SA_ROLE, and target DB/Schema.
+      
+      All resource names are auto-derived from SNOWFLAKE_USER, project
+      name, and catalog name.
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Example:
+        task l2c:setup WORK_DIR=~/polaris-dev -- --dry-run
+        task l2c:setup WORK_DIR=~/polaris-dev -- --yes
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: *work_dir_msg
+    cmds:
+      - "{{.PLF}} l2c setup {{.CLI_ARGS}}"
+
+  setup:aws:
+    desc: Create S3 bucket + IAM role/policy for migration
+    summary: |
+      Creates AWS infrastructure for L2C migration:
+        - S3 bucket (named <user>-<project>-<catalog>)
+        - IAM policy with S3 access
+        - IAM role with trust policy for Snowflake
+      
+      Runs preflight AWS credential check before creating resources.
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Options (pass after --):
+        --dry-run / -n    Preview without executing
+        --yes / -y        Skip confirmation
+        --prefix TEXT     Override auto-derived user prefix
+        --no-prefix       Drop user prefix from names
+        --region TEXT     AWS region (default: from profile or us-east-1)
+      
+      Example:
+        task l2c:setup:aws WORK_DIR=~/polaris-dev -- --dry-run
+        task l2c:setup:aws WORK_DIR=~/polaris-dev -- --yes
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: *work_dir_msg
+    cmds:
+      - "{{.PLF}} l2c setup aws {{.CLI_ARGS}}"
+
+  setup:snowflake:
+    desc: Create external volume, catalog integration, SA_ROLE, DB/Schema
+    summary: |
+      Creates Snowflake infrastructure for L2C migration:
+        - External volume pointing to the migration S3 bucket
+        - Catalog integration (OBJECT_STORE, ICEBERG)
+        - SA_ROLE with least-privilege grants
+        - Target database and schema
+        - Trust policy update on the AWS IAM role
+      
+      Requires setup:aws to be complete first (reads state file).
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Options (pass after --):
+        --dry-run / -n        Preview SQL without executing
+        --yes / -y            Skip confirmation
+        --admin-role TEXT     Admin role for elevated ops (default: ACCOUNTADMIN)
+        --sf-database TEXT    Override auto-derived database name
+        --sf-schema TEXT      Target schema (default: L2C)
+        --prefix TEXT         Override user prefix
+        --no-prefix           Drop user prefix
+      
+      Example:
+        task l2c:setup:snowflake WORK_DIR=~/polaris-dev -- --dry-run
+        task l2c:setup:snowflake WORK_DIR=~/polaris-dev -- --yes
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: *work_dir_msg
+    cmds:
+      - "{{.PLF}} l2c setup snowflake {{.CLI_ARGS}}"
+
+  sync:
+    desc: Copy Iceberg data from local RustFS to AWS S3
+    summary: |
+      Smart sync: compares key+size between source and destination,
+      transfers only new or changed objects. Rewrites Iceberg metadata
+      paths after sync so Snowflake can read the data.
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Options (pass after --):
+        --dry-run / -n     Preview transfer plan
+        --yes / -y         Skip confirmation
+        --force / -f       Re-upload all objects (ignore smart sync)
+        --skip-rewrite     Skip metadata path rewriting
+        --prefix TEXT      Override user prefix
+        --no-prefix        Drop user prefix
+      
+      Example:
+        task l2c:sync WORK_DIR=~/polaris-dev -- --dry-run
+        task l2c:sync WORK_DIR=~/polaris-dev -- --yes
+        task l2c:sync WORK_DIR=~/polaris-dev -- --force --yes
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: *work_dir_msg
+    cmds:
+      - "{{.PLF}} l2c sync {{.CLI_ARGS}}"
+
+  register:
+    desc: Register synced tables as Snowflake External Iceberg Tables
+    summary: |
+      Creates Snowflake External Iceberg Tables using catalog integration
+      and METADATA_FILE_PATH. Schema is inferred from Iceberg metadata.
+      
+      Only processes tables with sync.status=synced.
+      Uses SA_ROLE for all DDL (least-privilege).
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Options (pass after --):
+        --dry-run / -n        Preview SQL without executing
+        --yes / -y            Skip confirmation
+        --sf-database TEXT    Override database name
+        --sf-schema TEXT      Target schema (default: L2C)
+        --prefix TEXT         Override user prefix
+        --no-prefix           Drop user prefix
+      
+      Example:
+        task l2c:register WORK_DIR=~/polaris-dev -- --dry-run
+        task l2c:register WORK_DIR=~/polaris-dev -- --yes
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: *work_dir_msg
+    cmds:
+      - "{{.PLF}} l2c register {{.CLI_ARGS}}"
+
+  migrate:
+    desc: Full migration pipeline (setup -> sync -> register)
+    summary: |
+      Runs the complete L2C pipeline in order:
+        1. setup aws
+        2. setup snowflake
+        3. sync (with metadata rewrite)
+        4. register
+      
+      Each step is idempotent -- re-running skips completed steps.
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Options (pass after --):
+        --dry-run / -n        Preview all steps
+        --yes / -y            Skip all confirmations
+        --admin-role TEXT     Admin role for setup
+        --sf-database TEXT    Override database name
+        --prefix TEXT         Override user prefix
+        --no-prefix           Drop user prefix
+      
+      Example:
+        task l2c:migrate WORK_DIR=~/polaris-dev -- --dry-run
+        task l2c:migrate WORK_DIR=~/polaris-dev -- --yes
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: *work_dir_msg
+    cmds:
+      - "{{.PLF}} l2c migrate {{.CLI_ARGS}}"
+
+  clear:
+    desc: Remove migrated data (S3 objects + SF tables), keep infrastructure
+    summary: |
+      Deletes S3 objects and drops Snowflake Iceberg tables, but keeps
+      all infrastructure (bucket, IAM, ext vol, catalog int, SA_ROLE, DB).
+      Resets table state to pending for re-sync.
+      
+      Use this to iterate: sync -> register -> verify -> clear -> repeat.
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Options (pass after --):
+        --dry-run / -n    Preview what would be deleted
+        --yes / -y        Skip confirmation
+      
+      Example:
+        task l2c:clear WORK_DIR=~/polaris-dev -- --dry-run
+        task l2c:clear WORK_DIR=~/polaris-dev -- --yes
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: *work_dir_msg
+    cmds:
+      - "{{.PLF}} l2c clear {{.CLI_ARGS}}"
+
+  cleanup:
+    desc: Full teardown -- remove all L2C infrastructure and data
+    summary: |
+      Drops Snowflake resources first (ext vol, catalog int, SA_ROLE),
+      then deletes AWS resources (IAM role/policy). S3 bucket is only
+      deleted with --force (irreversible).
+      
+      Order: clear data -> drop Snowflake -> delete AWS -> (bucket with --force)
+      
+      Variables:
+        WORK_DIR    Target project directory (default: current directory)
+      
+      Options (pass after --):
+        --dry-run / -n        Preview teardown plan
+        --yes / -y            Skip confirmation
+        --force / -f          Also delete the S3 bucket (irreversible)
+        --admin-role TEXT     Admin role for Snowflake drops
+      
+      Example:
+        task l2c:cleanup WORK_DIR=~/polaris-dev -- --dry-run
+        task l2c:cleanup WORK_DIR=~/polaris-dev -- --yes
+        task l2c:cleanup WORK_DIR=~/polaris-dev -- --force --yes
+    preconditions:
+      - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
+        msg: *work_dir_msg
+    cmds:
+      - "{{.PLF}} l2c cleanup {{.CLI_ARGS}}"

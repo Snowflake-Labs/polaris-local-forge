@@ -63,6 +63,7 @@ includes:
   polaris: ./taskfiles/polaris.yml
   catalog: ./taskfiles/catalog.yml
   ops: ./taskfiles/ops.yml
+  l2c: ./taskfiles/l2c.yml
 
 tasks:
   # ============================================
