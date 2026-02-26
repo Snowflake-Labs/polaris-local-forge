@@ -44,6 +44,7 @@ from polaris_local_forge.l2c.common import (
     save_state,
 )
 from polaris_local_forge.l2c.inventory import PolarisRestClient, _discover_tables
+from polaris_local_forge.l2c.rewrite import rewrite_table_paths
 from polaris_local_forge.l2c.sessions import (
     create_cloud_session,
     create_rustfs_session,
@@ -217,10 +218,12 @@ def _fmt_bytes(n: int) -> str:
               help="Drop user prefix from resource names")
 @click.option("--force", "-f", is_flag=True,
               help="Re-upload all objects (skip smart sync comparison)")
+@click.option("--skip-rewrite", is_flag=True,
+              help="Skip Iceberg metadata path rewriting after sync")
 @click.option("--dry-run", "-n", is_flag=True, help="Preview without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 @click.pass_context
-def sync(ctx, aws_profile, region, prefix, no_prefix, force, dry_run, yes):
+def sync(ctx, aws_profile, region, prefix, no_prefix, force, skip_rewrite, dry_run, yes):
     """Copy Iceberg data from local RustFS to AWS S3.
 
     Default: smart sync (compare key+size, transfer only new/changed objects).
@@ -264,20 +267,39 @@ def sync(ctx, aws_profile, region, prefix, no_prefix, force, dry_run, yes):
         click.echo("No tables found in local Polaris catalog.")
         return
 
+    errored = [t for t in tables if "error" in t]
+    if errored:
+        click.secho(
+            f"Warning: {len(errored)} table(s) had metadata errors "
+            f"(sync proceeds using namespace/table only):",
+            fg="yellow",
+        )
+        for t in errored:
+            click.secho(f"  {t.get('fqn', t['namespace'] + '.' + t['table'])}: {t['error']}", fg="yellow")
+
     tables_state = state.setdefault("tables", {})
 
     actionable = []
+    skipped_synced = 0
     for t in tables:
-        if "error" in t:
+        if "namespace" not in t or "table" not in t:
             continue
         key = _table_state_key(t["namespace"], t["table"])
         tbl_state = tables_state.get(key, {})
         sync_status = tbl_state.get("sync", {}).get("status", "pending")
         if force or sync_status in ("pending", "in_progress", "failed"):
             actionable.append(t)
+        else:
+            skipped_synced += 1
 
     if not actionable:
-        click.echo("All tables are already synced. Use --force to re-sync.")
+        if skipped_synced > 0:
+            msg = f"All {skipped_synced} table(s) already synced."
+            if not force:
+                msg += " Use --force to re-sync."
+            click.echo(msg)
+        else:
+            click.echo("No tables found eligible for sync.")
         return
 
     click.echo(f"\nProject: {rb['project']} | Catalog: {rb['catalog']}")
@@ -286,6 +308,7 @@ def sync(ctx, aws_profile, region, prefix, no_prefix, force, dry_run, yes):
     click.echo(f"  Destination: AWS S3 bucket '{dst_bucket}'")
     click.echo(f"  Region:      {region}")
     click.echo(f"  Mode:        {'force (re-upload all)' if force else 'smart sync (key+size)'}")
+    click.echo(f"  Rewrite:     {'disabled (--skip-rewrite)' if skip_rewrite else 'enabled (fix Iceberg metadata paths)'}")
     click.echo(f"  Tables:      {len(actionable)}/{len(tables)}")
     click.echo()
 
@@ -334,6 +357,25 @@ def sync(ctx, aws_profile, region, prefix, no_prefix, force, dry_run, yes):
                     rustfs_s3, cloud_s3, src_bucket, dst_bucket, ns, tbl,
                     force=force, dry_run=False,
                 )
+
+                if result["status"] == "synced" and not skip_rewrite:
+                    source_prefix = f"s3://{src_bucket}/"
+                    target_prefix = f"s3://{dst_bucket}/"
+                    try:
+                        n = rewrite_table_paths(
+                            cloud_s3, dst_bucket, ns, tbl,
+                            source_prefix, target_prefix,
+                        )
+                        result["rewrite_count"] = n
+                    except Exception as e:
+                        click.secho(
+                            f"    Metadata rewrite failed: {e}\n"
+                            "    Table synced but metadata paths not updated.\n"
+                            "    Re-run sync or use 'plf l2c sync --skip-rewrite'.",
+                            fg="yellow",
+                        )
+                        result["rewrite_error"] = str(e)
+
             tables_state[key]["sync"] = result
             save_state(work_dir, state)
 

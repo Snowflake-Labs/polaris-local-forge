@@ -16,11 +16,12 @@
 """Shared helpers for L2C commands.
 
 Includes: preflight AWS check, state file read/write, manifest read/write,
-env loading, Snowflake SQL wrappers.
+env loading, Snowflake SQL wrappers, Iceberg metadata file discovery.
 """
 
 import json
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -235,6 +236,35 @@ def resolve_resource_base(
         "project": project,
         "catalog": catalog,
     }
+
+
+_METADATA_PATTERN = re.compile(r"^.*/metadata/(\d+)-.*\.metadata\.json$")
+
+
+def find_latest_metadata(cloud_s3, bucket: str, namespace: str, table: str) -> str | None:
+    """Find the latest Iceberg metadata file for a table in S3.
+
+    Scans <namespace>/<table>/metadata/ for files matching the Iceberg naming
+    convention (NNNNN-<uuid>.metadata.json) and returns the key with the
+    highest version number.
+
+    Returns the full S3 key relative to the bucket root, or None if not found.
+    """
+    prefix = f"{namespace}/{table}/metadata/"
+    paginator = cloud_s3.get_paginator("list_objects_v2")
+
+    candidates: list[tuple[int, str]] = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            m = _METADATA_PATTERN.match(key)
+            if m:
+                candidates.append((int(m.group(1)), key))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    return candidates[0][1]
 
 
 SQL_DIR = Path(__file__).parent / "sql"

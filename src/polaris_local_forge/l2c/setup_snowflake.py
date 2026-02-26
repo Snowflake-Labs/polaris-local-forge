@@ -247,8 +247,8 @@ def setup_snowflake(ctx, sf_database, sf_schema, admin_role, prefix, no_prefix,
 
     click.echo("\nStep 3: Updating AWS trust policy with Snowflake IAM user ARN...")
     vol_info = describe_external_volume(volume_name)
-    snowflake_iam_arn = vol_info.get("STORAGE_AWS_IAM_USER_ARN", "")
-    sf_external_id = vol_info.get("STORAGE_AWS_EXTERNAL_ID", external_id)
+    snowflake_iam_arn = vol_info.get("iam_user_arn", "")
+    sf_external_id = vol_info.get("external_id", external_id)
 
     if not snowflake_iam_arn:
         raise click.ClickException(
