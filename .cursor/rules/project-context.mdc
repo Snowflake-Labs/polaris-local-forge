@@ -22,7 +22,7 @@ When working with this project, reference these docs:
 For Snowflake-related work, always reference:
 
 - **Snowflake Open Catalog:** https://docs.snowflake.com/en/user-guide/opencatalog/overview
-  - Managed service for Apache Polaris (incubating)
+  - Managed service for Apache Polaris
   - Iceberg REST protocol, catalogs, namespaces, credential vending, RBAC
 - **Snowflake SQL & Features:** https://docs.snowflake.com/en/
   - SQL commands, functions, data types

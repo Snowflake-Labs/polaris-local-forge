@@ -92,10 +92,13 @@ TEMPLATES = [
     (".env.example", ".env", 0o600),
     ("user-project/.envrc.example", ".envrc", None),
     ("user-project/.gitignore.example", ".gitignore", None),
+    ("user-project/pyproject.toml", "pyproject.toml", None),
+    ("user-project/uv.lock", "uv.lock", None),
+    ("user-project/notebooks/l2c_workbook.ipynb", "notebooks/l2c_workbook.ipynb", None),
 ]
 
 # Directories to create during init
-INIT_DIRECTORIES = [".kube", "work", "bin", "k8s/features", "k8s/polaris/jobs"]
+INIT_DIRECTORIES = [".kube", "work", "bin", "k8s/features", "k8s/polaris/jobs", "notebooks"]
 
 
 def render_manifest(
@@ -154,6 +157,8 @@ def get_config(work_dir: Path) -> dict:
     return cfg
 
 
+#TODO: leverage ansible line-in file module ?
+#TODO: shall we use Jinja templates for these as well, allowing us to merge and write content??
 def set_env_var(env_file: Path, key: str, value: str) -> bool:
     """Set or update an environment variable in .env file, preventing duplicates.
 
@@ -208,6 +213,7 @@ def set_env_var(env_file: Path, key: str, value: str) -> bool:
     return False
 
 
+#TODO: can we not call the ansible-playbook module directly since its dep ?????
 def run_ansible(playbook: str, work_dir: Path, tags: str | None = None,
                 dry_run: bool = False, verbose: bool = False,
                 require_aws: bool = True) -> int:
