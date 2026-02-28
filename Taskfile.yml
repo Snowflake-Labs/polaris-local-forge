@@ -472,13 +472,17 @@ tasks:
       
       Shows all non-commented, non-empty lines sorted alphabetically.
       
+      Variables:
+        WORK_DIR    Target directory (default: current directory)
+      
       Example:
         task config
+        task config WORK_DIR=~/polaris-dev
     cmds:
       - |
-        if [ -f .env ]; then
-          echo "=== Configuration (.env) ==="
-          grep -v '^#' .env | grep -v '^$' | sort
+        if [ -f "{{.PROJECT_HOME}}/.env" ]; then
+          echo "=== Configuration ({{.PROJECT_HOME}}/.env) ==="
+          grep -v '^#' "{{.PROJECT_HOME}}/.env" | grep -v '^$' | sort
         else
           echo ".env file not found. Run 'task prepare' first."
         fi
