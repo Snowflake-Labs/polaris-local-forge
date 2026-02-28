@@ -10,11 +10,7 @@ dependencies = [
     "pyarrow>=19.0.0",
     "pyiceberg[s3fs]>=0.11.0,<0.12",
     "python-dotenv>=1.0.1",
-]
-
-[project.optional-dependencies]
-notebook = [
     "ipykernel>=6.29.5",
     "jupyter>=1.1.0",
-    "snowflake-connector-python[pandas]>=3.12.0",
+    "snowflake-connector-python[pandas,secure-local-storage]>=3.12.0",
 ]
