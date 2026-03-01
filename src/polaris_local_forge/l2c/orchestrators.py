@@ -21,6 +21,7 @@ defaults -- naming follows the project-scoped convention.
 """
 
 import json
+from pathlib import Path
 
 import click
 from snow_utils.extvolume import delete_iam_policy, delete_iam_role, delete_s3_bucket
@@ -172,10 +173,11 @@ def _clear_s3_objects(cloud_s3, bucket: str, tables: dict, dry_run: bool) -> int
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 @click.pass_context
 def clear(ctx, aws_profile, prefix, no_prefix, dry_run, yes):
-    """Remove migrated data (S3 objects + Snowflake tables), keep infrastructure.
+    """Reset table state and Snowflake tables, keep files for consistency.
 
-    Resets table state to pending for re-sync. All resource names are
-    resolved from the state file.
+    Drops Snowflake tables and resets state to pending for re-sync.
+    Keeps S3 and RustFS files to maintain file count consistency.
+    Use 'cleanup' command for full file removal.
     """
     work_dir = ctx.obj["WORK_DIR"]
     state = load_state(work_dir)
@@ -204,20 +206,21 @@ def clear(ctx, aws_profile, prefix, no_prefix, dry_run, yes):
     ]
 
     click.echo("\n--- L2C Clear Plan ---")
-    click.echo(f"  S3 Bucket:  {bucket} (delete objects, keep bucket)")
+    click.echo(f"  S3 Bucket:  {bucket} (keep files for consistency)")
+    click.echo(f"  RustFS:     Keep local files (maintain count consistency)")
+    click.echo(f"  State:      Remove l2c-state.json (fresh start)")
     click.echo(f"  Tables:     {len(tables_state)} in state")
     if registered_tables and sa_role:
         click.echo(f"  SF Tables:  {len(registered_tables)} registered (will DROP)")
         click.echo(f"  SA Role:    {sa_role}")
         click.echo(f"  Database:   {database}.{schema}")
+    click.echo(f"  Note:       Use 'plf l2c cleanup' for full file removal")
     click.echo()
 
     if dry_run:
-        click.echo("S3 objects to delete:")
-        with scrubbed_aws_env():
-            cloud_s3, _, _ = create_cloud_session(aws_profile, region)
-            _clear_s3_objects(cloud_s3, bucket, tables_state, dry_run=True)
-
+        click.echo("Files: S3 and RustFS files will be KEPT (for count consistency)")
+        click.echo("State: L2C state file will be REMOVED (fresh start)")
+        
         if registered_tables and sa_role:
             click.echo("\nSnowflake tables to drop:")
             for key, tbl in registered_tables:
@@ -232,18 +235,11 @@ def clear(ctx, aws_profile, prefix, no_prefix, dry_run, yes):
 
     if not yes:
         click.confirm(
-            f"Delete all S3 objects and {len(registered_tables)} Snowflake table(s)?",
+            f"Drop {len(registered_tables)} Snowflake table(s) and remove state file? (Files will be kept)",
             abort=True,
         )
 
-    with scrubbed_aws_env():
-        preflight_aws_check(aws_profile)
-        cloud_s3, _, _ = create_cloud_session(aws_profile, region)
-
-    click.echo("Deleting S3 objects...")
-    with scrubbed_aws_env():
-        cloud_s3, _, _ = create_cloud_session(aws_profile, region)
-        _clear_s3_objects(cloud_s3, bucket, tables_state, dry_run=False)
+    click.echo("Keeping S3 and RustFS files for count consistency...")
 
     if registered_tables and sa_role:
         click.echo("\nDropping Snowflake tables...")
@@ -262,13 +258,16 @@ def clear(ctx, aws_profile, prefix, no_prefix, dry_run, yes):
             except Exception as e:
                 click.secho(f"    Failed to drop {sf_name}: {e}", fg="red")
 
-    for key in tables_state:
-        tables_state[key]["sync"] = {"status": "pending"}
-        tables_state[key]["register"] = {"status": "pending"}
-    state["tables"] = tables_state
-    save_state(work_dir, state)
-
-    click.echo("\nClear complete. Table state reset to 'pending'.")
+    # Remove entire state file for true fresh start
+    state_file = Path(work_dir) / ".snow-utils" / "l2c-state.json"
+    if state_file.exists():
+        state_file.unlink()
+        click.echo("\nClear complete. L2C state file removed for fresh start.")
+    else:
+        click.echo("\nClear complete. No state file found.")
+    
+    click.echo("Files kept on S3 and RustFS for consistency. Use 'plf l2c cleanup' for full removal.")
+    click.echo("Next 'plf l2c setup' will rediscover existing infrastructure.")
 
 
 # ---------------------------------------------------------------------------
@@ -445,11 +444,13 @@ def cleanup(ctx, aws_profile, admin_role, prefix, no_prefix, force, dry_run, yes
               help="Override SNOWFLAKE_USER prefix for resource names")
 @click.option("--no-prefix", is_flag=True,
               help="Drop user prefix from resource names")
+@click.option("--force", "-f", is_flag=True, 
+              help="Force sync (re-upload all data, useful after demo reset)")
 @click.option("--dry-run", "-n", is_flag=True, help="Preview without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 @click.pass_context
 def migrate(ctx, aws_profile, region, sf_database, sf_schema, admin_role,
-            prefix, no_prefix, dry_run, yes):
+            prefix, no_prefix, force, dry_run, yes):
     """Full migration -- setup + sync + register.
 
     Runs the complete L2C pipeline:
@@ -459,6 +460,8 @@ def migrate(ctx, aws_profile, region, sf_database, sf_schema, admin_role,
       4. register      (create Snowflake External Iceberg Tables)
 
     Each step is idempotent -- re-running migrate skips already-completed steps.
+    
+    Use --force after demo reset to ensure fresh Polaris data gets synced to S3.
     """
     from polaris_local_forge.l2c.setup_aws import setup_aws
     from polaris_local_forge.l2c.setup_snowflake import setup_snowflake
@@ -480,7 +483,7 @@ def migrate(ctx, aws_profile, region, sf_database, sf_schema, admin_role,
     click.echo("\nStep 3/4: Sync")
     ctx.invoke(sync, aws_profile=aws_profile, region=region,
                prefix=prefix, no_prefix=no_prefix,
-               force=False, skip_rewrite=False,
+               force=force, skip_rewrite=False,
                dry_run=dry_run, yes=yes)
 
     click.echo("\nStep 4/4: Register")
@@ -492,3 +495,63 @@ def migrate(ctx, aws_profile, region, sf_database, sf_schema, admin_role,
         click.echo("\n[dry-run] Full migration preview complete.")
     else:
         click.echo("\nFull migration complete.")
+
+
+# ---------------------------------------------------------------------------
+# update -- incremental sync orchestrator  
+# ---------------------------------------------------------------------------
+
+@click.command("update")
+@click.option("--aws-profile", envvar="L2C_AWS_PROFILE", help="AWS profile name")
+@click.option("--region", "-r", envvar="L2C_AWS_REGION", default=None,
+              help="AWS region")
+@click.option("--sf-database", "-D", envvar="L2C_SF_DATABASE", default=None,
+              help="Snowflake target database (default: from state)")
+@click.option("--sf-schema", "-S", envvar="L2C_SF_SCHEMA", default="L2C",
+              help="Snowflake target schema")
+@click.option("--prefix", "-p", default=None,
+              help="Override SNOWFLAKE_USER prefix for resource names")
+@click.option("--no-prefix", is_flag=True,
+              help="Drop user prefix from resource names")
+@click.option("--force", "-f", is_flag=True,
+              help="Force sync all data (useful after local mutations)")
+@click.option("--dry-run", "-n", is_flag=True, help="Preview without executing")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+@click.pass_context
+def update(ctx, aws_profile, region, sf_database, sf_schema, prefix, no_prefix, 
+           force, dry_run, yes):
+    """Incremental update -- sync + refresh + register.
+    
+    Day-2 workflow for propagating local data changes to Snowflake:
+      1. sync     (copy changed data from RustFS to AWS S3)
+      2. refresh  (update metadata pointers in Snowflake)
+      3. register (create any new tables, if needed)
+    
+    Use --force to ensure all data gets re-synced (recommended after local mutations).
+    """
+    from polaris_local_forge.l2c.sync import sync
+    from polaris_local_forge.l2c.refresh import refresh
+    from polaris_local_forge.l2c.register import register
+
+    click.echo("--- L2C Incremental Update ---\n")
+
+    click.echo("Step 1/3: Sync")
+    ctx.invoke(sync, aws_profile=aws_profile, region=region,
+               prefix=prefix, no_prefix=no_prefix,
+               force=force, skip_rewrite=False,
+               dry_run=dry_run, yes=yes)
+
+    click.echo("\nStep 2/3: Refresh")
+    ctx.invoke(refresh, aws_profile=aws_profile, sf_database=sf_database, 
+               sf_schema=sf_schema, prefix=prefix, no_prefix=no_prefix,
+               force=force, dry_run=dry_run, yes=yes)
+
+    click.echo("\nStep 3/3: Register")
+    ctx.invoke(register, sf_database=sf_database, sf_schema=sf_schema,
+               prefix=prefix, no_prefix=no_prefix,
+               dry_run=dry_run, yes=yes)
+
+    if dry_run:
+        click.echo("\n[dry-run] Incremental update preview complete.")
+    else:
+        click.echo("\nIncremental update complete.")

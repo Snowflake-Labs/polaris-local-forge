@@ -1,0 +1,24 @@
+# Wildlife namespace - animal-related datasets
+[metadata]
+name = "wildlife"
+description = "Wildlife and animal datasets for biological research and demos"
+namespace = "wildlife"
+version = "1.0"
+
+[datasets.penguins.source]
+type = "csv"
+url = "https://raw.githubusercontent.com/dataprofessor/data/master/penguins_cleaned.csv"
+
+[datasets.penguins.table]
+namespace = "wildlife"
+name = "penguins"
+
+# PyIceberg Schema Types: https://py.iceberg.apache.org/api/#types
+[datasets.penguins.table.schema]
+species = "string"
+island = "string"
+bill_length_mm = "double"
+bill_depth_mm = "double"
+flipper_length_mm = "double"
+body_mass_g = "double"
+sex = "string"

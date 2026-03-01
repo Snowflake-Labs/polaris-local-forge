@@ -1,7 +1,7 @@
 # Polaris Local Forge -- CLI Design Document
 
 > Generated from codebase analysis of `src/polaris_local_forge/` (21 files, ~5,910 lines).
-> Last updated: 2026-02-26
+> Last updated: 2026-02-28
 
 ---
 
@@ -863,6 +863,8 @@ sequenceDiagram
 ### 8. L2C Sync
 
 Smart-syncs Iceberg data from local RustFS to AWS S3, then rewrites metadata paths.
+Includes a **snapshot-aware fallback** that detects stale destinations when key+size
+comparison reports zero changes. See [docs/smart-sync.md](smart-sync.md) for details.
 
 ```mermaid
 sequenceDiagram
@@ -872,6 +874,7 @@ sequenceDiagram
     participant Common as common.py
     participant Sessions as sessions.py
     participant Rewrite as rewrite.py
+    participant PyIceberg as TableMetadataUtil
     participant RustFS as RustFS S3
     participant AWS as AWS S3
 
@@ -881,7 +884,7 @@ sequenceDiagram
     Sync->>Inventory: PolarisRestClient + _discover_tables()
     Inventory-->>Sync: tables list
 
-    Sync->>Sync: Filter actionable tables (pending/failed/force)
+    Sync->>Sync: All tables with namespace+table are actionable
     Sync->>Sync: Display plan + dry-run exit
 
     alt --yes (execute)
@@ -897,6 +900,19 @@ sequenceDiagram
             Sync->>AWS: _list_objects(dst_bucket, prefix)
             Sync->>Sync: _compute_transfer_plan(src, dst, force)
             Note over Sync: Smart sync: transfer keys<br/>that are new or size-changed
+
+            alt to_transfer is empty and not force
+                Sync->>RustFS: get_object(latest metadata.json)
+                Sync->>AWS: get_object(latest metadata.json)
+                Sync->>PyIceberg: TableMetadataUtil.parse_raw()
+                Note over PyIceberg: Compare table_uuid and<br/>current_snapshot_id
+                alt snapshot mismatch
+                    Sync->>Sync: Escalate to force=True
+                    Note over Sync: Re-compute plan with all keys
+                else snapshots match
+                    Sync->>Sync: Up to date (skip)
+                end
+            end
 
             loop each object to transfer
                 Sync->>RustFS: get_object(key)
@@ -1204,7 +1220,7 @@ flowchart TD
 
 | Command | Targets | State filter |
 |---------|---------|-------------|
-| `sync` | All tables from inventory | `pending`, `in_progress`, `failed` (or all with `--force`) |
+| `sync` | All tables from inventory | All tables (smart sync + snapshot-aware fallback handles efficiency) |
 | `refresh` | Already-registered tables | `register.status == done` |
 | `register` | Synced but not yet registered | `sync.status == synced` AND `register.status != done` |
 
@@ -1315,11 +1331,18 @@ The `_clean_aws_env()` helper builds a clean env dict for `subprocess.run()` cal
 The `status` command performs **drift detection** between `aws.sf_base` and
 `snowflake.sf_base` to catch naming inconsistencies from prefix changes.
 
-#### 4. Smart sync with exponential backoff
+#### 4. Smart sync with snapshot-aware fallback
 
 Default sync mode compares key+size between RustFS and AWS S3. Only new or
 size-changed objects are transferred. This is efficient for Iceberg's append-heavy
 pattern where subsequent syncs only transfer new data/metadata files.
+
+**Snapshot-aware fallback:** When key+size comparison reports zero files to
+transfer, sync downloads the latest `metadata.json` from both sides and uses
+PyIceberg's `TableMetadataUtil` to compare `table_uuid` and
+`current_snapshot_id`. If either differs, sync auto-escalates to `--force`
+for that table. This catches mutations and demo resets that key+size misses.
+See [docs/smart-sync.md](smart-sync.md) for full details.
 
 Per-object retry: 3 attempts with exponential backoff (1s, 2s, 4s). Per-table
 failure isolation: a failed table is marked `failed` in state but sync continues
@@ -1416,10 +1439,11 @@ querying the table are unaffected during the switch.
 4. If a newer version exists, executes `ALTER ICEBERG TABLE ... REFRESH`
 5. Updates state with new `metadata_path` and `refreshed_at`
 
-**Why `--force` is needed on `sync`:** After a local mutation, the table's sync
-status is still `synced` from the first migration. Without `--force`, `sync`
-skips it. `--force` makes sync re-compare all objects (smart sync still only
-uploads the delta).
+**Note on `--force`:** Previously required after local mutations because synced
+tables were skipped. Now, sync evaluates all tables and uses a snapshot-aware
+fallback to auto-detect stale destinations. `--force` is still available to
+unconditionally re-upload all objects, bypassing both smart sync and snapshot
+comparison.
 
 **SQL template** (`refresh_table.sql`):
 
@@ -1437,7 +1461,7 @@ ALTER ICEBERG TABLE {{table_name}} REFRESH '{{metadata_file_path}}';
 | # | Edge Case | Behavior | Mitigation | Status |
 |---|-----------|----------|------------|--------|
 | 1 | `refresh` when no tables are registered | Prints "No registered tables to refresh" and exits | Run `register` first | **Implemented** (`refresh.py`) |
-| 2 | `sync` without `--force` after local mutation | Skips table (already `synced`) | Use `--force` to re-upload delta | **Implemented** (`sync.py --force`) |
+| 2 | `sync` without `--force` after local mutation | Snapshot-aware fallback detects `current_snapshot_id` mismatch and auto-escalates to force | Automatic; no `--force` needed | **Implemented** (`sync.py _snapshot_mismatch`) |
 | 3 | Concurrent L2C runs (no state file lock) | Last writer wins, potential state corruption | Single-user tool; no file locking implemented | **Known gap** |
 | 4 | `--prefix` changed between `setup` and `sync` | Drift: bucket name mismatch | `status` command warns via drift detection | **Implemented** (`orchestrators.py` drift check) |
 | 5 | Metadata version gap (00001, 00003, no 00002) | `find_latest_metadata` picks highest (00003) | Correct behavior per Iceberg spec | **Implemented** (`common.py find_latest_metadata`) |
@@ -1449,3 +1473,5 @@ ALTER ICEBERG TABLE {{table_name}} REFRESH '{{metadata_file_path}}';
 | 11 | pyiceberg >= 0.11.0 vs local Polaris | `RestCatalog` init fails with `PUT is not a valid HttpMethod` | Install pyiceberg from git main until 0.11.1 ships ([#3010](https://github.com/apache/iceberg-python/pull/3010)) | **Manual** workaround; upstream fix pending |
 | 12 | `--no-prefix` vs `--prefix` on different commands | Resources named inconsistently | Use consistent flags; `status` drift detection warns | **Implemented** (same drift check as #4) |
 | 13 | S3 objects deleted outside L2C | `refresh`/`register` succeed if metadata still valid | If data files are missing, Snowflake queries fail at read time | **Known gap**; no proactive S3 integrity check |
+| 14 | Demo reset (drop+recreate table) with same file count | `table_uuid` differs; snapshot-aware fallback detects mismatch | Automatic force sync | **Implemented** (`sync.py _snapshot_mismatch`) |
+| 15 | Snapshot check fails (metadata download error) | Check skipped; falls back to key+size only | Use `--force` if stale data suspected | **Implemented** (graceful degradation) |

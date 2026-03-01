@@ -40,22 +40,25 @@ vars:
   FEATURES_DIR: "{{.PROJECT_HOME}}/k8s"
   PODMAN_MACHINE: k3d
   # PLF command - uses --project to find source, --work-dir for output
-  PLF: uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}"
+  # Clear VIRTUAL_ENV to avoid uv warnings about environment mismatch
+  PLF: VIRTUAL_ENV= uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}"
   # Detect if running in source repo (has SKILL.md + src/polaris_local_forge)
   # Used to prevent accidental writes to the read-only source directory
   IS_SOURCE_REPO:
     sh: '[ -f "{{.PROJECT_HOME}}/SKILL.md" ] && [ -d "{{.PROJECT_HOME}}/src/polaris_local_forge" ] && echo "true" || echo "false"'
   # Files/directories to clean up on 'teardown -- all'
   # .snow-utils is ALWAYS preserved for replay/audit
-  CLEANUP_PATHS: ".kube work k8s scripts bin notebooks .env .aws .envrc .gitignore .venv"
+  CLEANUP_PATHS: ".kube work k8s scripts bin notebooks datasets .env .aws .envrc .gitignore .venv pyproject.toml uv.lock"
 
 silent: true
 
 env:
   KUBECONFIG: "{{.KUBECONFIG}}"
+  # Prevent uv warning when shell has VIRTUAL_ENV from a different project/worktree
+  VIRTUAL_ENV: ""
   # DOCKER_HOST via CLI - single source of truth for Podman SSH socket
   DOCKER_HOST:
-    sh: uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}" runtime docker-host 2>/dev/null || true
+    sh: VIRTUAL_ENV= uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}" runtime docker-host 2>/dev/null || true
 
 includes:
   podman: ./taskfiles/podman.yml
@@ -267,12 +270,13 @@ tasks:
       - task: manifest:update
         vars: { CLI_ARGS: "6" }
       - "{{.PLF}} catalog setup"
+      # Catalog setup now includes data loading via hybrid approach
+      - "{{.PLF}} catalog verify-sql"
       # Mark Catalog and Demo data as DONE
       - task: manifest:update
         vars: { CLI_ARGS: "5" }
       - task: manifest:update
         vars: { CLI_ARGS: "7" }
-      - task: verify:sql
       # Set status to COMPLETE
       - task: manifest:complete
       - 'echo ""'
@@ -521,18 +525,18 @@ tasks:
           CLI_ARGS: "{{.CLI_ARGS}}"
 
   verify:sql:
-    desc: Verify Polaris catalog setup using SQL (alias for catalog:verify:sql)
+    desc: Verify Polaris catalog setup using hybrid PyIceberg + DuckDB approach
     summary: |
-      Verifies the Polaris catalog setup using DuckDB CLI with SQL script.
+      Verifies the Polaris catalog setup using hybrid approach:
+      - Phase 1: Load data via PyIceberg (proper metadata handling)
+      - Phase 2: Verify with DuckDB (read-only analysis)
       
-      Runs a SQL script that queries the demo table through Polaris.
+      This fixes the metadata staleness issue caused by DuckDB UUID corruption.
       
       Example:
         task verify:sql
     cmds:
-      - task: catalog:verify:sql
-        vars:
-          CLI_ARGS: "{{.CLI_ARGS}}"
+      - "{{.PLF}} catalog verify-sql {{.CLI_ARGS}}"
 
 
   # ============================================

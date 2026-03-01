@@ -54,7 +54,7 @@ spec:
     # Environment variables for AWS S3-compatible storage (RustFS) configuration
     extraEnv:
       - name: AWS_ENDPOINT_URL
-        value: "{{ plf_aws_endpoint_url }}"
+        value: "{{ plf_aws_endpoint_url_internal }}"
       - name: AWS_REGION
         value: "{{ plf_aws_region }}"
       - name: AWS_ACCESS_KEY_ID

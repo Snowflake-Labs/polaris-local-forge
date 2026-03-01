@@ -47,10 +47,12 @@ from polaris_local_forge.l2c.sessions import create_cloud_session, scrubbed_aws_
               help="Override SNOWFLAKE_USER prefix for resource names")
 @click.option("--no-prefix", is_flag=True,
               help="Drop user prefix from resource names")
+@click.option("--force", "-f", is_flag=True, 
+              help="Refresh all tables regardless of up-to-date status")
 @click.option("--dry-run", "-n", is_flag=True, help="Preview without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 @click.pass_context
-def refresh(ctx, aws_profile, sf_database, sf_schema, prefix, no_prefix, dry_run, yes):
+def refresh(ctx, aws_profile, sf_database, sf_schema, prefix, no_prefix, force, dry_run, yes):
     """Refresh registered Iceberg tables to point at the latest metadata.
 
     After 'sync --force' uploads new data/metadata, this command runs
@@ -123,10 +125,12 @@ def refresh(ctx, aws_profile, sf_database, sf_schema, prefix, no_prefix, dry_run
             skipped += 1
             continue
 
-        if latest_path == current_path:
+        if latest_path == current_path and not force:
             click.echo(f"  {ns}.{tbl_name}: up-to-date ({current_path})")
             skipped += 1
             continue
+        elif latest_path == current_path and force:
+            click.echo(f"  {ns}.{tbl_name}: forced refresh ({current_path})")
 
         click.echo(f"  {ns}.{tbl_name}:")
         click.echo(f"    current:  {current_path or '(none)'}")

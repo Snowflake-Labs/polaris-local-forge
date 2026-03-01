@@ -26,11 +26,13 @@ Per-table failure isolation: a failed table is marked 'failed' but sync
 continues for remaining tables.
 """
 
+import re
 import time
 
 import click
 from botocore.exceptions import ClientError, EndpointConnectionError
 from dotenv import dotenv_values
+from pyiceberg.table.metadata import TableMetadataUtil
 
 from polaris_local_forge.l2c.common import (
     get_local_catalog_name,
@@ -116,6 +118,73 @@ def _table_state_key(namespace: str, table: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Snapshot-aware smart sync helpers
+# ---------------------------------------------------------------------------
+
+_METADATA_RE = re.compile(r".*/metadata/(\d+)-[^/]+\.metadata\.json$")
+
+
+def _find_latest_metadata_key(objects: dict[str, int]) -> str | None:
+    """Return the key of the highest-versioned metadata.json among *objects*."""
+    best_key: str | None = None
+    best_ver = -1
+    for key in objects:
+        m = _METADATA_RE.match(key)
+        if m:
+            ver = int(m.group(1))
+            if ver > best_ver:
+                best_ver = ver
+                best_key = key
+    return best_key
+
+
+def _snapshot_mismatch(
+    rustfs_s3,
+    cloud_s3,
+    src_bucket: str,
+    dst_bucket: str,
+    src_objects: dict[str, int],
+    dst_objects: dict[str, int],
+) -> bool:
+    """Compare Iceberg snapshots between source and destination metadata.
+
+    Returns True when table_uuid or current_snapshot_id differ, meaning the
+    destination is stale even though a key+size comparison found no changes.
+    """
+    src_meta_key = _find_latest_metadata_key(src_objects)
+    dst_meta_key = _find_latest_metadata_key(dst_objects)
+
+    if not src_meta_key or not dst_meta_key:
+        return False
+
+    try:
+        src_body = rustfs_s3.get_object(Bucket=src_bucket, Key=src_meta_key)["Body"].read()
+        dst_body = cloud_s3.get_object(Bucket=dst_bucket, Key=dst_meta_key)["Body"].read()
+
+        src_tm = TableMetadataUtil.parse_raw(src_body)
+        dst_tm = TableMetadataUtil.parse_raw(dst_body)
+
+        if str(src_tm.table_uuid) != str(dst_tm.table_uuid):
+            click.echo(
+                f"    Snapshot check: table_uuid differs "
+                f"(local={src_tm.table_uuid}, s3={dst_tm.table_uuid})"
+            )
+            return True
+
+        if src_tm.current_snapshot_id != dst_tm.current_snapshot_id:
+            click.echo(
+                f"    Snapshot check: current_snapshot_id differs "
+                f"(local={src_tm.current_snapshot_id}, s3={dst_tm.current_snapshot_id})"
+            )
+            return True
+
+        return False
+    except Exception as e:
+        click.echo(f"    Snapshot check skipped (could not read metadata): {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Per-table sync
 # ---------------------------------------------------------------------------
 
@@ -164,8 +233,17 @@ def _sync_table(
         return {"status": "pending", "object_count": len(to_transfer), "total_bytes": total_src_bytes}
 
     if not to_transfer:
-        click.echo("    Up to date.")
-        return {"status": "synced", "last_sync": now_iso(), "object_count": 0, "total_bytes": 0}
+        if not force and cloud_s3 is not None and _snapshot_mismatch(
+            rustfs_s3, cloud_s3, src_bucket, dst_bucket, src_objects, dst_objects,
+        ):
+            click.secho(
+                "    Stale destination detected -- escalating to force sync.",
+                fg="yellow",
+            )
+            to_transfer = _compute_transfer_plan(src_objects, dst_objects, force=True)
+        else:
+            click.echo("    Up to date.")
+            return {"status": "synced", "last_sync": now_iso(), "object_count": 0, "total_bytes": 0}
 
     transferred = 0
     total_bytes = 0
@@ -279,27 +357,10 @@ def sync(ctx, aws_profile, region, prefix, no_prefix, force, skip_rewrite, dry_r
 
     tables_state = state.setdefault("tables", {})
 
-    actionable = []
-    skipped_synced = 0
-    for t in tables:
-        if "namespace" not in t or "table" not in t:
-            continue
-        key = _table_state_key(t["namespace"], t["table"])
-        tbl_state = tables_state.get(key, {})
-        sync_status = tbl_state.get("sync", {}).get("status", "pending")
-        if force or sync_status in ("pending", "in_progress", "failed"):
-            actionable.append(t)
-        else:
-            skipped_synced += 1
+    actionable = [t for t in tables if "namespace" in t and "table" in t]
 
     if not actionable:
-        if skipped_synced > 0:
-            msg = f"All {skipped_synced} table(s) already synced."
-            if not force:
-                msg += " Use --force to re-sync."
-            click.echo(msg)
-        else:
-            click.echo("No tables found eligible for sync.")
+        click.echo("No tables found eligible for sync.")
         return
 
     click.echo(f"\nProject: {rb['project']} | Catalog: {rb['catalog']}")

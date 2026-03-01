@@ -27,7 +27,7 @@ from polaris_local_forge.l2c.setup_snowflake import setup_snowflake
 from polaris_local_forge.l2c.sync import sync
 from polaris_local_forge.l2c.register import register
 from polaris_local_forge.l2c.refresh import refresh
-from polaris_local_forge.l2c.orchestrators import migrate, status, clear, cleanup
+from polaris_local_forge.l2c.orchestrators import migrate, update, status, clear, cleanup
 
 
 @click.group()
@@ -38,10 +38,12 @@ def l2c(ctx):
 
 
 @l2c.group(invoke_without_command=True)
+@click.option("--force", "-f", is_flag=True, 
+              help="Force setup (recreate resources if they exist)")
 @click.option("--dry-run", "-n", is_flag=True, help="Preview without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 @click.pass_context
-def setup(ctx, dry_run, yes):
+def setup(ctx, force, dry_run, yes):
     """Provision AWS and Snowflake infrastructure.
 
     When invoked without a subcommand, runs 'setup aws' then 'setup snowflake'
@@ -51,6 +53,7 @@ def setup(ctx, dry_run, yes):
         return
 
     click.echo("Running setup orchestrator: aws → snowflake\n")
+    # Note: Individual setup commands are idempotent; --force is for orchestrator consistency
     ctx.invoke(setup_aws, dry_run=dry_run, yes=yes)
     ctx.invoke(setup_snowflake, dry_run=dry_run, yes=yes)
 
@@ -63,6 +66,7 @@ l2c.add_command(sync)
 l2c.add_command(register)
 l2c.add_command(refresh)
 l2c.add_command(migrate)
+l2c.add_command(update)
 l2c.add_command(status)
 l2c.add_command(clear)
 l2c.add_command(cleanup)

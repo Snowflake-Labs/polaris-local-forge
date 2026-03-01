@@ -8,7 +8,10 @@ dependencies = [
     "duckdb>=1.4.0",
     "pandas>=2.2.3",
     "pyarrow>=19.0.0",
-    "pyiceberg[s3fs]>=0.11.0,<0.12",
+    # PyIceberg pinned to 0.10.0 due to Polaris compatibility issues
+    # 0.11.0 has REST API validation errors: 'PUT' is not a valid HttpMethod
+    # Can upgrade to 0.11.0+ when Polaris server compatibility is resolved
+    "pyiceberg[s3fs]==0.10.0",
     "python-dotenv>=1.0.1",
     "ipykernel>=6.29.5",
     "jupyter>=1.1.0",

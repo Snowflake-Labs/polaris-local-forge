@@ -186,12 +186,15 @@ def cluster():
 def cluster_create(ctx, dry_run: bool, force: bool, wait_timeout: int, skip_wait: bool):
     """Create k3d cluster using config/cluster-config.yaml."""
     work_dir = ctx.obj["WORK_DIR"]
+    # TODO: Gurad Rail on protecting source dir is repated
+    # refactor and move to common or other new module say utils?
     # Protect source directory from accidental initialization
     if work_dir.resolve() == SKILL_DIR.resolve() and not (work_dir / ".env").exists():
         click.echo("Error: Cannot run cluster create in source directory.", err=True)
         click.echo("Use --work-dir to specify a project directory.", err=True)
         sys.exit(1)
     # Auto-run init if .env doesn't exist
+    # TODO: is this check and related not repeated cross? refactor and move to common or other new module say utils?
     if not (work_dir / ".env").exists():
         click.echo("Project not initialized. Running 'init' first...")
         from polaris_local_forge.cli import init_project
@@ -399,6 +402,8 @@ def cluster_list(ctx, output: str):
               help="Output format")
 @click.pass_context
 def cluster_status(ctx, output: str):
+    # TODO make things simpler here can we not run cluster_checks with all tags ?
+    # only thing we need to check if Ansible playbook output can be captured as JSON
     """Show cluster and services status."""
     cfg = ctx.obj["CONFIG"]
     work_dir = ctx.obj["WORK_DIR"]

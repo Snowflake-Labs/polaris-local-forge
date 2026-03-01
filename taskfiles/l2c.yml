@@ -255,23 +255,25 @@ tasks:
       - "{{.PLF}} l2c refresh {{.CLI_ARGS}}"
 
   update:
-    desc: Push local changes to Snowflake (sync -> refresh -> register)
+    desc: Incremental update orchestrator (sync -> refresh -> register)
     summary: |
-      Incremental update pipeline:
-        1. sync     -- smart sync (delta only) + metadata rewrite
-        2. refresh  -- ALTER REFRESH for already-registered tables (zero-downtime)
-        3. register -- CREATE ICEBERG TABLE for newly added tables only
+      Uses the new L2C update orchestrator command for day-2 workflows.
+      Proper pipeline order: sync → refresh → register
       
-      Use --force (passed through to sync) to re-upload after local
-      data mutations. Without --force, sync only picks up new tables.
+      Pipeline steps:
+        1. sync     -- copy changed data from RustFS to AWS S3
+        2. refresh  -- update metadata pointers in Snowflake  
+        3. register -- create any new tables, if needed
+      
+      Use --force to ensure all data gets re-synced (recommended after local mutations).
       
       Variables:
         WORK_DIR    Target project directory (default: current directory)
       
       Options (pass after --):
         --dry-run / -n    Preview all steps
-        --yes / -y        Skip confirmation
-        --force / -f      Force re-sync (needed after local data mutation)
+        --yes / -y        Skip confirmation  
+        --force / -f      Force sync all data (recommended after local mutations)
       
       Example:
         task l2c:update WORK_DIR=~/polaris-dev -- --dry-run
@@ -280,24 +282,24 @@ tasks:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg
     cmds:
-      - "{{.PLF}} l2c sync {{.CLI_ARGS}}"
-      - "{{.PLF}} l2c refresh {{.CLI_ARGS}}"
-      - "{{.PLF}} l2c register {{.CLI_ARGS}}"
+      - "{{.PLF}} l2c update {{.CLI_ARGS}}"
 
   clear:
-    desc: Remove migrated data (S3 objects + SF tables), keep infrastructure
+    desc: Drop SF tables and remove state file, keep files for consistency
     summary: |
-      Deletes S3 objects and drops Snowflake Iceberg tables, but keeps
-      all infrastructure (bucket, IAM, ext vol, catalog int, SA_ROLE, DB).
-      Resets table state to pending for re-sync.
+      Drops Snowflake Iceberg tables and removes L2C state file for fresh start.
+      Keeps S3 and RustFS files for count consistency. Keeps all infrastructure 
+      (bucket, IAM, ext vol, catalog int, SA_ROLE, DB).
       
+      Next 'plf l2c setup' will rediscover existing infrastructure.
       Use this to iterate: sync -> register -> verify -> clear -> repeat.
+      For full file removal, use 'task l2c:cleanup' instead.
       
       Variables:
         WORK_DIR    Target project directory (default: current directory)
       
       Options (pass after --):
-        --dry-run / -n    Preview what would be deleted
+        --dry-run / -n    Preview what would be changed
         --yes / -y        Skip confirmation
       
       Example:

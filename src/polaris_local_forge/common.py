@@ -95,10 +95,15 @@ TEMPLATES = [
     ("user-project/pyproject.toml", "pyproject.toml", None),
     ("user-project/uv.lock", "uv.lock", None),
     ("user-project/notebooks/l2c_workbook.ipynb", "notebooks/l2c_workbook.ipynb", None),
+    ("datasets/wildlife.toml", "datasets/wildlife.toml", None),
+    ("datasets/plantae.toml", "datasets/plantae.toml", None),
+    ("datasets/README.md", "datasets/README.md", None),
+    ("scripts/pyiceberg_data_loader.py", "scripts/pyiceberg_data_loader.py", 0o755),
+    ("scripts/analyze_catalog.sql", "scripts/analyze_catalog.sql", None),
 ]
 
 # Directories to create during init
-INIT_DIRECTORIES = [".kube", "work", "bin", "k8s/features", "k8s/polaris/jobs", "notebooks"]
+INIT_DIRECTORIES = [".kube", "work", "bin", "k8s/features", "k8s/polaris/jobs", "notebooks", "datasets", "scripts"]
 
 
 def render_manifest(

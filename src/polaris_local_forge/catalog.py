@@ -77,33 +77,64 @@ def catalog_cleanup(ctx, tags: str | None, dry_run: bool, verbose: bool, yes: bo
 @catalog.command("verify-sql")
 @click.pass_context
 def catalog_verify_sql(ctx):
-    """Run DuckDB verification using generated SQL script."""
+    """Load data via PyIceberg, then verify with DuckDB read-only queries."""
     work_dir = ctx.obj["WORK_DIR"]
-    sql_file = work_dir / "scripts" / "explore_catalog.sql"
-
-    if not sql_file.exists():
-        click.echo(f"SQL script not found: {sql_file}", err=True)
-        click.echo("Run 'catalog setup' first to generate it.", err=True)
+    
+    # Phase 1: Load data via PyIceberg (safe, maintains metadata)
+    click.echo("Phase 1: Loading data via PyIceberg...")
+    
+    # Load wildlife dataset (penguins)
+    wildlife_config = work_dir / "datasets" / "wildlife.toml"
+    if wildlife_config.exists():
+        click.echo("Loading wildlife datasets...")
+        result = subprocess.run([
+            "python3", str(work_dir / "scripts" / "pyiceberg_data_loader.py"),
+            "--config-file", str(wildlife_config)
+        ], cwd=work_dir)
+        if result.returncode != 0:
+            click.echo("Failed to load wildlife datasets.", err=True)
+            sys.exit(1)
+    else:
+        click.echo(f"Wildlife config not found: {wildlife_config}", err=True)
+        click.echo("Ensure datasets/wildlife.toml exists.", err=True)
         sys.exit(1)
-
+    
+    # Note: plantae dataset (fruits) available for separate multi-namespace testing
+    # Load manually with: python scripts/pyiceberg_data_loader.py --config-file datasets/plantae.toml
+    
+    click.echo("✅ Data loading completed via PyIceberg")
+    
+    # Phase 2: Verify with DuckDB read-only queries
+    click.echo("\nPhase 2: Verifying with DuckDB read-only analysis...")
+    
     if not shutil.which("duckdb"):
         click.echo("DuckDB CLI not found. Install with: brew install duckdb", err=True)
         sys.exit(1)
-
-    click.echo(f"Running DuckDB verification from {sql_file}...")
-
-    result = subprocess.run(
-        ["duckdb", "-bail", "-init", str(sql_file), "-c", ".exit"],
-        capture_output=False
-    )
-
+    
+    # Use our read-only analysis script
+    analysis_script = work_dir / "scripts" / "analyze_catalog.sql"
+    if not analysis_script.exists():
+        click.echo(f"Analysis script not found: {analysis_script}", err=True)
+        click.echo("The script should have been created during setup.", err=True)
+        sys.exit(1)
+    
+    click.echo(f"Running DuckDB read-only analysis from {analysis_script}...")
+    
+    result = subprocess.run([
+        "duckdb", "-bail", "-init", str(analysis_script), "-c", ".exit"
+    ], capture_output=False, cwd=work_dir)
+    
     if result.returncode == 0:
-        click.echo("Verification completed successfully.")
+        click.echo("\n🎉 Hybrid verification completed successfully!")
+        click.echo("✅ Data loaded via PyIceberg (proper metadata)")
+        click.echo("✅ Analysis completed via DuckDB (read-only)")
     else:
         click.echo("Verification failed.", err=True)
+    
     sys.exit(result.returncode)
 
 
+#TODO: do we need this, for better UX shall make the user use Jupyter notebook?
 @catalog.command("explore-sql")
 @click.pass_context
 def catalog_explore_sql(ctx):
@@ -158,6 +189,7 @@ def catalog_query(ctx, sql: str):
         click.echo(f"Invalid principal file format: {principal_file}", err=True)
         sys.exit(1)
     
+    #TODO: the duckdb from the .venv should be used!!
     if not shutil.which("duckdb"):
         click.echo("DuckDB CLI not found. Install with: brew install duckdb", err=True)
         sys.exit(1)
@@ -185,6 +217,7 @@ ATTACH '{catalog_name}' AS polaris_catalog (
     # Combine setup + user query
     full_sql = setup_sql + sql + ";"
     
+    #TODO run with bail -c to fail on error 
     result = subprocess.run(
         ["duckdb", "-c", full_sql],
         capture_output=False

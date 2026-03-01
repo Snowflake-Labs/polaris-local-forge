@@ -189,6 +189,7 @@ def init_project(ctx, force: bool, cluster_name: str | None, with_manifest: bool
             env_vars_added.append(f"PLF_CONTAINER_RUNTIME={detected_runtime}")
 
     # Initialize manifest if requested
+    # TODO: manifest is always requried, we should avoid giving w/o manifest option
     if with_manifest:
         manifest_dir = work_dir / ".snow-utils"
         manifest_file = manifest_dir / "snow-utils-manifest.md"

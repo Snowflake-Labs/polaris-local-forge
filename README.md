@@ -314,7 +314,7 @@ All operations are available via Task commands:
 | `task catalog:cleanup` | Cleanup catalog resources |
 | `task catalog:reset` | Cleanup and recreate catalog |
 | `task catalog:list` | List catalogs |
-| `task catalog:verify:sql` | Verify with DuckDB (loads + inserts data) |
+| `task catalog:verify:sql` | Verify with hybrid PyIceberg + DuckDB (fixes metadata staleness) |
 | `task catalog:query SQL="..."` | Execute read-only SQL query (no inserts) |
 | `task catalog:explore:sql` | Explore with DuckDB (interactive) |
 | `task catalog:verify:duckdb` | Verify with Python DuckDB |
@@ -425,6 +425,8 @@ uv run polaris-local-forge --help
 | `polaris-local-forge runtime docker-host` | Output DOCKER_HOST for current runtime |
 
 All destructive commands support `--dry-run` to preview and `--yes` to skip confirmation.
+
+📖 **See [Flag Usage Patterns](docs/flag-usage-patterns.md) for detailed guidance on when to use `--force` and `--yes`.**
 
 ## Configuration
 
@@ -565,6 +567,34 @@ task test:isolated:list
 ```
 
 The isolated environment protects the source directory from accidental initialization. Commands like `init`, `doctor`, `prepare`, and `cluster create` will refuse to run in the source directory without `--work-dir`.
+
+## Known Issues & Compatibility
+
+### DuckDB Iceberg Extension
+
+**Issue**: DuckDB v1.4.4 has a UUID generation bug during INSERT/UPDATE/DELETE operations on Iceberg tables.
+
+- **Problem**: DuckDB generates new table UUIDs during mutations, violating the Iceberg specification
+- **Impact**: Causes metadata staleness when syncing to Snowflake via L2C migration
+- **Tracking**: [duckdb/duckdb-python#356](https://github.com/duckdb/duckdb-python/issues/356)
+- **Workaround**: Use PyIceberg for data loading, DuckDB for read-only analysis only
+
+### PyIceberg Version Compatibility
+
+**Issue**: PyIceberg versions > 0.10.0 have REST API compatibility issues with Polaris.
+
+- **Problem**: PyIceberg 0.11.0+ validation errors: 'PUT' is not a valid HttpMethod
+- **Impact**: Cannot connect to Polaris REST API for table operations
+- **Workaround**: Pin to PyIceberg 0.10.0 in `user-project/pyproject.toml`
+- **Resolution**: Upgrade when Polaris server compatibility is resolved
+
+### Mixed Tooling Workflows
+
+**Recommendation**: Use the hybrid approach implemented in this project:
+
+- **Data Loading**: PyIceberg (`scripts/pyiceberg_data_loader.py`) for proper metadata handling
+- **Data Analysis**: DuckDB (`scripts/analyze_catalog.sql`) for read-only queries and verification
+- **L2C Migration**: Works correctly with PyIceberg-loaded data
 
 ## Related Projects
 

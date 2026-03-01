@@ -59,7 +59,7 @@ Simply run the generated SQL script:
 
 ```bash
 # Run via task (recommended)
-task catalog:verify:sql
+task verify:sql  # Now uses hybrid PyIceberg + DuckDB approach
 
 # Or run directly with DuckDB
 duckdb < scripts/explore_catalog.sql

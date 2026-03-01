@@ -50,10 +50,12 @@ MANIFEST_FILENAME = "snow-utils-manifest.md"
 # admin_role resolution (follows kamesh-demo-skills pattern)
 # ---------------------------------------------------------------------------
 
-def _resolve_admin_role(admin_role: str | None, work_dir) -> str:
+def _resolve_admin_role(admin_role: str | None, work_dir, *, yes: bool = False) -> str:
     """Resolve admin_role: CLI flag > manifest > interactive prompt.
 
     admin_role is stored only in the manifest, never in .env.
+    When *yes* is True, accept the manifest value (or ACCOUNTADMIN default)
+    without prompting.
     """
     if admin_role:
         return admin_role
@@ -64,9 +66,15 @@ def _resolve_admin_role(admin_role: str | None, work_dir) -> str:
             if line.startswith("**Admin Role:**"):
                 existing = line.split(":**", 1)[1].strip()
                 if existing:
+                    if yes:
+                        click.echo(f"Using admin role '{existing}' from manifest (--yes)")
+                        return existing
                     if click.confirm(f"Reuse admin role '{existing}' from manifest?", default=True):
                         return existing
 
+    if yes:
+        click.echo("Using default admin role 'ACCOUNTADMIN' (--yes)")
+        return "ACCOUNTADMIN"
     return click.prompt("Admin role for elevated operations", default="ACCOUNTADMIN")
 
 
@@ -183,7 +191,7 @@ def setup_snowflake(ctx, sf_database, sf_schema, admin_role, prefix, no_prefix,
 
     volume_name = sf_base
     database = sf_database or sf_base
-    resolved_admin_role = _resolve_admin_role(admin_role, work_dir)
+    resolved_admin_role = _resolve_admin_role(admin_role, work_dir, yes=yes)
 
     catalog_vars = {
         "admin_role": resolved_admin_role,

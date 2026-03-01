@@ -25,7 +25,33 @@ Apache Polaris Local Forge provides a complete local data lakehouse stack:
 
 | Skill | Description |
 |-------|-------------|
-| `polaris-local-forge` | Full local environment setup: k3d cluster + RustFS + PostgreSQL + Apache Polaris + catalog |
+| `polaris-local-forge` | Full local environment setup: k3d cluster + RustFS + PostgreSQL + Apache Polaris + catalog + L2C migration |
+
+### Key Features
+
+- **Local Development Environment**: Complete Apache Polaris stack with RustFS S3-compatible storage
+- **L2C (Local to Cloud) Migration**: Migrate local Iceberg tables to AWS S3 and register as Snowflake External Iceberg Tables
+- **Interactive Notebooks**: Jupyter notebook with skill actions for verification and demo workflows
+- **Dual-Mode Execution**: Both CLI commands and notebook-based verification paths
+- **Infrastructure-as-Intent**: Natural language triggers for complex operations
+
+## Prerequisites
+
+### Local Development
+- **Podman** (default) or **Docker Desktop** - Container runtime
+- **k3d** - k3s-in-Docker/Podman for local Kubernetes
+- **Python** >= 3.12 with **uv** package manager
+
+### L2C Migration (Additional)
+- **AWS CLI v2** - For **REAL AWS S3** access (not RustFS)
+- **Snowflake CLI** - For Snowflake connection and operations
+- **AWS Credentials** - **REAL AWS profile or SSO** (credential resolution: CLI flag → `L2C_AWS_PROFILE` env var → default chain)
+- **Snowflake Connection** - Named connection in `~/.snowflake/connections.toml`
+
+> **⚠️ Credential Isolation:** L2C uses `scrubbed_aws_env()` to temporarily clear RustFS environment variables, ensuring boto3 accesses your real AWS credentials without interference from local development settings.
+
+> [!TIP]
+> The skill automatically checks and guides you through prerequisite setup. For L2C migration, ensure AWS and Snowflake access is configured before starting.
 
 ## Installation
 
@@ -82,6 +108,39 @@ Say any of these to activate the skill:
 - "recreate catalog"
 - "cleanup catalog"
 - "setup catalog only"
+
+### L2C Migration
+
+- "l2c migration"
+- "local to cloud"
+- "migrate to snowflake"
+- "iceberg to s3"
+- "polaris to snowflake"
+- "cloud migration"
+- "external iceberg tables"
+- "snowflake iceberg"
+- "migrate iceberg"
+
+### Polaris + Snowflake Integration
+
+- "polaris with snowflake"
+- "local polaris snowflake"
+- "polaris snowflake integration"
+- "how to use polaris with snowflake"
+- "connect polaris to snowflake"
+- "polaris local snowflake"
+
+### L2C Updates & Repeats
+
+- "l2c update"
+- "update l2c migration"
+- "repeat l2c migration"
+- "l2c sync"
+- "incremental l2c"
+- "l2c incremental update"
+- "update migration"
+- "repeat migration"
+- "sync l2c"
 
 ### Status & Teardown
 
@@ -204,6 +263,23 @@ cortex skill add https://github.com/Snowflake-Labs/polaris-local-forge
    - Walk you through the full setup interactively
    - Update the manifest status as resources are created
 
+### L2C Migration Quick Start
+
+After setting up your local Polaris environment:
+
+1. **Ensure Prerequisites**: Configure AWS credentials and Snowflake connection
+2. **Say**: **"l2c migration"** or **"migrate to snowflake"**
+3. **The skill will**:
+   - Verify AWS and Snowflake access
+   - Set up S3 bucket and Snowflake External Volume
+   - Migrate your local Iceberg tables to S3
+   - Register them as Snowflake External Iceberg Tables
+   - Provide verification options (CLI or interactive notebook)
+
+4. **Verify Migration**: Choose between:
+   - **CLI verification**: Quick command-line checks
+   - **Notebook verification**: Interactive Jupyter notebook with skill actions
+
 ### Export Manifest for Sharing
 
 After completing setup, export your manifest to share with colleagues:
@@ -309,7 +385,7 @@ No `--endpoint-url` flag needed when `AWS_ENDPOINT_URL` is set.
 
 ### S3 Dependencies
 
-Both the skill's `pyproject.toml` and the lightweight `user-project/pyproject.toml` include `boto3>=1.35.0` and `pyiceberg[s3fs]>=0.8.1`. No additional Python dependencies are needed. The `aws` CLI must be installed separately if you want to use it directly.
+Both the skill's `pyproject.toml` and the lightweight `user-project/pyproject.toml` include `boto3>=1.35.0` and `pyiceberg[s3fs]==0.10.0`. **Note**: PyIceberg is pinned to 0.10.0 for Polaris compatibility (0.11.0 has REST API validation issues). No additional Python dependencies are needed. The `aws` CLI must be installed separately if you want to use it directly.
 
 ## Consuming Projects — Minimal Setup
 
@@ -332,8 +408,7 @@ CLIENT_SECRET=<from principal.txt>
 ```
 
 **`pyproject.toml`** — copy from `user-project/pyproject.toml` in the skill repo.
-It includes `duckdb`, `pyiceberg[s3fs]`, `boto3`, `pandas`, `pyarrow`, and
-optional `[notebook]` extras for Jupyter.
+It includes `duckdb`, `pyiceberg[s3fs]==0.10.0` (pinned for Polaris compatibility), `boto3`, `pandas`, `pyarrow`, and optional `[notebook]` extras for Jupyter.
 
 **Notebook or SQL scripts** for querying.
 

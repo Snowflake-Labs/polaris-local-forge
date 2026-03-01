@@ -66,6 +66,7 @@ def api_query(ctx, endpoint: str, output: str, verbose: bool):
         endpoint = "/" + endpoint
     
     # Check credentials exist
+    #TODO: refactor the princpal.txt check to utils like we do for .env and others ?
     principal_file = work_dir / "work" / "principal.txt"
     if not principal_file.exists():
         click.echo("Error: work/principal.txt not found.", err=True)
@@ -78,6 +79,7 @@ def api_query(ctx, endpoint: str, output: str, verbose: bool):
         sys.exit(1)
     
     # Build command
+    # TODO: why cant we use run_ansible ??
     cmd = [
         "uv", "run", "ansible-playbook",
         str(playbook_path),
