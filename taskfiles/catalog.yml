@@ -12,18 +12,14 @@ tasks:
       - "{{.PLF}} catalog setup {{if .TAGS}}--tags={{.TAGS}}{{end}}"
 
   verify:sql:
-    desc: Verify Polaris catalog using DuckDB CLI with SQL script
+    desc: Verify Polaris catalog using hybrid PyIceberg + DuckDB approach
+    summary: |
+      Phase 1: Load data via PyIceberg (proper Iceberg metadata handling)
+      Phase 2: Verify with DuckDB read-only analysis (no INSERT/UPDATE)
+
+      This avoids the DuckDB UUID corruption bug that causes metadata staleness.
     cmds:
-      - |
-        if [ -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql ]; then
-          duckdb < {{.PROJECT_HOME}}/scripts/explore_catalog.sql
-        else
-          echo "SQL script not found. Run 'task catalog:setup' first to generate it."
-          exit 1
-        fi
-    preconditions:
-      - sh: command -v duckdb
-        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+      - "{{.PLF}} catalog verify-sql {{.CLI_ARGS}}"
 
   explore:sql:
     desc: Explore Polaris catalog with DuckDB CLI in interactive mode

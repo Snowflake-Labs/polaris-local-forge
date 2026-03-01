@@ -99,7 +99,6 @@ TEMPLATES = [
     ("datasets/plantae.toml", "datasets/plantae.toml", None),
     ("datasets/README.md", "datasets/README.md", None),
     ("scripts/pyiceberg_data_loader.py", "scripts/pyiceberg_data_loader.py", 0o755),
-    ("scripts/analyze_catalog.sql", "scripts/analyze_catalog.sql", None),
 ]
 
 # Directories to create during init

@@ -43,6 +43,19 @@ TYPE_MAPPING = {
     "timestamp": TimestampType(),
 }
 
+# Parallel PyArrow type mapping for casting DataFrames to match declared schema
+ARROW_TYPE_MAPPING = {
+    "string": pa.string(),
+    "int": pa.int32(),
+    "integer": pa.int32(),
+    "long": pa.int64(),
+    "float": pa.float32(),
+    "double": pa.float64(),
+    "boolean": pa.bool_(),
+    "date": pa.date32(),
+    "timestamp": pa.timestamp("us"),
+}
+
 
 def load_env_file(env_path: Path) -> Dict[str, str]:
     """Load .env file into a dict (simple key=value parser)."""
@@ -217,6 +230,24 @@ def get_or_create_table(catalog: Any, table_config: Dict[str, Any], df: pd.DataF
         return table
 
 
+def _cast_to_schema(arrow_table: pa.Table, schema_config: Dict[str, str]) -> pa.Table:
+    """Cast Arrow table columns to match the declared TOML schema types.
+
+    Pandas may infer int64 for columns declared as double (e.g., whole-number
+    measurements like flipper_length_mm=181). This cast ensures the Arrow table
+    matches what PyIceberg expects from the Iceberg table schema.
+    """
+    for col_name, type_str in schema_config.items():
+        if col_name in arrow_table.column_names:
+            target_type = ARROW_TYPE_MAPPING.get(type_str)
+            if target_type and arrow_table.schema.field(col_name).type != target_type:
+                col_idx = arrow_table.schema.get_field_index(col_name)
+                arrow_table = arrow_table.set_column(
+                    col_idx, col_name, arrow_table.column(col_name).cast(target_type)
+                )
+    return arrow_table
+
+
 def load_dataset(catalog: Any, dataset_name: str, dataset_config: Dict[str, Any], dry_run: bool = False) -> None:
     """Load a single dataset into Iceberg table via PyIceberg."""
     click.echo(f"\nProcessing dataset: {dataset_name}")
@@ -236,6 +267,7 @@ def load_dataset(catalog: Any, dataset_name: str, dataset_config: Dict[str, Any]
         table = get_or_create_table(catalog, table_config, df)
 
         arrow_table = pa.Table.from_pandas(df, preserve_index=False)
+        arrow_table = _cast_to_schema(arrow_table, table_config.get("schema", {}))
         table.overwrite(arrow_table)
         click.echo(f"  Loaded {len(df)} rows into {table_config['namespace']}.{table_config['name']}")
 

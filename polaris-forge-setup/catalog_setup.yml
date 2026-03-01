@@ -330,11 +330,25 @@
       tags:
         - verify
 
-    - name: Copy read-only DuckDB analysis script
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../scripts/analyze_catalog.sql"
+    - name: Generate read-only DuckDB analysis script from template
+      ansible.builtin.template:
+        src: "{{ plf_template_dir }}/scripts/analyze_catalog.sql.j2"
         dest: "{{ plf_scripts_dir }}/analyze_catalog.sql"
         mode: "0644"
+        variable_start_string: "<<"
+        variable_end_string: ">>"
+      vars:
+        sql_vars:
+          catalog_name: "{{ plf_catalog_name }}"
+          endpoint: "{{ plf_api_base_url }}/api/catalog"
+          oauth_server: "{{ plf_api_base_url }}/api/catalog/v1/oauth/tokens"
+          realm: "{{ template_realm }}"
+          client_id: "{{ template_client_id }}"
+          client_secret: "{{ template_client_secret }}"
+          s3_access_key: "{{ plf_aws_access_key_id }}"
+          s3_secret_key: "{{ plf_aws_secret_access_key }}"
+          s3_endpoint_host: "{{ plf_aws_endpoint_url | regex_replace('^https?://', '') }}"
+          s3_region: "{{ plf_aws_region }}"
       tags:
         - verify
 
@@ -353,5 +367,9 @@
           realm: "{{ template_realm }}"
           client_id: "{{ template_client_id }}"
           client_secret: "{{ template_client_secret }}"
+          s3_access_key: "{{ plf_aws_access_key_id }}"
+          s3_secret_key: "{{ plf_aws_secret_access_key }}"
+          s3_endpoint_host: "{{ plf_aws_endpoint_url | regex_replace('^https?://', '') }}"
+          s3_region: "{{ plf_aws_region }}"
       tags:
         - verify
