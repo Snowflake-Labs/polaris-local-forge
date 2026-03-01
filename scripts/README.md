@@ -230,7 +230,7 @@ The script performs a complete workflow with real data:
    - Downloads Palmer Penguins CSV dataset (333 rows) from GitHub
    - Loads into in-memory temporary table
    - Inserts from temp table to Polaris Iceberg table
-   - Writes Parquet files to S3 storage via Polaris vended credentials
+   - Writes Parquet files to S3 storage via direct S3 credentials (no credential vending)
 8. **Data Analytics**: Performs aggregation queries (species statistics)
 9. **Metadata Operations**: Tests Iceberg-specific functions:
    - `iceberg_metadata()` - retrieves table metadata

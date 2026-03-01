@@ -194,24 +194,41 @@ def catalog_query(ctx, sql: str):
         click.echo("DuckDB CLI not found. Install with: brew install duckdb", err=True)
         sys.exit(1)
     
-    # Get config from environment
     polaris_url = os.getenv("POLARIS_URL", "http://localhost:18181")
     catalog_name = os.getenv("PLF_POLARIS_CATALOG_NAME", "polardb")
-    
-    # Build connection setup SQL
+    s3_access_key = os.getenv("AWS_ACCESS_KEY_ID", "admin")
+    s3_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "password")
+    s3_endpoint = os.getenv("AWS_ENDPOINT_URL", "http://localhost:19000")
+    s3_region = os.getenv("AWS_REGION", "us-east-1")
+
+    # Strip scheme for DuckDB S3 ENDPOINT (expects host:port only)
+    s3_host = s3_endpoint.replace("http://", "").replace("https://", "")
+
     setup_sql = f"""
 INSTALL iceberg;
 LOAD iceberg;
+INSTALL httpfs;
+LOAD httpfs;
 CREATE OR REPLACE SECRET polaris_secret (
     TYPE iceberg,
     CLIENT_ID '{client_id}',
     CLIENT_SECRET '{client_secret}',
     OAUTH2_SERVER_URI '{polaris_url}/api/catalog/v1/oauth/tokens'
 );
+CREATE OR REPLACE SECRET rustfs_s3 (
+    TYPE s3,
+    KEY_ID '{s3_access_key}',
+    SECRET '{s3_secret_key}',
+    ENDPOINT '{s3_host}',
+    URL_STYLE 'path',
+    USE_SSL false,
+    REGION '{s3_region}'
+);
 ATTACH '{catalog_name}' AS polaris_catalog (
     TYPE iceberg,
     SECRET polaris_secret,
-    ENDPOINT '{polaris_url}/api/catalog'
+    ENDPOINT '{polaris_url}/api/catalog',
+    ACCESS_DELEGATION_MODE 'none'
 );
 """
     # Combine setup + user query
