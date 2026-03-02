@@ -245,7 +245,7 @@ def setup_snowflake(ctx, sf_database, sf_schema, admin_role, prefix, no_prefix,
         return
 
     if not yes:
-        click.confirm("Create these Snowflake resources?", abort=True)
+        click.confirm("Create these Snowflake resources?", default=True, abort=True)
 
     click.echo("\nStep 1: Creating Catalog Integration...")
     run_l2c_sql_file("setup_catalog_integration.sql", catalog_vars)

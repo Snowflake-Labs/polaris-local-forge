@@ -83,7 +83,7 @@ def setup_aws(ctx, aws_profile, region, prefix, no_prefix, dry_run, yes):
         return
 
     if not yes:
-        click.confirm("Create these AWS resources?", abort=True)
+        click.confirm("Create these AWS resources?", default=True, abort=True)
 
     with scrubbed_aws_env():
         preflight_aws_check(aws_profile)
