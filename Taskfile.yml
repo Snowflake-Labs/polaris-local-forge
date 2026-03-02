@@ -43,8 +43,8 @@ vars:
   FEATURES_DIR: "{{.PROJECT_HOME}}/k8s"
   PODMAN_MACHINE: k3d
   # PLF command - uses --project to find source, --work-dir for output
-  # VIRTUAL_ENV is cleared in the env: block below (and by the plforge wrapper)
-  PLF: uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}"
+  # VIRTUAL_ENV= inline is the primary suppression; env block below is a fallback
+  PLF: VIRTUAL_ENV= uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}"
   # Detect if running in source repo (has SKILL.md + src/polaris_local_forge)
   # Used to prevent accidental writes to the read-only source directory
   IS_SOURCE_REPO:
@@ -57,11 +57,12 @@ silent: true
 
 env:
   KUBECONFIG: "{{.KUBECONFIG}}"
-  # Prevent uv warning when shell has VIRTUAL_ENV from a different project/worktree
+  # Fallback: Go-Task env block doesn't reliably override parent shell values
+  # before sibling sh: evaluations. Primary suppression is VIRTUAL_ENV= inline in PLF var.
   VIRTUAL_ENV: ""
   # DOCKER_HOST via CLI - single source of truth for Podman SSH socket
   DOCKER_HOST:
-    sh: uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}" runtime docker-host 2>/dev/null || true
+    sh: VIRTUAL_ENV= uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}" runtime docker-host 2>/dev/null || true
 
 includes:
   podman: ./taskfiles/podman.yml

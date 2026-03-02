@@ -35,7 +35,7 @@ tasks:
         plforge catalog:load DATASET=plantae
         plforge catalog:load DATASET=wildlife --dry-run
     cmds:
-      - 'python3 {{.PROJECT_HOME}}/scripts/pyiceberg_data_loader.py --config-file {{.PROJECT_HOME}}/datasets/{{.DATASET}}.toml {{.CLI_ARGS}}'
+      - 'VIRTUAL_ENV= uv run --project "{{.SKILL_DIR}}" python3 {{.PROJECT_HOME}}/scripts/pyiceberg_data_loader.py --config-file {{.PROJECT_HOME}}/datasets/{{.DATASET}}.toml {{.CLI_ARGS}}'
     dir: "{{.PROJECT_HOME}}"
     requires:
       vars: [DATASET]
