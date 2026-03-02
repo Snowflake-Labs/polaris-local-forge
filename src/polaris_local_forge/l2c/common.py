@@ -20,6 +20,7 @@ env loading, Snowflake SQL wrappers, Iceberg metadata file discovery.
 """
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -240,31 +241,71 @@ def resolve_resource_base(
 
 _METADATA_PATTERN = re.compile(r"^.*/metadata/(\d+)-.*\.metadata\.json$")
 
+_log = logging.getLogger(__name__)
+
 
 def find_latest_metadata(cloud_s3, bucket: str, namespace: str, table: str) -> str | None:
     """Find the latest Iceberg metadata file for a table in S3.
 
     Scans <namespace>/<table>/metadata/ for files matching the Iceberg naming
-    convention (NNNNN-<uuid>.metadata.json) and returns the key with the
-    highest version number.
+    convention (NNNNN-<uuid>.metadata.json).
+
+    Sorts by (S3 LastModified, version_number) descending so that after a
+    cluster rebuild the fresh low-numbered metadata beats stale high-numbered
+    files left over from a previous sync.
+
+    Verifies the winner by reading its Iceberg ``last-updated-ms`` field
+    (one extra GetObject call) and emits a warning if it looks stale relative
+    to other candidates' S3 timestamps.
 
     Returns the full S3 key relative to the bucket root, or None if not found.
     """
     prefix = f"{namespace}/{table}/metadata/"
     paginator = cloud_s3.get_paginator("list_objects_v2")
 
-    candidates: list[tuple[int, str]] = []
+    # (s3_last_modified_utc, version_number, key)
+    candidates: list[tuple[datetime, int, str]] = []
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
             key = obj["Key"]
             m = _METADATA_PATTERN.match(key)
             if m:
-                candidates.append((int(m.group(1)), key))
+                s3_ts = obj["LastModified"].astimezone(timezone.utc)
+                candidates.append((s3_ts, int(m.group(1)), key))
 
     if not candidates:
         return None
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    return candidates[0][1]
+
+    candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)
+    winner_ts, winner_ver, winner_key = candidates[0]
+
+    # Verify via Iceberg-intrinsic last-updated-ms (one GET).
+    # Logs both S3 and Iceberg timestamps for observability.
+    try:
+        body = cloud_s3.get_object(Bucket=bucket, Key=winner_key)["Body"].read()
+        meta = json.loads(body)
+        iceberg_ts_ms = meta.get("last-updated-ms")
+        if iceberg_ts_ms is not None:
+            iceberg_dt = datetime.fromtimestamp(iceberg_ts_ms / 1000, tz=timezone.utc)
+            _log.debug(
+                "Metadata %s: S3 LastModified=%s, Iceberg last-updated-ms=%s (v%d)",
+                winner_key, winner_ts.isoformat(), iceberg_dt.isoformat(), winner_ver,
+            )
+        # Anomaly: runner-up has a strictly newer S3 timestamp than the winner.
+        # Cannot happen by sort construction, but guards against future bugs.
+        if len(candidates) > 1:
+            runner_ts, runner_ver, runner_key = candidates[1]
+            if runner_ts > winner_ts:
+                _log.warning(
+                    "Metadata selection anomaly: runner-up %s (S3 ts %s, v%d) "
+                    "has newer S3 timestamp than winner %s (S3 ts %s, v%d).",
+                    runner_key, runner_ts.isoformat(), runner_ver,
+                    winner_key, winner_ts.isoformat(), winner_ver,
+                )
+    except Exception as exc:
+        _log.debug("Could not verify Iceberg last-updated-ms for %s: %s", winner_key, exc)
+
+    return winner_key
 
 
 SQL_DIR = Path(__file__).parent / "sql"

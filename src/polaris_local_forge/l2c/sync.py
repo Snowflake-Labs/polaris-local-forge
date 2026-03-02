@@ -374,7 +374,7 @@ def sync(ctx, aws_profile, region, prefix, no_prefix, force, skip_rewrite, dry_r
     click.echo()
 
     if not dry_run and not yes:
-        click.confirm(f"Sync {len(actionable)} table(s) to S3?", abort=True)
+        click.confirm(f"Sync {len(actionable)} table(s) to S3?", default=True, abort=True)
 
     if not dry_run:
         with scrubbed_aws_env():
@@ -438,6 +438,8 @@ def sync(ctx, aws_profile, region, prefix, no_prefix, force, skip_rewrite, dry_r
                         result["rewrite_error"] = str(e)
 
             tables_state[key]["sync"] = result
+            if result["status"] == "synced":
+                tables_state[key]["register"] = {"status": "pending"}
             save_state(work_dir, state)
 
             if result["status"] == "synced":

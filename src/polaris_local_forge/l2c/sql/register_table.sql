@@ -18,7 +18,7 @@ USE ROLE {{sa_role}};
 USE DATABASE {{database}};
 USE SCHEMA {{schema}};
 
-CREATE ICEBERG TABLE IF NOT EXISTS {{table_name}}
+CREATE OR REPLACE ICEBERG TABLE {{table_name}}
     EXTERNAL_VOLUME = '{{external_volume}}'
     CATALOG = '{{catalog_integration}}'
     METADATA_FILE_PATH = '{{metadata_file_path}}';
