@@ -105,8 +105,84 @@ Iceberg metadata files follow the naming convention:
 <prefix>/metadata/<version>-<uuid>.metadata.json
 ```
 
-`_find_latest_metadata_key()` extracts the integer `<version>` via regex
-and returns the key with the highest version number.
+There are two implementations, each suited to its context:
+
+**`_find_latest_metadata_key()` (sync.py -- in-memory)**
+
+Used within the sync pipeline to compare source (RustFS) and destination
+(S3) metadata.  Operates on `dict[str, int]` (key -> size) with no
+timestamp data.  Returns the key with the highest version number.
+
+This is safe because: (a) the local RustFS source is always clean after a
+rebuild -- no stale files, (b) for the destination, even if it picks a
+stale key, the `table_uuid` / `current_snapshot_id` comparison detects
+the mismatch and triggers a re-sync.
+
+**`find_latest_metadata()` (common.py -- cloud S3)**
+
+Used by `register`, `refresh`, and `rewrite` commands that operate on
+cloud S3 where stale metadata files accumulate after rebuilds.
+
+#### The staleness problem
+
+After a cluster rebuild + fresh sync, S3 contains both old and new
+metadata files:
+
+```
+00005-abc123.metadata.json   S3 LastModified: 2026-02-28  (old sync)
+00001-def456.metadata.json   S3 LastModified: 2026-03-02  (fresh sync)
+```
+
+Selecting by version number alone picks `00005` (stale).  Iceberg does
+not eagerly garbage-collect old metadata files -- they persist until
+expiry policies run.
+
+#### Timestamp-aware selection
+
+`find_latest_metadata()` sorts candidates by
+`(S3 LastModified, version_number)` descending.  S3 timestamp is the
+primary sort key; version number is the tiebreaker for files uploaded in
+the same sync batch.
+
+| Scenario | Result |
+|----------|--------|
+| Normal operation | Timestamps and version numbers increment together -- same result as version-only sort |
+| Post-rebuild | Fresh `00001` (newest timestamp) beats stale `00005` (old timestamp) |
+| Same-batch uploads | Multiple files from one sync have near-identical timestamps; version number breaks the tie correctly |
+
+#### Verification via Iceberg `last-updated-ms`
+
+After selecting the winner, one `GetObject` downloads the metadata JSON
+to read the Iceberg-intrinsic `last-updated-ms` field (required by the
+Iceberg spec in all format versions).  This is logged at `DEBUG` level
+for observability alongside the S3 `LastModified` timestamp.
+
+If the runner-up has a strictly newer S3 timestamp than the winner (which
+should never happen by sort construction), a `WARNING` is logged.  This
+guards against future regressions in the sort logic.
+
+#### Timezone safety
+
+All S3 timestamps are normalized to `datetime.timezone.utc` via
+`.astimezone()` before any comparison.  boto3 returns `LastModified` as
+a timezone-aware `datetime` with `dateutil.tz.tzutc()`, and the Iceberg
+`last-updated-ms` is converted with `datetime.fromtimestamp(ms/1000,
+tz=timezone.utc)`.  Normalizing both to the same `tzinfo` object
+eliminates any cross-timezone comparison issues.
+
+#### Complementary: `CREATE OR REPLACE` in registration
+
+`register_table.sql` uses `CREATE OR REPLACE ICEBERG TABLE` (not
+`IF NOT EXISTS`) so that re-registration always updates the Snowflake
+metadata pointer.  Combined with timestamp-aware selection, this ensures
+that after a rebuild the correct fresh metadata is selected *and* applied.
+
+#### Register status reset on re-sync
+
+When sync completes successfully, `sync.py` resets the table's register
+status to `"pending"` so the register step picks it up again.  Previously,
+a stale `"done"` status from a prior run caused the register gate to
+skip re-synced tables.
 
 ### Safety
 
@@ -151,3 +227,16 @@ and returns the key with the highest version number.
 1. Bypasses all comparison logic.
 2. All source keys uploaded unconditionally.
 3. Metadata rewritten.
+
+### 6. Post-rebuild stale metadata
+
+1. User tears down local cluster + catalog, rebuilds from scratch.
+2. `plf l2c sync` uploads fresh data.  New `00001-<uuid>.metadata.json`
+   lands in S3 with a recent `LastModified` timestamp.
+3. Old `00005-<uuid>.metadata.json` from the previous sync remains in S3
+   with an older `LastModified` timestamp (Iceberg GC has not run).
+4. `find_latest_metadata()` sorts by `(LastModified, version_number)` and
+   picks `00001` (newest S3 timestamp) over stale `00005`.
+5. `register_table.sql` runs `CREATE OR REPLACE ICEBERG TABLE` with the
+   fresh metadata path.
+6. Registration succeeds; Snowflake points at current data.
