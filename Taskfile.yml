@@ -277,12 +277,26 @@ tasks:
     cmds:
       - "{{.PLF}} setup runtime stop"
 
+  setup:
+    desc: "Complete setup (alias for setup:all)"
+    summary: |
+      Alias for setup:all. Creates a complete Apache Polaris environment.
+
+      Variables:
+        WORK_DIR    Isolated project directory (or set PLF_WORK_DIR env var)
+
+      Example:
+        plforge setup
+        plforge setup WORK_DIR=~/polaris-dev
+    cmds:
+      - task: setup:all
+
   setup:all:
     desc: "Complete setup with manifest tracking. Use WORK_DIR=/path for isolated setup"
     summary: |
       Creates a complete Apache Polaris environment with manifest tracking.
       
-      Steps: init -> doctor -> prepare -> cluster -> Polaris -> catalog -> verify
+      Steps: init -> doctor -> prepare -> cluster -> Polaris -> catalog -> load -> verify
       Manifest: .snow-utils/snow-utils-manifest.md
       
       Variables:
@@ -326,11 +340,14 @@ tasks:
       - task: manifest:update
         vars: { CLI_ARGS: "6" }
       - "{{.PLF}} catalog setup"
-      # Catalog setup now includes data loading via hybrid approach
-      - "{{.PLF}} catalog verify-sql"
-      # Mark Catalog and Demo data as DONE
+      # Mark Catalog as DONE
       - task: manifest:update
         vars: { CLI_ARGS: "5" }
+      # Load demo data and verify
+      - task: catalog:load
+        vars: { DATASET: "wildlife" }
+      - task: catalog:verify
+      # Mark Demo data as DONE
       - task: manifest:update
         vars: { CLI_ARGS: "7" }
       # Set status to COMPLETE
@@ -586,17 +603,15 @@ tasks:
         kubectl get deployments,pods -n polaris 2>/dev/null || echo "Cluster not running or polaris namespace not found"
 
   verify:
-    desc: Verify Polaris catalog setup using hybrid PyIceberg + DuckDB approach
+    desc: Verify Polaris catalog data with DuckDB read-only analysis
     summary: |
-      Verifies catalog using PyIceberg (data load) + DuckDB (read-only analysis).
-      Alias for catalog:verify:sql.
-      
+      Runs DuckDB read-only analysis to verify catalog data.
+      Alias for catalog:verify.
+
       Example:
         plforge verify
     cmds:
-      - task: catalog:verify:sql
-        vars:
-          CLI_ARGS: "{{.CLI_ARGS}}"
+      - task: catalog:verify
 
 
   # ============================================

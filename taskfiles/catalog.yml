@@ -20,16 +20,49 @@ tasks:
     cmds:
       - "{{.PLF}} catalog setup {{if .TAGS}}--tags={{.TAGS}}{{end}}"
 
-  verify:sql:
-    desc: Verify Polaris catalog using hybrid PyIceberg + DuckDB approach
+  load:
+    desc: Load a dataset into the catalog via PyIceberg
     summary: |
-      Phase 1: Load data via PyIceberg (proper Iceberg metadata handling).
-      Phase 2: Verify with DuckDB read-only analysis (no INSERT/UPDATE).
-      
+      Loads data from a TOML dataset config into Iceberg tables via PyIceberg.
+      Handles schema creation, namespace setup, and proper Iceberg metadata.
+
+      Variables:
+        DATASET    Dataset name (required, e.g. wildlife, plantae)
+                   Resolves to datasets/{DATASET}.toml
+
       Example:
-        plforge catalog:verify:sql
+        plforge catalog:load DATASET=wildlife
+        plforge catalog:load DATASET=plantae
+        plforge catalog:load DATASET=wildlife --dry-run
     cmds:
-      - "{{.PLF}} catalog verify-sql {{.CLI_ARGS}}"
+      - 'python3 {{.PROJECT_HOME}}/scripts/pyiceberg_data_loader.py --config-file {{.PROJECT_HOME}}/datasets/{{.DATASET}}.toml {{.CLI_ARGS}}'
+    dir: "{{.PROJECT_HOME}}"
+    requires:
+      vars: [DATASET]
+    preconditions:
+      - sh: test -f {{.PROJECT_HOME}}/datasets/{{.DATASET}}.toml
+        msg: "Dataset config not found: datasets/{{.DATASET}}.toml"
+      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
+        msg: "Credentials file not found. Run 'plforge catalog:setup' first."
+
+  verify:
+    desc: Verify catalog data with DuckDB read-only analysis
+    summary: |
+      Runs DuckDB read-only analysis against the catalog. Checks table
+      structure, record counts, and Iceberg metadata without modifying data.
+
+      Requires catalog:setup and catalog:load to have been run first.
+
+      Example:
+        plforge catalog:verify
+    cmds:
+      - 'duckdb -bail -init {{.PROJECT_HOME}}/scripts/analyze_catalog.sql -c ".exit"'
+    dir: "{{.PROJECT_HOME}}"
+    preconditions:
+      - sh: command -v duckdb
+        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+      - sh: test -f {{.PROJECT_HOME}}/scripts/analyze_catalog.sql
+        msg: "Analysis script not found. Run 'plforge catalog:setup' first."
 
   explore:sql:
     desc: Explore Polaris catalog with DuckDB CLI in interactive mode
