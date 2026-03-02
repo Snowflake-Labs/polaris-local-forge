@@ -17,13 +17,16 @@ version: "3"
 
 vars:
   # SKILL_DIR: where the polaris-local-forge source lives (follows symlinks)
-  # This allows running tasks from isolated test folders
+  # Uses ROOT_DIR (absolute path to Taskfile dir) so it works from any cwd.
+  # readlink -f follows symlinks for isolated test folders where Taskfile.yml is a symlink.
   SKILL_DIR:
-    sh: dirname "$(readlink -f Taskfile.yml 2>/dev/null || echo Taskfile.yml)"
+    sh: dirname "$(readlink -f "{{.ROOT_DIR}}/Taskfile.yml" 2>/dev/null || echo "{{.ROOT_DIR}}/Taskfile.yml")"
   # WORK_DIR: explicit work directory override (empty = use pwd)
   # Usage: task setup:all WORK_DIR=/path/to/project
   # Supports: ~/path, $HOME/path, $ENV_VAR/path
-  WORK_DIR: ""
+  # Read from env so plforge's PLF_WORK_DIR export is honored
+  WORK_DIR:
+    sh: 'echo "${WORK_DIR:-}"'
   # PROJECT_HOME: WORK_DIR if specified, otherwise current working directory
   # Uses eval to expand ~ and $ENV_VARS that Go-Task doesn't expand
   PROJECT_HOME:
@@ -40,8 +43,8 @@ vars:
   FEATURES_DIR: "{{.PROJECT_HOME}}/k8s"
   PODMAN_MACHINE: k3d
   # PLF command - uses --project to find source, --work-dir for output
-  # Clear VIRTUAL_ENV to avoid uv warnings about environment mismatch
-  PLF: VIRTUAL_ENV= uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}"
+  # VIRTUAL_ENV is cleared in the env: block below (and by the plforge wrapper)
+  PLF: uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}"
   # Detect if running in source repo (has SKILL.md + src/polaris_local_forge)
   # Used to prevent accidental writes to the read-only source directory
   IS_SOURCE_REPO:
@@ -58,7 +61,7 @@ env:
   VIRTUAL_ENV: ""
   # DOCKER_HOST via CLI - single source of truth for Podman SSH socket
   DOCKER_HOST:
-    sh: VIRTUAL_ENV= uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}" runtime docker-host 2>/dev/null || true
+    sh: uv run --project "{{.SKILL_DIR}}" polaris-local-forge --work-dir "{{.PROJECT_HOME}}" runtime docker-host 2>/dev/null || true
 
 includes:
   podman: ./taskfiles/podman.yml
@@ -73,8 +76,58 @@ tasks:
   # Installation
   # ============================================
 
+  install:
+    desc: Install plforge command and shell completions
+    summary: |
+      Symlinks plforge to ~/.local/bin and generates Zsh completions.
+      Ensure ~/.local/bin is in PATH and completions dir is in fpath.
+      
+      Options:
+        --bash    Also append Bash completions to ~/.bashrc
+      
+      Example:
+        plforge install
+        plforge install --bash
+    cmds:
+      - |
+        mkdir -p ~/.local/bin
+        ln -sf "{{.SKILL_DIR}}/plforge" ~/.local/bin/plforge
+        echo "Installed: ~/.local/bin/plforge -> {{.SKILL_DIR}}/plforge"
+      - |
+        mkdir -p ~/.config/zsh/completions
+        "{{.SKILL_DIR}}/plforge" --completion zsh > ~/.config/zsh/completions/_plforge
+        echo "Installed: ~/.config/zsh/completions/_plforge"
+      - |
+        if [ "{{.CLI_ARGS}}" = "--bash" ]; then
+          "{{.SKILL_DIR}}/plforge" --completion bash >> ~/.bashrc
+          echo "Installed: Bash completions appended to ~/.bashrc"
+        fi
+      - |
+        echo ""
+        echo "Done. Restart your shell or run: exec zsh"
+
+  install:remove:
+    desc: Remove plforge command and shell completions
+    summary: |
+      Removes ~/.local/bin/plforge symlink and Zsh completions file.
+      Bash completions in ~/.bashrc must be removed manually if added.
+      
+      Example:
+        plforge install:remove
+    cmds:
+      - rm -f ~/.local/bin/plforge
+      - rm -f ~/.config/zsh/completions/_plforge
+      - |
+        echo "Removed plforge and completions."
+        echo "Note: Bash completions in ~/.bashrc must be removed manually if added."
+
   install:uv:
     desc: Install uv Python package manager
+    summary: |
+      Installs uv if not already present. Skipped if uv is on PATH.
+      
+      Example:
+        plforge install:uv
     cmds:
       - |
         if ! command -v uv &> /dev/null; then
@@ -96,11 +149,10 @@ tasks:
       Creates .snow-utils/snow-utils-manifest.md with all resources set to PENDING.
       
       Variables:
-        WORK_DIR    Target directory (default: current directory)
+        WORK_DIR    Target directory (or set PLF_WORK_DIR env var)
       
       Example:
-        task manifest:init
-        task manifest:init WORK_DIR=~/polaris-dev
+        plforge manifest:init
     cmds:
       - "{{.PLF}} setup manifest init"
 
@@ -108,10 +160,10 @@ tasks:
     desc: Set manifest status to IN_PROGRESS
     summary: |
       Updates manifest status from PENDING to IN_PROGRESS.
-      Call this at the start of the setup workflow.
+      Called at the start of the setup workflow.
       
       Example:
-        task manifest:start
+        plforge manifest:start
     cmds:
       - "{{.PLF}} setup manifest start"
 
@@ -120,19 +172,15 @@ tasks:
     summary: |
       Updates a specific resource row status to DONE.
       
-      Arguments (pass after --):
+      Arguments:
         Resource number (1-7)
-          1 = k3d cluster
-          2 = RustFS
-          3 = PostgreSQL
-          4 = Polaris
-          5 = Catalog
-          6 = Principal
+          1 = k3d cluster    2 = RustFS     3 = PostgreSQL
+          4 = Polaris        5 = Catalog    6 = Principal
           7 = Demo data
       
       Example:
-        task manifest:update -- 1   # Mark k3d cluster as DONE
-        task manifest:update -- 4   # Mark Polaris as DONE
+        plforge manifest:update 1   # Mark k3d cluster as DONE
+        plforge manifest:update 4   # Mark Polaris as DONE
     cmds:
       - "{{.PLF}} setup manifest update {{.CLI_ARGS}}"
 
@@ -140,10 +188,10 @@ tasks:
     desc: Set manifest status to COMPLETE
     summary: |
       Updates manifest status to COMPLETE.
-      Call this after all resources are successfully created.
+      Called after all resources are successfully created.
       
       Example:
-        task manifest:complete
+        plforge manifest:complete
     cmds:
       - "{{.PLF}} setup manifest complete"
 
@@ -154,7 +202,7 @@ tasks:
       Called automatically by teardown.
       
       Example:
-        task manifest:remove
+        plforge manifest:remove
     cmds:
       - "{{.PLF}} setup manifest remove"
 
@@ -164,6 +212,11 @@ tasks:
 
   setup:python:
     desc: Set up Python environment using uv
+    summary: |
+      Creates a Python 3.12 virtual environment and installs dependencies.
+      
+      Example:
+        plforge setup:python
     deps:
       - install:uv
     cmds:
@@ -184,13 +237,13 @@ tasks:
       Generates sensitive files from Ansible templates (RSA keys, K8s manifests, credentials).
       
       Variables:
-        WORK_DIR    Target directory (default: current directory)
-        TAGS        Comma-separated Ansible tags to run (default: all)
+        WORK_DIR    Target directory (or set PLF_WORK_DIR env var)
+        TAGS        Comma-separated Ansible tags (default: all)
                     Available: rsa, setup, bootstrap, k8s
       
       Example:
-        task prepare                     # Run all preparation steps
-        task prepare TAGS=rsa,k8s        # Only RSA keys and K8s manifests
+        plforge prepare
+        plforge prepare TAGS=rsa,k8s
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ]'
         msg: |
@@ -205,11 +258,22 @@ tasks:
 
   runtime:setup:
     desc: Ensure container runtime is ready (Podman machine setup if needed)
+    summary: |
+      Detects and starts the container runtime (Podman or Docker).
+      On macOS, starts the Podman machine if not running.
+      
+      Example:
+        plforge runtime:setup
     cmds:
       - "{{.PLF}} setup runtime ensure"
 
   runtime:teardown:
     desc: Stop container runtime after teardown (Podman machine stop if needed)
+    summary: |
+      Stops the Podman machine (macOS). No-op on Linux with native Podman.
+      
+      Example:
+        plforge runtime:teardown
     cmds:
       - "{{.PLF}} setup runtime stop"
 
@@ -218,23 +282,15 @@ tasks:
     summary: |
       Creates a complete Apache Polaris environment with manifest tracking.
       
-      Variables:
-        WORK_DIR    Isolated project directory (default: current directory)
-                    Creates all files in specified directory instead of pwd
-      
-      Steps performed:
-        1. Initialize manifest (PENDING)
-        2. Run doctor checks and prepare configs
-        3. Create k3d cluster, deploy RustFS + PostgreSQL
-        4. Deploy Polaris, bootstrap principal
-        5. Setup catalog with demo data
-        6. Verify with DuckDB
-      
+      Steps: init -> doctor -> prepare -> cluster -> Polaris -> catalog -> verify
       Manifest: .snow-utils/snow-utils-manifest.md
       
+      Variables:
+        WORK_DIR    Isolated project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task setup:all                        # In current directory
-        task setup:all WORK_DIR=~/polaris-dev # Isolated directory
+        plforge setup:all
+        plforge setup:all WORK_DIR=~/polaris-dev
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ]'
         msg: |
@@ -288,17 +344,16 @@ tasks:
     desc: "Replay or resume setup from manifest"
     summary: |
       Checks manifest status and continues appropriately:
-      
-      Status: REMOVED     → Full replay (re-run setup:all with existing config)
-      Status: IN_PROGRESS → Resume from first PENDING resource
-      Status: COMPLETE    → Already done, offer reset option
-      No manifest         → Error, run setup:all instead
+        REMOVED     -> Full replay (re-run setup:all)
+        IN_PROGRESS -> Resume from first PENDING resource
+        COMPLETE    -> Already done, offer reset option
+        No manifest -> Error, run setup:all instead
       
       Variables:
-        WORK_DIR    Target directory containing the manifest
+        WORK_DIR    Target directory with manifest (or set PLF_WORK_DIR env var)
       
       Example:
-        task setup:replay WORK_DIR=~/polaris-dev
+        plforge setup:replay WORK_DIR=~/polaris-dev
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ]'
         msg: |
@@ -331,15 +386,17 @@ tasks:
     desc: "Teardown cluster with confirmation prompt"
     summary: |
       Deletes the k3d cluster and all Polaris resources.
-      Always prompts for confirmation before proceeding.
+      Prompts for confirmation before proceeding.
       
-      Options (pass after --):
-        (none)      Cluster only - keeps all local files for replay
-        all         Clean generated files, preserves .snow-utils for replay/audit
+      Options:
+        all     Also clean generated files (preserves .snow-utils for replay/audit)
+      
+      Variables:
+        WORK_DIR    Target directory (or set PLF_WORK_DIR env var)
       
       Example:
-        task teardown                  # Cluster only (keeps all local files)
-        task teardown -- all           # Clean files, keep .snow-utils
+        plforge teardown            # Cluster only (keeps local files)
+        plforge teardown all        # Also clean generated files
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ]'
         msg: |
@@ -374,12 +431,15 @@ tasks:
   teardown:full:
     desc: Complete teardown - cluster + Podman stop + clean generated files
     summary: |
-      Deletes the k3d cluster, all Polaris resources, stops Podman machine,
-      and cleans generated files. Preserves .snow-utils for replay/audit.
-      Always prompts for confirmation before proceeding.
+      Deletes cluster, stops Podman machine, and cleans generated files.
+      Preserves .snow-utils for replay/audit. Prompts for confirmation.
+      
+      Variables:
+        WORK_DIR    Target directory (or set PLF_WORK_DIR env var)
       
       Example:
-        task teardown:full WORK_DIR=~/polaris-dev
+        plforge teardown:full
+        plforge teardown:full WORK_DIR=~/polaris-dev
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ]'
         msg: |
@@ -408,17 +468,34 @@ tasks:
 
   reset:all:
     desc: Complete reset - delete cluster, recreate everything with fresh catalog
+    summary: |
+      Runs teardown then setup:all. Destroys and recreates everything from scratch.
+      
+      Example:
+        plforge reset:all
     cmds:
       - task: teardown
       - task: setup:all
 
   clean:all:
     desc: Delete cluster and all resources (use teardown for full cleanup)
+    summary: |
+      Deletes cluster without stopping Podman or updating manifest.
+      For full cleanup with prompts, use teardown instead.
+      
+      Example:
+        plforge clean:all
     cmds:
       - "{{.PLF}} teardown --yes --no-stop-podman"
 
   cluster:reset:
     desc: Delete and recreate cluster with fresh catalog
+    summary: |
+      Deletes cluster, recreates it, deploys Polaris, and sets up catalog.
+      Faster than reset:all since it skips init/doctor/prepare.
+      
+      Example:
+        plforge cluster:reset
     cmds:
       - task: cluster:delete
       - task: cluster:create
@@ -432,6 +509,12 @@ tasks:
 
   catalog:reset:full:
     desc: Full reset - purge Polaris database and recreate catalog
+    summary: |
+      Purges the entire Polaris database and recreates the catalog from scratch.
+      Keeps the cluster running. More drastic than catalog:reset.
+      
+      Example:
+        plforge catalog:reset:full
     cmds:
       - echo "WARNING -- This will purge the entire Polaris database and recreate from scratch."
       - task: polaris:reset
@@ -453,35 +536,31 @@ tasks:
     summary: |
       Checks system prerequisites and attempts to fix issues.
       
-      Options (pass after --):
-        --fix       Attempt to fix issues automatically (e.g., start Podman machine)
+      Options:
+        --fix       Auto-fix issues (e.g., start Podman machine)
         --verbose   Show detailed output
       
-      Checks performed:
+      Checks:
         - Required tools: podman/docker, k3d, kubectl, uv
-        - Podman machine status (macOS only)
-        - SSH config for Podman VM access (macOS only)
-        - Port availability: 19000 (RustFS), 19001 (RustFS Console), 18181 (Polaris)
+        - Podman machine status and SSH config (macOS)
+        - Port availability: 19000, 19001, 18181
       
       Example:
-        task doctor               # Check only
-        task doctor -- --fix      # Check and fix
+        plforge doctor
+        plforge doctor --fix
     cmds:
       - "{{.PLF}} doctor {{.CLI_ARGS}}"
 
   config:
     desc: Show current configuration from .env file
     summary: |
-      Displays the current configuration values from .env file.
-      
-      Shows all non-commented, non-empty lines sorted alphabetically.
+      Displays non-commented, non-empty .env values sorted alphabetically.
       
       Variables:
-        WORK_DIR    Target directory (default: current directory)
+        WORK_DIR    Target directory (or set PLF_WORK_DIR env var)
       
       Example:
-        task config
-        task config WORK_DIR=~/polaris-dev
+        plforge config
     cmds:
       - |
         if [ -f "{{.PROJECT_HOME}}/.env" ]; then
@@ -494,14 +573,10 @@ tasks:
   status:
     desc: Show status of cluster and Polaris
     summary: |
-      Shows the current status of the k3d cluster and Polaris deployment.
-      
-      Displays:
-        - k3d cluster list
-        - Polaris namespace deployments and pods
+      Shows k3d cluster list and Polaris namespace deployments/pods.
       
       Example:
-        task status
+        plforge status
     cmds:
       - |
         echo "=== Cluster Status ==="
@@ -511,32 +586,17 @@ tasks:
         kubectl get deployments,pods -n polaris 2>/dev/null || echo "Cluster not running or polaris namespace not found"
 
   verify:
-    desc: Verify Polaris catalog setup (alias for catalog:verify:duckdb)
-    summary: |
-      Verifies the Polaris catalog setup using DuckDB.
-      
-      Queries the demo table to confirm data is accessible through Polaris.
-      
-      Example:
-        task verify
-    cmds:
-      - task: catalog:verify:duckdb
-        vars:
-          CLI_ARGS: "{{.CLI_ARGS}}"
-
-  verify:sql:
     desc: Verify Polaris catalog setup using hybrid PyIceberg + DuckDB approach
     summary: |
-      Verifies the Polaris catalog setup using hybrid approach:
-      - Phase 1: Load data via PyIceberg (proper metadata handling)
-      - Phase 2: Verify with DuckDB (read-only analysis)
-      
-      This fixes the metadata staleness issue caused by DuckDB UUID corruption.
+      Verifies catalog using PyIceberg (data load) + DuckDB (read-only analysis).
+      Alias for catalog:verify:sql.
       
       Example:
-        task verify:sql
+        plforge verify
     cmds:
-      - "{{.PLF}} catalog verify-sql {{.CLI_ARGS}}"
+      - task: catalog:verify:sql
+        vars:
+          CLI_ARGS: "{{.CLI_ARGS}}"
 
 
   # ============================================
@@ -545,33 +605,46 @@ tasks:
 
   test:isolated:
     desc: Create isolated test environment (protects source tree)
+    summary: |
+      Creates a test environment in /tmp/plf-test-<pid> with symlinked Taskfile.
+      Protects the source tree from accidental writes.
+      
+      Example:
+        plforge test:isolated
     cmds:
       - ./test/isolated-test.sh setup
 
   test:isolated:clean:
     desc: Remove all isolated test folders
+    summary: |
+      Removes all /tmp/plf-test-* directories.
+      
+      Example:
+        plforge test:isolated:clean
     cmds:
       - ./test/isolated-test.sh clean
 
   test:isolated:list:
     desc: List existing isolated test folders
+    summary: |
+      Lists all existing /tmp/plf-test-* directories.
+      
+      Example:
+        plforge test:isolated:list
     cmds:
       - ./test/isolated-test.sh list
 
   help:
     desc: Show available tasks with descriptions
     summary: |
-      Lists all available tasks with their descriptions.
+      Lists all available tasks with descriptions.
       
-      For detailed help on a specific task, use:
-        task <task-name> --summary
-      
-      Common variables (pass as VAR=value):
-        WORK_DIR    Isolated project directory (default: current dir)
+      Common variables (pass as VAR=value, or set PLF_WORK_DIR env var):
+        WORK_DIR    Isolated project directory (or set PLF_WORK_DIR)
         TAGS        Filter Ansible tags for prepare/catalog commands
       
       Example:
-        task help                    # List all tasks
-        task setup:all --summary     # Detailed help for setup:all
+        plforge help
+        plforge <task> --help       # Detailed help for a task
     cmds:
       - task --list

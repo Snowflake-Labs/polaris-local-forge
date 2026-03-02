@@ -11,21 +11,21 @@ tasks:
     summary: |
       Discovers all tables from the running local Polaris instance.
       
-      Variables:
-        WORK_DIR    Target project directory (default: current directory)
-      
-      Options (pass after --):
+      Options:
         -o json     JSON output format
       
+      Variables:
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task l2c:inventory WORK_DIR=~/polaris-dev
-        task l2c:inventory -- -o json
+        plforge l2c:inventory
+        plforge l2c:inventory -o json
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: &work_dir_msg |
           ERROR: WORK_DIR is required when running from the source repository.
           
-          Usage: task l2c:inventory WORK_DIR=~/polaris-dev
+          Usage: plforge l2c:inventory WORK_DIR=~/polaris-dev
     cmds:
       - "{{.PLF}} l2c inventory {{.CLI_ARGS}}"
 
@@ -38,15 +38,15 @@ tasks:
         - Per-table sync and register status with color coding
         - Drift detection between AWS and Snowflake naming
       
-      Variables:
-        WORK_DIR    Target project directory (default: current directory)
-      
-      Options (pass after --):
+      Options:
         -o json     Full state as JSON
       
+      Variables:
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task l2c:status WORK_DIR=~/polaris-dev
-        task l2c:status -- -o json
+        plforge l2c:status
+        plforge l2c:status -o json
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg
@@ -60,15 +60,18 @@ tasks:
       Creates S3 bucket, IAM role/policy, external volume, catalog
       integration, SA_ROLE, and target DB/Schema.
       
-      All resource names are auto-derived from SNOWFLAKE_USER, project
-      name, and catalog name.
+      Resource names are auto-derived from SNOWFLAKE_USER, project name, and catalog name.
+      
+      Options:
+        --dry-run / -n    Preview without executing
+        --yes / -y        Skip confirmation
       
       Variables:
-        WORK_DIR    Target project directory (default: current directory)
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
       
       Example:
-        task l2c:setup WORK_DIR=~/polaris-dev -- --dry-run
-        task l2c:setup WORK_DIR=~/polaris-dev -- --yes
+        plforge l2c:setup --dry-run
+        plforge l2c:setup --yes
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg
@@ -83,21 +86,19 @@ tasks:
         - IAM policy with S3 access
         - IAM role with trust policy for Snowflake
       
-      Runs preflight AWS credential check before creating resources.
-      
-      Variables:
-        WORK_DIR    Target project directory (default: current directory)
-      
-      Options (pass after --):
+      Options:
         --dry-run / -n    Preview without executing
         --yes / -y        Skip confirmation
         --prefix TEXT     Override auto-derived user prefix
         --no-prefix       Drop user prefix from names
         --region TEXT     AWS region (default: from profile or us-east-1)
       
+      Variables:
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task l2c:setup:aws WORK_DIR=~/polaris-dev -- --dry-run
-        task l2c:setup:aws WORK_DIR=~/polaris-dev -- --yes
+        plforge l2c:setup:aws --dry-run
+        plforge l2c:setup:aws --yes
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg
@@ -116,10 +117,7 @@ tasks:
       
       Requires setup:aws to be complete first (reads state file).
       
-      Variables:
-        WORK_DIR    Target project directory (default: current directory)
-      
-      Options (pass after --):
+      Options:
         --dry-run / -n        Preview SQL without executing
         --yes / -y            Skip confirmation
         --admin-role TEXT     Admin role for elevated ops (default: ACCOUNTADMIN)
@@ -128,9 +126,12 @@ tasks:
         --prefix TEXT         Override user prefix
         --no-prefix           Drop user prefix
       
+      Variables:
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task l2c:setup:snowflake WORK_DIR=~/polaris-dev -- --dry-run
-        task l2c:setup:snowflake WORK_DIR=~/polaris-dev -- --yes
+        plforge l2c:setup:snowflake --dry-run
+        plforge l2c:setup:snowflake --yes
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg
@@ -144,10 +145,7 @@ tasks:
       transfers only new or changed objects. Rewrites Iceberg metadata
       paths after sync so Snowflake can read the data.
       
-      Variables:
-        WORK_DIR    Target project directory (default: current directory)
-      
-      Options (pass after --):
+      Options:
         --dry-run / -n     Preview transfer plan
         --yes / -y         Skip confirmation
         --force / -f       Re-upload all objects (ignore smart sync)
@@ -155,10 +153,13 @@ tasks:
         --prefix TEXT      Override user prefix
         --no-prefix        Drop user prefix
       
+      Variables:
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task l2c:sync WORK_DIR=~/polaris-dev -- --dry-run
-        task l2c:sync WORK_DIR=~/polaris-dev -- --yes
-        task l2c:sync WORK_DIR=~/polaris-dev -- --force --yes
+        plforge l2c:sync --dry-run
+        plforge l2c:sync --yes
+        plforge l2c:sync --force --yes
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg
@@ -170,14 +171,9 @@ tasks:
     summary: |
       Creates Snowflake External Iceberg Tables using catalog integration
       and METADATA_FILE_PATH. Schema is inferred from Iceberg metadata.
+      Only processes tables with sync.status=synced. Uses SA_ROLE for DDL.
       
-      Only processes tables with sync.status=synced.
-      Uses SA_ROLE for all DDL (least-privilege).
-      
-      Variables:
-        WORK_DIR    Target project directory (default: current directory)
-      
-      Options (pass after --):
+      Options:
         --dry-run / -n        Preview SQL without executing
         --yes / -y            Skip confirmation
         --sf-database TEXT    Override database name
@@ -185,9 +181,12 @@ tasks:
         --prefix TEXT         Override user prefix
         --no-prefix           Drop user prefix
       
+      Variables:
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task l2c:register WORK_DIR=~/polaris-dev -- --dry-run
-        task l2c:register WORK_DIR=~/polaris-dev -- --yes
+        plforge l2c:register --dry-run
+        plforge l2c:register --yes
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg
@@ -197,18 +196,10 @@ tasks:
   migrate:
     desc: Full migration pipeline (setup -> sync -> register)
     summary: |
-      Runs the complete L2C pipeline in order:
-        1. setup aws
-        2. setup snowflake
-        3. sync (with metadata rewrite)
-        4. register
-      
+      Runs the complete L2C pipeline: setup aws -> setup snowflake -> sync -> register.
       Each step is idempotent -- re-running skips completed steps.
       
-      Variables:
-        WORK_DIR    Target project directory (default: current directory)
-      
-      Options (pass after --):
+      Options:
         --dry-run / -n        Preview all steps
         --yes / -y            Skip all confirmations
         --admin-role TEXT     Admin role for setup
@@ -216,9 +207,12 @@ tasks:
         --prefix TEXT         Override user prefix
         --no-prefix           Drop user prefix
       
+      Variables:
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task l2c:migrate WORK_DIR=~/polaris-dev -- --dry-run
-        task l2c:migrate WORK_DIR=~/polaris-dev -- --yes
+        plforge l2c:migrate --dry-run
+        plforge l2c:migrate --yes
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg
@@ -228,26 +222,23 @@ tasks:
   refresh:
     desc: Refresh registered Iceberg tables to latest metadata (zero-downtime)
     summary: |
-      For each registered table, compares the stored metadata path with
-      the latest Iceberg metadata file on S3. When a newer snapshot
-      exists (e.g. after local data mutation + sync), runs ALTER ICEBERG
-      TABLE ... REFRESH to update Snowflake without DROP.
+      Compares stored metadata paths with latest on S3. When a newer snapshot
+      exists, runs ALTER ICEBERG TABLE ... REFRESH (zero-downtime).
       
-      Tables not yet registered are skipped (use 'register' for those).
-      Tables whose S3 metadata matches the stored path are skipped.
+      Skips unregistered tables and tables already at latest metadata.
       
-      Variables:
-        WORK_DIR    Target project directory (default: current directory)
-      
-      Options (pass after --):
+      Options:
         --dry-run / -n    Preview what would be refreshed
         --yes / -y        Skip confirmation
         --prefix TEXT     Override user prefix
         --no-prefix       Drop user prefix
       
+      Variables:
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task l2c:refresh WORK_DIR=~/polaris-dev -- --dry-run
-        task l2c:refresh WORK_DIR=~/polaris-dev -- --yes
+        plforge l2c:refresh --dry-run
+        plforge l2c:refresh --yes
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg
@@ -257,27 +248,20 @@ tasks:
   update:
     desc: Incremental update orchestrator (sync -> refresh -> register)
     summary: |
-      Uses the new L2C update orchestrator command for day-2 workflows.
-      Proper pipeline order: sync → refresh → register
+      Day-2 workflow: sync -> refresh -> register.
+      Use --force to re-sync all data (recommended after local mutations).
       
-      Pipeline steps:
-        1. sync     -- copy changed data from RustFS to AWS S3
-        2. refresh  -- update metadata pointers in Snowflake  
-        3. register -- create any new tables, if needed
-      
-      Use --force to ensure all data gets re-synced (recommended after local mutations).
-      
-      Variables:
-        WORK_DIR    Target project directory (default: current directory)
-      
-      Options (pass after --):
+      Options:
         --dry-run / -n    Preview all steps
-        --yes / -y        Skip confirmation  
+        --yes / -y        Skip confirmation
         --force / -f      Force sync all data (recommended after local mutations)
       
+      Variables:
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task l2c:update WORK_DIR=~/polaris-dev -- --dry-run
-        task l2c:update WORK_DIR=~/polaris-dev -- --force --yes
+        plforge l2c:update --dry-run
+        plforge l2c:update --force --yes
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg
@@ -287,24 +271,20 @@ tasks:
   clear:
     desc: Drop SF tables and remove state file, keep files for consistency
     summary: |
-      Drops Snowflake Iceberg tables and removes L2C state file for fresh start.
-      Keeps S3 and RustFS files for count consistency. Keeps all infrastructure 
-      (bucket, IAM, ext vol, catalog int, SA_ROLE, DB).
+      Drops Snowflake Iceberg tables and removes L2C state file.
+      Keeps S3/RustFS files and all infrastructure (bucket, IAM, ext vol, SA_ROLE, DB).
+      Use l2c:cleanup for full removal.
       
-      Next 'plf l2c setup' will rediscover existing infrastructure.
-      Use this to iterate: sync -> register -> verify -> clear -> repeat.
-      For full file removal, use 'task l2c:cleanup' instead.
-      
-      Variables:
-        WORK_DIR    Target project directory (default: current directory)
-      
-      Options (pass after --):
+      Options:
         --dry-run / -n    Preview what would be changed
         --yes / -y        Skip confirmation
       
+      Variables:
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task l2c:clear WORK_DIR=~/polaris-dev -- --dry-run
-        task l2c:clear WORK_DIR=~/polaris-dev -- --yes
+        plforge l2c:clear --dry-run
+        plforge l2c:clear --yes
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg
@@ -314,25 +294,22 @@ tasks:
   cleanup:
     desc: Full teardown -- remove all L2C infrastructure and data
     summary: |
-      Drops Snowflake resources first (ext vol, catalog int, SA_ROLE),
-      then deletes AWS resources (IAM role/policy). S3 bucket is only
-      deleted with --force (irreversible).
+      Drops Snowflake resources (ext vol, catalog int, SA_ROLE), then deletes
+      AWS resources (IAM role/policy). S3 bucket only deleted with --force.
       
-      Order: clear data -> drop Snowflake -> delete AWS -> (bucket with --force)
-      
-      Variables:
-        WORK_DIR    Target project directory (default: current directory)
-      
-      Options (pass after --):
+      Options:
         --dry-run / -n        Preview teardown plan
         --yes / -y            Skip confirmation
-        --force / -f          Also delete the S3 bucket (irreversible)
+        --force / -f          Also delete S3 bucket (irreversible)
         --admin-role TEXT     Admin role for Snowflake drops
       
+      Variables:
+        WORK_DIR    Target project directory (or set PLF_WORK_DIR env var)
+      
       Example:
-        task l2c:cleanup WORK_DIR=~/polaris-dev -- --dry-run
-        task l2c:cleanup WORK_DIR=~/polaris-dev -- --yes
-        task l2c:cleanup WORK_DIR=~/polaris-dev -- --force --yes
+        plforge l2c:cleanup --dry-run
+        plforge l2c:cleanup --yes
+        plforge l2c:cleanup --force --yes
     preconditions:
       - sh: '[ "{{.IS_SOURCE_REPO}}" != "true" ] || [ -n "{{.WORK_DIR}}" ]'
         msg: *work_dir_msg

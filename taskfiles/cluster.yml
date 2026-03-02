@@ -8,11 +8,22 @@ silent: true
 tasks:
   create:
     desc: Create the k3d cluster and deploy initial components
+    summary: |
+      Creates a k3d cluster with RustFS and PostgreSQL via Helm charts.
+      
+      Example:
+        plforge cluster:create
     cmds:
       - "{{.PLF}} cluster create"
 
   bootstrap-check:
     desc: Wait for bootstrap deployments (RustFS, PostgreSQL) to be ready
+    summary: |
+      Waits for RustFS deployment, S3 endpoint readiness, and PostgreSQL rollout.
+      Typically called by setup:all, not directly.
+      
+      Example:
+        plforge cluster:bootstrap-check
     cmds:
       - |
         echo "Waiting for namespaces to be created by Helm charts..."
@@ -53,6 +64,12 @@ tasks:
 
   polaris-check:
     desc: Wait for Polaris deployment to be ready
+    summary: |
+      Waits for the Polaris Helm chart to create the deployment, then waits
+      for the deployment to become available (up to 120s).
+      
+      Example:
+        plforge cluster:polaris-check
     cmds:
       - |
         echo "Waiting for Polaris deployment to be created by Helm controller..."
@@ -75,10 +92,20 @@ tasks:
 
   delete:
     desc: Delete the k3d cluster
+    summary: |
+      Deletes the k3d cluster. Skips confirmation.
+      
+      Example:
+        plforge cluster:delete
     cmds:
       - "{{.PLF}} cluster delete --yes"
 
   status:
     desc: Show cluster status
+    summary: |
+      Lists all k3d clusters and their status.
+      
+      Example:
+        plforge cluster:status
     cmds:
       - k3d cluster list

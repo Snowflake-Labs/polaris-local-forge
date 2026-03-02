@@ -12,26 +12,51 @@ tasks:
 
   logs:polaris:
     desc: Stream Polaris server logs
+    summary: |
+      Streams live logs from the Polaris deployment. Press Ctrl+C to stop.
+      
+      Example:
+        plforge ops:logs:polaris
     cmds:
       - kubectl logs -f -n polaris deployment/polaris
 
   logs:bootstrap:
     desc: View Polaris bootstrap job logs
+    summary: |
+      Shows logs from the Polaris bootstrap job.
+      
+      Example:
+        plforge ops:logs:bootstrap
     cmds:
       - kubectl logs -f -n polaris jobs/polaris-bootstrap
 
   logs:purge:
     desc: View Polaris purge job logs
+    summary: |
+      Shows logs from the Polaris purge job.
+      
+      Example:
+        plforge ops:logs:purge
     cmds:
       - kubectl logs -f -n polaris jobs/polaris-purge
 
   logs:postgresql:
     desc: Stream PostgreSQL logs
+    summary: |
+      Streams live logs from the PostgreSQL statefulset. Press Ctrl+C to stop.
+      
+      Example:
+        plforge ops:logs:postgresql
     cmds:
       - kubectl logs -f -n polaris statefulset/postgresql
 
   logs:rustfs:
     desc: Stream RustFS logs
+    summary: |
+      Streams live logs from the RustFS deployment. Press Ctrl+C to stop.
+      
+      Example:
+        plforge ops:logs:rustfs
     cmds:
       - kubectl logs -f -n rustfs deployment/rustfs
 
@@ -41,23 +66,43 @@ tasks:
 
   troubleshoot:events:
     desc: Show recent events in polaris namespace
+    summary: |
+      Lists Kubernetes events in the polaris namespace sorted by time.
+      
+      Example:
+        plforge ops:troubleshoot:events
     cmds:
       - kubectl get events -n polaris --sort-by='.lastTimestamp'
 
   troubleshoot:polaris:
     desc: Troubleshoot Polaris deployment issues
+    summary: |
+      Shows events and pod details for Polaris. Useful for diagnosing startup failures.
+      
+      Example:
+        plforge ops:troubleshoot:polaris
     cmds:
       - kubectl get events -n polaris --sort-by='.lastTimestamp'
       - kubectl describe pod -n polaris -l app=polaris
 
   troubleshoot:rustfs:
     desc: Troubleshoot RustFS connectivity
+    summary: |
+      Shows RustFS services and tests internal bucket listing.
+      
+      Example:
+        plforge ops:troubleshoot:rustfs
     cmds:
       - kubectl get svc -n rustfs
       - kubectl exec -it -n rustfs deployment/rustfs -- mc ls local
 
   troubleshoot:postgresql:
     desc: Troubleshoot PostgreSQL connectivity
+    summary: |
+      Shows PostgreSQL service and runs pg_isready health check.
+      
+      Example:
+        plforge ops:troubleshoot:postgresql
     cmds:
       - kubectl get svc -n polaris postgresql-hl
       - kubectl exec -it -n polaris postgresql-0 -- pg_isready -h localhost
@@ -68,6 +113,11 @@ tasks:
 
   status:detailed:
     desc: Show detailed status of all deployments (kubectl)
+    summary: |
+      Shows all resources in polaris and rustfs namespaces.
+      
+      Example:
+        plforge ops:status:detailed
     cmds:
       - echo "=== Polaris Namespace ==="
       - kubectl get all -n polaris
@@ -77,6 +127,11 @@ tasks:
 
   urls:
     desc: Display service URLs and credentials locations
+    summary: |
+      Shows URLs for Polaris UI, RustFS Console, Adminer, and credential file paths.
+      
+      Example:
+        plforge ops:urls
     cmds:
       - 'echo "Service URLs:"'
       - 'echo "  Polaris UI:  http://localhost:18181"'

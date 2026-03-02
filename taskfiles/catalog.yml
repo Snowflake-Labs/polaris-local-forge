@@ -8,27 +8,43 @@ silent: true
 tasks:
   setup:
     desc: Set up demo catalog with s3 bucket, catalog, principal, and roles
+    summary: |
+      Creates RustFS bucket, Polaris catalog, principal, roles, and loads demo data.
+      
+      Variables:
+        TAGS    Comma-separated Ansible tags (default: all)
+      
+      Example:
+        plforge catalog:setup
+        plforge catalog:setup TAGS=bucket,catalog
     cmds:
       - "{{.PLF}} catalog setup {{if .TAGS}}--tags={{.TAGS}}{{end}}"
 
   verify:sql:
     desc: Verify Polaris catalog using hybrid PyIceberg + DuckDB approach
     summary: |
-      Phase 1: Load data via PyIceberg (proper Iceberg metadata handling)
-      Phase 2: Verify with DuckDB read-only analysis (no INSERT/UPDATE)
-
-      This avoids the DuckDB UUID corruption bug that causes metadata staleness.
+      Phase 1: Load data via PyIceberg (proper Iceberg metadata handling).
+      Phase 2: Verify with DuckDB read-only analysis (no INSERT/UPDATE).
+      
+      Example:
+        plforge catalog:verify:sql
     cmds:
       - "{{.PLF}} catalog verify-sql {{.CLI_ARGS}}"
 
   explore:sql:
     desc: Explore Polaris catalog with DuckDB CLI in interactive mode
+    summary: |
+      Opens an interactive DuckDB session pre-loaded with catalog connection settings.
+      Requires DuckDB CLI and a completed catalog:setup.
+      
+      Example:
+        plforge catalog:explore:sql
     cmds:
       - |
         if [ -f {{.PROJECT_HOME}}/scripts/explore_catalog.sql ]; then
           duckdb -init {{.PROJECT_HOME}}/scripts/explore_catalog.sql
         else
-          echo "SQL script not found. Run 'task catalog:setup' first to generate it."
+          echo "SQL script not found. Run 'plforge catalog:setup' first to generate it."
           exit 1
         fi
     preconditions:
@@ -37,6 +53,15 @@ tasks:
 
   query:
     desc: Execute read-only SQL query against catalog (no data insertion)
+    summary: |
+      Runs a SQL query via DuckDB against the Polaris catalog (read-only).
+      
+      Variables:
+        SQL    The SQL query to execute (required)
+      
+      Example:
+        plforge catalog:query SQL="SELECT COUNT(*) FROM polaris_catalog.wildlife.penguins"
+        plforge catalog:query SQL="SHOW ALL TABLES"
     cmds:
       - '{{.PLF}} catalog query --sql "{{.SQL}}"'
     requires:
@@ -45,71 +70,28 @@ tasks:
       - sh: command -v duckdb
         msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
       - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
-        msg: "Credentials file not found. Run 'task catalog:setup' first."
-
-  info:
-    desc: Get catalog configuration details from Polaris API
-    cmds:
-      - |
-        echo "Fetching catalog configuration..."
-        REALM=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f1)
-        CLIENT_ID=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f2)
-        CLIENT_SECRET=$(head -1 {{.PROJECT_HOME}}/work/principal.txt | cut -d',' -f3)
-
-        # Get access token (credentials passed via stdin to avoid exposure in process list)
-        TOKEN=$(echo "grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&scope=PRINCIPAL_ROLE:ALL" | \
-          curl -s -X POST "http://localhost:18181/api/catalog/v1/oauth/tokens" \
-          -H "Authorization: Bearer ${CLIENT_ID}:${CLIENT_SECRET}" \
-          -H "Polaris-Realm: ${REALM}" \
-          -H "Content-Type: application/x-www-form-urlencoded" \
-          -d @- \
-          | jq -r '.access_token')
-
-        if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
-          echo "Error: Failed to get access token"
-          exit 1
-        fi
-
-        echo ""
-        echo "=== Catalog Configuration for 'polardb' ==="
-        echo ""
-
-        # Get catalog configuration
-        curl -s "http://localhost:18181/api/management/v1/catalogs/polardb" \
-          -H "Authorization: Bearer ${TOKEN}" \
-          -H "Polaris-Realm: ${REALM}" \
-          | jq '.'
-
-        echo ""
-        echo "=== Key S3 Configuration ==="
-        echo ""
-        curl -s "http://localhost:18181/api/management/v1/catalogs/polardb" \
-          -H "Authorization: Bearer ${TOKEN}" \
-          -H "Polaris-Realm: ${REALM}" \
-          | jq '{
-              properties: .properties,
-              storageConfigInfo: .storageConfigInfo
-            }'
-    preconditions:
-      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
-        msg: "Credentials file not found. Run 'task catalog:setup' first."
-      - sh: command -v jq
-        msg: "jq is required for this task. Install with: brew install jq"
+        msg: "Credentials file not found. Run 'plforge catalog:setup' first."
 
   cleanup:
     desc: Cleanup Polaris catalog resources
+    summary: |
+      Removes catalog, principal, roles, and RustFS bucket.
+      
+      Variables:
+        TAGS    Comma-separated Ansible tags (default: all)
+      
+      Example:
+        plforge catalog:cleanup
     cmds:
       - "{{.PLF}} catalog cleanup --yes {{if .TAGS}}--tags={{.TAGS}}{{end}}"
 
-  list:
-    desc: List catalogs in Polaris
-    cmds:
-      - |
-        echo "Fetching catalogs from Polaris API..."
-        curl -s http://localhost:18181/api/catalog/v1/config | jq '.defaults["warehouse"], .overrides | keys' 2>/dev/null || echo "Polaris not running or API unavailable"
-
   reset:
     desc: Cleanup and recreate catalog (keeps cluster running)
+    summary: |
+      Runs catalog:cleanup then catalog:setup. Keeps the cluster running.
+      
+      Example:
+        plforge catalog:reset
     cmds:
       - task: cleanup
       - task: setup
@@ -117,6 +99,5 @@ tasks:
       - 'echo "Catalog reset complete."'
       - 'echo ""'
       - 'echo "Verification options:"'
-      - 'echo "  - Run DuckDB verification: task verify"'
-      - 'echo "  - Generate notebook: task catalog:generate-notebook"'
-
+      - 'echo "  - Run DuckDB verification: plforge verify"'
+      - 'echo "  - Generate notebook: plforge catalog:generate-notebook"'
