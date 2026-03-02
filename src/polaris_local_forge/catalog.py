@@ -22,6 +22,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 import click
 from dotenv import load_dotenv
@@ -156,18 +157,24 @@ def catalog_explore_sql(ctx):
 
 @catalog.command("query")
 @click.option("--sql", "-s", required=True, help="SQL query to execute (use polaris_catalog.schema.table)")
+@click.option("--output", "-o", type=click.Choice(["text", "markdown", "table"]),
+              default="text", help="Output format (default: text)")
 @click.pass_context
-def catalog_query(ctx, sql: str):
+def catalog_query(ctx, sql: str, output: str):
     """Execute read-only SQL query against catalog.
     
     Thin wrapper that handles connection setup automatically.
     Table references should use: polaris_catalog.<schema>.<table>
     
+    Output formats:
+      text      Key=value per line (default, human-readable)
+      markdown  Markdown table (useful for skills and docs)
+      table     DuckDB box table
+    
     Examples:
     
         plf catalog query --sql "SELECT COUNT(*) FROM polaris_catalog.wildlife.penguins"
-        
-        plf catalog query --sql "SHOW ALL TABLES"
+        plf catalog query --sql "SHOW ALL TABLES" --output markdown
     """
     work_dir = ctx.obj["WORK_DIR"]
     
@@ -231,12 +238,24 @@ ATTACH '{catalog_name}' AS polaris_catalog (
     ACCESS_DELEGATION_MODE 'none'
 );
 """
-    # Combine setup + user query
-    full_sql = setup_sql + sql + ";"
-    
-    #TODO run with bail -c to fail on error 
-    result = subprocess.run(
-        ["duckdb", "-c", full_sql],
-        capture_output=False
-    )
+    # Write setup SQL to temp init file with output suppressed so
+    # INSTALL/LOAD/SECRET/ATTACH "Success" noise doesn't leak to the user.
+    init_content = ".output /dev/null\n" + setup_sql + ".output\n"
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".sql", delete=False
+    ) as f:
+        f.write(init_content)
+        init_file = f.name
+
+    try:
+        cmd = ["duckdb"]
+        mode_flag = {"text": "-line", "markdown": "-markdown"}.get(output)
+        if mode_flag:
+            cmd.append(mode_flag)
+        cmd.extend(["-init", init_file, "-c", sql + ";"])
+
+        result = subprocess.run(cmd, capture_output=False)
+    finally:
+        os.unlink(init_file)
+
     sys.exit(result.returncode)

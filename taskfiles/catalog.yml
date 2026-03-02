@@ -57,15 +57,75 @@ tasks:
       Runs a SQL query via DuckDB against the Polaris catalog (read-only).
       
       Variables:
-        SQL    The SQL query to execute (required)
+        SQL       The SQL query to execute (required)
+        OUTPUT    Output format: text (default), markdown, table
       
       Example:
         plforge catalog:query SQL="SELECT COUNT(*) FROM polaris_catalog.wildlife.penguins"
-        plforge catalog:query SQL="SHOW ALL TABLES"
+        plforge catalog:query SQL="SHOW ALL TABLES" OUTPUT=markdown
+    vars:
+      OUTPUT: '{{.OUTPUT | default "text"}}'
     cmds:
-      - '{{.PLF}} catalog query --sql "{{.SQL}}"'
+      - '{{.PLF}} catalog query --sql "{{.SQL}}" --output {{.OUTPUT}}'
     requires:
       vars: [SQL]
+    preconditions:
+      - sh: command -v duckdb
+        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
+        msg: "Credentials file not found. Run 'plforge catalog:setup' first."
+
+  info:
+    desc: Show catalog overview - tables, Iceberg metadata, and record counts
+    summary: |
+      Comprehensive catalog overview via DuckDB. Shows all tables then
+      Iceberg file metadata (manifest paths, data file paths, record counts).
+
+      Variables:
+        TABLE     Fully qualified table (default: wildlife.penguins)
+        OUTPUT    Output format: text (default), markdown, table
+
+      Example:
+        plforge catalog:info
+        plforge catalog:info TABLE=wildlife.penguins
+        plforge catalog:info OUTPUT=markdown
+    vars:
+      TABLE: '{{.TABLE | default "wildlife.penguins"}}'
+      OUTPUT: '{{.OUTPUT | default "text"}}'
+    cmds:
+      - 'echo "=== Catalog Tables ==="'
+      - '{{.PLF}} catalog query --sql "SHOW ALL TABLES" --output {{.OUTPUT}}'
+      - 'echo ""'
+      - 'echo "=== Iceberg Metadata: {{.TABLE}} ==="'
+      - '{{.PLF}} catalog query --sql "SELECT * FROM iceberg_metadata(''polaris_catalog.{{.TABLE}}'')" --output {{.OUTPUT}}'
+    preconditions:
+      - sh: command -v duckdb
+        msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
+      - sh: test -f {{.PROJECT_HOME}}/work/principal.txt
+        msg: "Credentials file not found. Run 'plforge catalog:setup' first."
+
+  snapshots:
+    desc: Show Iceberg snapshot history for a table
+    summary: |
+      Shows snapshot history for an Iceberg table via DuckDB. Includes
+      sequence number, snapshot ID, timestamp, and manifest list path.
+
+      Useful for verifying data loads, checking write history, or debugging
+      sync issues. Can be called from skills instead of raw SQL queries.
+
+      Variables:
+        TABLE     Fully qualified table (required, e.g. wildlife.penguins)
+        OUTPUT    Output format: text (default), markdown, table
+
+      Example:
+        plforge catalog:snapshots TABLE=wildlife.penguins
+        plforge catalog:snapshots TABLE=wildlife.penguins OUTPUT=markdown
+    vars:
+      OUTPUT: '{{.OUTPUT | default "text"}}'
+    cmds:
+      - '{{.PLF}} catalog query --sql "SELECT * FROM iceberg_snapshots(''polaris_catalog.{{.TABLE}}'') ORDER BY sequence_number DESC" --output {{.OUTPUT}}'
+    requires:
+      vars: [TABLE]
     preconditions:
       - sh: command -v duckdb
         msg: "DuckDB CLI not found. Install from https://duckdb.org/docs/installation/"
