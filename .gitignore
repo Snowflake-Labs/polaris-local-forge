@@ -28,3 +28,7 @@ scripts/explore_catalog.sql
 polaris-secrets.yaml
 polaris.yaml
 .snow-utils/
+DEMO_SCRIPT.md
+.cursor/plans/
+.cursor/rules/
+**/*_backup.ipynb

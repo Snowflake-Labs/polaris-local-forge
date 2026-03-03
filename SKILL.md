@@ -1,6 +1,6 @@
 ---
 name: polaris-local-forge
-description: "**[REQUIRED]** Use for **ALL** requests involving local Apache Polaris: setup, API queries, catalog operations, cleanup, teardown. **AUTO-ACTIVATE:** If `.snow-utils/snow-utils-manifest.md` contains `polaris-local-forge:` this skill MUST handle ALL operations including cleanup. **DO NOT** use `polaris` CLI (does not exist), curl to Polaris endpoints (needs OAuth), or docker ps checks - invoke this skill first. Triggers: polaris local, local iceberg catalog, local polaris setup, rustfs setup, create polaris cluster, try polaris locally, get started with polaris, apache polaris quickstart, polaris dev environment, local data lakehouse, replay from manifest, reset polaris catalog, teardown polaris, clean up, cleanup, delete cluster, remove resources, polaris status, list catalogs, show namespaces, list tables, show catalog, describe table, list principals, show principal roles, list views, polaris namespaces, polaris catalogs, query data, query table, query iceberg, query catalog data, show my data, show table data, show records, how many rows, count rows, count records, run sql, run query, duckdb query, select from, group by, aggregate."
+description: "**[REQUIRED]** Use for **ALL** requests involving local Apache Polaris: setup, API queries, catalog operations, L2C migration, cleanup, teardown. **AUTO-ACTIVATE:** If `.snow-utils/snow-utils-manifest.md` contains `polaris-local-forge:` this skill MUST handle ALL operations including cleanup. **DO NOT** use `polaris` CLI (does not exist), curl to Polaris endpoints (needs OAuth), or docker ps checks - invoke this skill first. Triggers: polaris local, local iceberg catalog, local polaris setup, rustfs setup, create polaris cluster, try polaris locally, get started with polaris, apache polaris quickstart, polaris dev environment, local data lakehouse, l2c migration, local to cloud, migrate to snowflake, iceberg to s3, polaris to snowflake, cloud migration, external iceberg tables, snowflake iceberg, migrate iceberg, polaris with snowflake, local polaris snowflake, polaris snowflake integration, how to use polaris with snowflake, connect polaris to snowflake, polaris local snowflake, l2c update, update l2c migration, repeat l2c migration, l2c sync, incremental l2c, l2c incremental update, update migration, repeat migration, sync l2c, replay from manifest, reset polaris catalog, teardown polaris, clean up, cleanup, delete cluster, remove resources, polaris status, list catalogs, show namespaces, list tables, show catalog, describe table, list principals, show principal roles, list views, polaris namespaces, polaris catalogs, query data, query table, query iceberg, query catalog data, show my data, show table data, show records, how many rows, count rows, count records, run sql, run query, duckdb query, select from, group by, aggregate."
 location: user
 ---
 
@@ -835,7 +835,8 @@ If already initialized, you can add the manifest separately:
 
 > Set up the lightweight Python environment for querying and exploration.
 > This creates a virtual environment and installs query dependencies
-> (`duckdb`, `pyiceberg`, `boto3`, `pandas`) from the workspace `pyproject.toml`.
+> (`duckdb`, `pyiceberg==0.10.0`, `boto3`, `pandas`) from the workspace `pyproject.toml`.
+> **Note**: PyIceberg is pinned to 0.10.0 for Polaris compatibility (0.11.0 has REST API issues).
 > The infrastructure CLI runs from the skill directory separately.
 
 **STOP**: Wait for user confirmation before proceeding.
@@ -943,6 +944,7 @@ The `init --with-manifest` command creates the `.snow-utils/snow-utils-manifest.
 - NEVER combine multiple commands (hides output from Cortex Code)
 - NEVER use `podman machine start` directly (use `doctor --fix`)
 - **DESTRUCTIVE COMMANDS (teardown, delete, cleanup, purge):** ALWAYS STOP and ask user for explicit confirmation BEFORE running. After user confirms, pass `--yes` to skip CLI's interactive prompt (CLI prompts don't work in non-interactive shell)
+- **FLAG USAGE:** See [Flag Usage Patterns](docs/flag-usage-patterns.md) for comprehensive guidance on when to use `--force` and `--yes`
 - **TEARDOWN AFTER SETUP:** Even if user completes setup in this session and then asks to teardown, you MUST still present the teardown confirmation dialog with options. Session context does NOT bypass destruction confirmation. See [Teardown Flow](#teardown-flow).
 - **DO NOT re-ask** work directory, runtime, cluster name, etc. after user has already answered them
 
@@ -1155,7 +1157,7 @@ Teardown Options:
      - Deletes cluster AND cleans generated files
      - Use `setup:all` for fresh start
 
-  CLEANUP_PATHS: .kube work k8s scripts bin notebooks .env .aws .envrc .gitignore .venv
+  CLEANUP_PATHS: .kube work k8s scripts bin notebooks datasets .env .aws .envrc .gitignore .venv pyproject.toml uv.lock
 
   NOTE: .snow-utils/ is ALWAYS preserved. Replay is possible after BOTH options
         unless you manually delete .snow-utils/snow-utils-manifest.md
@@ -1178,7 +1180,7 @@ Option 2 (cluster + files):
 ```bash
 # CLEANUP_PATHS from Taskfile.yml - keep in sync!
 ./bin/plf teardown --yes
-rm -rf .kube work k8s scripts bin notebooks .env .aws .envrc .gitignore .venv
+rm -rf .kube work k8s scripts bin notebooks datasets .env .aws .envrc .gitignore .venv pyproject.toml uv.lock
 ```
 
 The `--yes` flag is passed because CLI prompts don't work in non-interactive shell, NOT to skip user confirmation from the agent.
@@ -1218,6 +1220,425 @@ When manifest has `Status: REMOVED`:
 5. Re-activate scoped environment (`KUBECONFIG`, `PATH` for kubectl)
 6. Regenerate catalog-level files (new principal credentials)
 7. Update manifest to COMPLETE
+
+## L2C (Local to Cloud) Migration
+
+**WORKFLOW OVERVIEW:** Migrate local Polaris Iceberg tables to AWS S3 and register as Snowflake External Iceberg Tables.
+
+**FORBIDDEN ACTIONS -- NEVER DO THESE:**
+
+- NEVER run `aws` CLI commands for cloud operations without scrubbing the local RustFS environment first -- the `.env` sets `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE`, `AWS_ENDPOINT_URL`, and `AWS_ACCESS_KEY_ID` to local RustFS (`localhost:19000`). Before running ANY `aws sts`, `aws s3`, `aws sso`, or other cloud-targeted AWS commands, unset these variables so the AWS CLI uses real credentials from `~/.aws/`. See [Scrubbed AWS Environment](#scrubbed-aws-environment) for the exact pattern
+- NEVER run `snow sql`, `snowflake.connector.connect()`, or any direct Snowflake SQL/Python -- the `.env` `SNOWFLAKE_DEFAULT_CONNECTION_NAME` differs from the Snowflake CLI default connection. ALL Snowflake operations MUST go through `./bin/plf l2c` commands which use the correct connection name, role, database, and schema from `.env` + `l2c-state.json`
+- NEVER guess or manually construct Snowflake connection parameters (connection_name, role, database, schema) -- these are resolved and stored in `.env`, `.snow-utils/l2c-state.json`, and `.snow-utils/snow-utils-manifest.md`. Read from these files if needed, but prefer `./bin/plf l2c` commands which resolve them automatically
+- NEVER run L2C commands without local Polaris cluster running
+- NEVER proceed without AWS credentials configured (profile or SSO)
+- NEVER skip dry-run verification before actual migration
+- NEVER hardcode AWS/Snowflake credentials in commands
+- NEVER use `sed/awk` for .env edits -- use Edit/StrReplace tool
+- NEVER skip user confirmation for destructive operations
+- NEVER guess CLI options -- run `--help` first
+- NEVER run L2C commands if `l2c-state.json` shows incomplete setup
+- NEVER proceed with sync/register without successful setup completion
+
+**INTERACTIVE PRINCIPLE:** This L2C workflow is designed to be interactive. At every decision point, ASK the user and WAIT for their response before proceeding.
+
+**DUAL-MODE EXECUTION:**
+
+- **CLI Mode**: Direct `plf l2c` commands for setup/sync/register operations
+- **Notebook Mode**: Interactive verification via `l2c_workbook.ipynb` with skill actions
+
+**MANIFEST FILE:** `.snow-utils/snow-utils-manifest.md` (exact path, always .md)
+
+**L2C SOURCE OF TRUTH -- NEVER GUESS, ALWAYS READ:**
+
+All L2C configuration is resolved and stored in these files. Cortex MUST read from them instead of guessing, running exploratory SQL, or constructing connection parameters manually.
+
+| File | Contains | Used By |
+|------|----------|---------|
+| `.env` | `SNOWFLAKE_DEFAULT_CONNECTION_NAME`, `SNOWFLAKE_USER`, `SNOWFLAKE_ACCOUNT`, `L2C_AWS_PROFILE` | All `plf l2c` commands for connection resolution |
+| `.snow-utils/l2c-state.json` | `sa_role`, `database`, `schema`, per-table sync/register state, S3 bucket, AWS region | All `plf l2c` commands for operations |
+| `.snow-utils/snow-utils-manifest.md` | L2C Snowflake section (`<!-- START -- l2c:snowflake -->`): Admin Role, SA_ROLE, Catalog Integration, External Volume, Database, Schema, per-resource statuses (DONE/PENDING/REMOVED) | `plf l2c setup snowflake` reads admin_role; audit trail and replay |
+| `~/.snowflake/connections.toml` | Named connection auth details (account URL, auth method) | Referenced by `SNOWFLAKE_DEFAULT_CONNECTION_NAME` |
+
+**L2C COMMAND ROUTING:**
+
+When user requests L2C operations, route DIRECTLY to the corresponding `./bin/plf l2c` command. Do NOT improvise with `snow sql`, `snowflake.connector`, or manual SQL.
+
+| User Intent | CLI Command |
+|-------------|-------------|
+| "check migration status", "show l2c status" | `./bin/plf l2c status` |
+| "list tables for migration", "what tables available" | `./bin/plf l2c inventory` |
+| "migrate tables", "run full migration" | `./bin/plf l2c migrate --yes` |
+| "sync to S3", "copy to cloud" | `./bin/plf l2c sync --yes` |
+| "register in Snowflake", "create external tables" | `./bin/plf l2c register --yes` |
+| "refresh Snowflake tables", "update metadata" | `./bin/plf l2c refresh --yes` |
+| "clear tables", "reset migration state" | `./bin/plf l2c clear --yes` |
+| "full cleanup", "teardown L2C" | `./bin/plf l2c cleanup --yes` |
+| "verify Snowflake tables", "check row counts" | `./bin/plf l2c status` |
+| "preview migration", "dry run" | `./bin/plf l2c sync --dry-run` |
+| "setup L2C", "provision AWS and Snowflake" | `./bin/plf l2c setup` |
+| "mutated data locally, re-sync" | `./bin/plf l2c sync --yes` (snapshot-aware auto-escalates to force) |
+| "demo reset, re-migrate" | `./bin/plf l2c clear --yes` then `./bin/plf l2c migrate --yes` |
+| "force re-upload everything" | `./bin/plf l2c sync --force --yes` |
+
+### Prerequisites for L2C
+
+**STOP**: Check prerequisites before proceeding.
+
+**Required Tools:**
+
+| Tool | Purpose | Verification |
+|------|---------|--------------|
+| AWS CLI v2 | AWS S3 access | `aws --version` |
+| Snowflake CLI | Snowflake connection | `snow --version` |
+| Local Polaris | Source catalog | `./bin/plf cluster status` |
+
+**Required Configuration:**
+
+1. **AWS Credentials**: Either AWS profile or SSO configured **FOR REAL AWS S3**
+2. **Snowflake Connection**: Named connection in `~/.snowflake/connections.toml`
+3. **Local Polaris**: Running cluster with data to migrate
+
+> **⚠️ CRITICAL: AWS Credential Resolution Logic**
+> 
+> **Local Polaris** uses RustFS (localhost:19000) with static credentials (`admin`/`password`)
+> **L2C Migration** uses this exact credential resolution order:
+> 
+> 1. **CLI flag:** `--aws-profile <profile-name>`
+> 2. **Environment variable:** `L2C_AWS_PROFILE=<profile-name>`
+> 3. **Default credential chain:** Uses `boto3.Session()` default behavior
+>    - Environment variables (AWS_ACCESS_KEY_ID, etc.)
+>    - AWS SSO credentials
+>    - AWS CLI profile 'default'
+>    - EC2 instance profile (if running on EC2)
+> 
+> **Profile Resolution Function:** `_resolve_profile(aws_profile) -> aws_profile or os.environ.get("L2C_AWS_PROFILE") or "default"`
+
+**Verify AWS credentials (scrub local RustFS env first):**
+
+> **⚠️ CRITICAL:** The `.env` sets `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE`,
+> `AWS_ENDPOINT_URL`, and `AWS_ACCESS_KEY_ID` to local RustFS (`localhost:19000`).
+> You MUST scrub these variables before running any `aws` command targeting real AWS.
+
+<a id="scrubbed-aws-environment"></a>
+**Scrubbed AWS Environment Pattern:**
+
+```bash
+# Scrub local RustFS env vars, then run real AWS commands
+env -u AWS_CONFIG_FILE -u AWS_SHARED_CREDENTIALS_FILE -u AWS_ENDPOINT_URL \
+    -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+    -u AWS_DEFAULT_REGION -u AWS_REGION -u AWS_PROFILE -u AWS_DEFAULT_PROFILE \
+    aws sts get-caller-identity
+```
+
+Use this same `env -u ...` prefix for ALL cloud AWS commands:
+
+```bash
+# Verify real AWS identity
+env -u AWS_CONFIG_FILE -u AWS_SHARED_CREDENTIALS_FILE -u AWS_ENDPOINT_URL \
+    -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+    -u AWS_DEFAULT_REGION -u AWS_REGION -u AWS_PROFILE -u AWS_DEFAULT_PROFILE \
+    aws sts get-caller-identity
+
+# SSO login
+env -u AWS_CONFIG_FILE -u AWS_SHARED_CREDENTIALS_FILE -u AWS_ENDPOINT_URL \
+    -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+    -u AWS_DEFAULT_REGION -u AWS_REGION -u AWS_PROFILE -u AWS_DEFAULT_PROFILE \
+    aws sso login --profile <your-profile>
+
+# List real S3 buckets
+env -u AWS_CONFIG_FILE -u AWS_SHARED_CREDENTIALS_FILE -u AWS_ENDPOINT_URL \
+    -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+    -u AWS_DEFAULT_REGION -u AWS_REGION -u AWS_PROFILE -u AWS_DEFAULT_PROFILE \
+    aws s3 ls
+```
+
+> **Note:** `./bin/plf l2c` commands handle this automatically via the `scrubbed_aws_env()`
+> context manager in Python. The `env -u` pattern above is the shell equivalent for
+> direct `aws` CLI usage.
+
+Alternatively, use `./bin/plf l2c setup --dry-run` which scrubs automatically and shows the resolved AWS account, region, and planned resources.
+
+If using a specific AWS profile, set it in `.env`:
+
+```
+L2C_AWS_PROFILE=<your-profile>
+```
+
+**Check Snowflake connection:**
+
+```bash
+snow connection test
+```
+
+**STOP**: Do not proceed until all prerequisites pass.
+
+### Step 1: L2C Prerequisites Check
+
+**STOP**: Wait for user confirmation of AWS/Snowflake setup.
+
+Ask user:
+
+> I need to verify your L2C migration prerequisites:
+> 
+> 1. Do you have AWS credentials configured (profile or SSO)?
+> 2. Do you have a Snowflake connection configured?
+> 3. Is your local Polaris cluster running with data?
+> 
+> **AWS Credential Isolation:** L2C uses `scrubbed_aws_env()` context manager to temporarily 
+> clear RustFS environment variables (AWS_ACCESS_KEY_ID=admin, AWS_ENDPOINT_URL=localhost:19000) 
+> so that boto3 can access your real AWS credentials without interference.
+> 
+> Please confirm all three are ready before proceeding.
+
+**After user confirms, verify local Polaris:**
+
+```bash
+./bin/plf cluster status
+```
+
+**If cluster not running:**
+
+**STOP**: Direct user to run the main workflow first to set up local Polaris.
+
+### Step 2: L2C Setup (AWS + Snowflake)
+
+> **⚠️ IMPORTANT: Credential Context Switch**
+> 
+> L2C setup will now use your **REAL AWS credentials** (profile/SSO), NOT the RustFS static credentials.
+> Make sure your AWS profile is configured for the account where you want to create S3 buckets.
+
+**SHOW**: Preview the L2C setup command:
+
+```bash
+./bin/plf l2c setup --dry-run
+```
+
+This will:
+- Create **REAL AWS S3 bucket** for Iceberg data (using your AWS profile/SSO)
+- Set up Snowflake database and schema
+- Configure External Volume in Snowflake
+- Generate L2C configuration in `l2c-state.json`
+
+**STOP**: Wait for user approval before executing setup commands.
+
+**DO**: Execute the setup:
+
+```bash
+./bin/plf l2c setup
+```
+
+**SUMMARIZE**: Explain what was created and show the `l2c-state.json` configuration (mask sensitive values).
+
+### Step 3: L2C Migration (Sync + Register)
+
+**SHOW**: Preview the migration process:
+
+```bash
+./bin/plf l2c inventory
+```
+
+This shows all tables available for migration.
+
+**STOP**: Wait for user to review tables and confirm migration.
+
+**SHOW**: Preview the sync operation:
+
+```bash
+./bin/plf l2c sync --dry-run
+```
+
+This will:
+- Copy Iceberg metadata and data files to S3
+- Rewrite metadata paths for S3 locations
+- Preserve table structure and partitioning
+
+**STOP**: Wait for user approval before executing migration.
+
+**DO**: Execute the migration:
+
+```bash
+./bin/plf l2c sync
+```
+
+**SHOW**: Preview the registration:
+
+```bash
+./bin/plf l2c register --dry-run
+```
+
+This will create External Iceberg Tables in Snowflake.
+
+**STOP**: Wait for user approval before executing registration.
+
+**DO**: Execute the registration:
+
+```bash
+./bin/plf l2c register
+```
+
+**SUMMARIZE**: Show migration status and registered tables:
+
+```bash
+./bin/plf l2c status
+```
+
+### Step 4: L2C Verification (Notebook Actions)
+
+**STOP**: Wait for user to choose verification method.
+
+Offer user two verification options:
+
+> How would you like to verify the L2C migration?
+> 
+> 1. **CLI Verification** - Quick command-line checks
+> 2. **Notebook Verification** - Interactive Jupyter notebook with detailed analysis
+
+**Option 1: CLI Verification**
+
+**SHOW**: Preview verification commands:
+
+```bash
+# Check migration status (shows sync/register state per table)
+./bin/plf l2c status
+
+# Inventory local tables available for migration
+./bin/plf l2c inventory
+```
+
+**DO**: Execute verification commands after user approval. Do NOT run `snow sql` directly -- `plf l2c status` reports Snowflake table state including row counts.
+
+**Option 2: Notebook Verification**
+
+**SHOW**: Preview notebook actions available:
+
+The enhanced `user-project/notebooks/l2c_workbook.ipynb` provides comprehensive interactive verification:
+
+**Core Capabilities:**
+- **Local Inventory**: Discover tables available for migration with metadata
+- **Migration Status**: Real-time sync and registration progress tracking
+- **Data Verification**: Compare row counts between local Polaris and Snowflake
+- **Cloud Verification**: S3 object counting and metadata validation
+- **Incremental Updates**: Zero-downtime data mutation workflows
+- **Reset/Reload**: Clean slate for iterative development
+
+**Built-in Utility Functions:**
+- AWS credential isolation (mirrors CLI `scrubbed_aws_env()`)
+- DuckDB + Polaris REST connection management
+- Snowflake connection with proper role/database context
+- S3 object counting for sync verification
+- PyIceberg compatibility handling (version 0.10.0)
+
+**DO**: Guide user to open and execute the notebook:
+
+```bash
+# Open notebook in Jupyter
+jupyter notebook user-project/notebooks/l2c_workbook.ipynb
+
+# Or open in Cursor for integrated experience
+cursor user-project/notebooks/l2c_workbook.ipynb
+```
+
+**SUMMARIZE**: The notebook provides a complete L2C migration experience with interactive verification, utility functions, and step-by-step guidance through the entire local-to-cloud workflow.
+
+### L2C Maintenance Operations
+
+#### Incremental Updates
+
+**SHOW**: Preview incremental sync:
+
+```bash
+./bin/plf l2c sync --incremental
+```
+
+**STOP**: Wait for user approval.
+
+**DO**: Execute incremental sync and register updates.
+
+#### Reset and Reload
+
+**SHOW**: Preview reset operation:
+
+```bash
+./bin/plf l2c cleanup
+```
+
+This will remove cloud resources but preserve local data.
+
+**STOP**: This is destructive. Confirm with user.
+
+**DO**: Execute cleanup and optionally reload demo data.
+
+#### Status Monitoring
+
+Check L2C status anytime:
+
+```bash
+./bin/plf l2c status
+```
+
+### L2C Troubleshooting
+
+**Common Issues:**
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| AWS credentials error | Profile/SSO not configured | Run `aws configure sso` or set profile |
+| Snowflake connection failed | Connection not configured | Run `snow connection add` |
+| S3 bucket creation failed | Permissions or naming conflict | Check AWS permissions, try different bucket name |
+| Table registration failed | Snowflake permissions | Verify External Volume and database permissions |
+| Boto3 uses RustFS credentials | Local .env contaminating AWS calls | Use scrubbed environment pattern (see below) |
+| "NoCredentialsError" during L2C | AWS profile expired or not found | Re-authenticate with `aws sso login` |
+
+**AWS Credential Isolation Issues:**
+
+The most common L2C issue is credential contamination between local RustFS and real AWS. The project `.env` file sets:
+- `AWS_ACCESS_KEY_ID=admin` (for RustFS)
+- `AWS_ENDPOINT_URL=http://localhost:19000` (for RustFS)
+- `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` (pointing to local files)
+
+These variables interfere with real AWS operations. L2C commands handle this automatically, but manual `aws` CLI usage requires the scrubbed environment pattern.
+
+**Debug Commands:**
+
+```bash
+# Check L2C configuration
+cat .snow-utils/l2c-state.json
+
+# Verify real AWS access (scrub RustFS env first -- see "Scrubbed AWS Environment Pattern" above)
+env -u AWS_CONFIG_FILE -u AWS_SHARED_CREDENTIALS_FILE -u AWS_ENDPOINT_URL \
+    -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+    -u AWS_DEFAULT_REGION -u AWS_REGION -u AWS_PROFILE -u AWS_DEFAULT_PROFILE \
+    aws sts get-caller-identity
+
+# Or use PLF which scrubs automatically
+./bin/plf l2c setup --dry-run
+
+# Verify real S3 bucket access (scrubbed)
+env -u AWS_CONFIG_FILE -u AWS_SHARED_CREDENTIALS_FILE -u AWS_ENDPOINT_URL \
+    -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+    -u AWS_DEFAULT_REGION -u AWS_REGION -u AWS_PROFILE -u AWS_DEFAULT_PROFILE \
+    aws s3 ls s3://<bucket-name>/
+
+# Test Snowflake connection
+snow connection test
+
+# Check Polaris catalog
+./bin/plf catalog query --sql "SHOW ALL TABLES"
+```
+
+**Notebook-Specific Troubleshooting:**
+
+If using the L2C workbook (`user-project/notebooks/l2c_workbook.ipynb`), be aware that:
+
+1. **s3fs Cache Issues**: The notebook clears `s3fs.S3FileSystem.clear_instance_cache()` to prevent credential conflicts
+2. **Environment Isolation**: The notebook uses inline environment isolation similar to the CLI's `scrubbed_aws_env()` pattern
+3. **PyIceberg Compatibility**: Ensure PyIceberg is pinned to version 0.10.0 for Polaris compatibility
+
+**Common Notebook Errors:**
+- `"PUT is not a valid HttpMethod"` → Downgrade PyIceberg to 0.10.0
+- `NoCredentialsError` in boto3 calls → Check AWS profile authentication
+- `EndpointConnectionError` → Verify local Polaris cluster is running
 
 ## Apache Polaris API Queries
 
@@ -1531,6 +1952,16 @@ SKILL_DIR=/path/to/polaris-local-forge
 | `plf catalog verify-sql` | Verify with DuckDB |
 | `plf cluster delete --yes` | Delete cluster (destructive) |
 | `plf teardown --yes` | Full cleanup (destructive) |
+| `plf l2c setup` | Provision AWS (S3, IAM) and Snowflake resources for L2C |
+| `plf l2c inventory` | List local Iceberg tables available for migration |
+| `plf l2c status` | Show migration status (sync/register state per table) |
+| `plf l2c sync --yes` | Sync local Iceberg data to S3 |
+| `plf l2c sync --dry-run` | Preview sync without executing |
+| `plf l2c register --yes` | Register External Iceberg Tables in Snowflake |
+| `plf l2c migrate --yes` | Full migration (sync + register) |
+| `plf l2c refresh --yes` | Refresh Snowflake external table metadata |
+| `plf l2c clear --yes` | Clear table migration state (re-sync/re-register) |
+| `plf l2c cleanup --yes` | Teardown L2C AWS and Snowflake resources |
 
 **Recommended permission setting:** When Cortex Code prompts for command approval:
 

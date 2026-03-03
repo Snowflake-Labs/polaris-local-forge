@@ -11,7 +11,7 @@ The Polaris Local Forge provides multiple ways to explore and verify your Polari
 | `explore_catalog.py` | Python/SQL | CLI | Automated verification, CI/CD |
 | `explore_catalog.sql` | SQL | DuckDB CLI | Direct SQL exploration |
 
-**Note:** `explore_catalog.sql` is auto-generated during `task catalog:setup` from a Jinja2 template with your credentials pre-configured.
+**Note:** `explore_catalog.sql` is auto-generated during `plforge catalog:setup` from a Jinja2 template with your credentials pre-configured.
 
 ## explore_catalog.sql
 
@@ -42,7 +42,7 @@ kubectl port-forward -n polaris svc/polaris 18181:8181
 The SQL script is automatically generated when you run:
 
 ```bash
-task catalog:setup
+plforge catalog:setup
 ```
 
 This generates `scripts/explore_catalog.sql` from the template `polaris-forge-setup/templates/scripts/explore_catalog.sql.j2` with:
@@ -59,7 +59,7 @@ Simply run the generated SQL script:
 
 ```bash
 # Run via task (recommended)
-task catalog:verify:sql
+task verify:sql  # Now uses hybrid PyIceberg + DuckDB approach
 
 # Or run directly with DuckDB
 duckdb < scripts/explore_catalog.sql
@@ -71,7 +71,7 @@ Start DuckDB with the script loaded, then continue exploring:
 
 ```bash
 # Interactive mode via task (recommended)
-task catalog:explore:sql
+plforge catalog:explore:sql
 
 # Or run directly with DuckDB
 duckdb -init scripts/explore_catalog.sql
@@ -230,7 +230,7 @@ The script performs a complete workflow with real data:
    - Downloads Palmer Penguins CSV dataset (333 rows) from GitHub
    - Loads into in-memory temporary table
    - Inserts from temp table to Polaris Iceberg table
-   - Writes Parquet files to S3 storage via Polaris vended credentials
+   - Writes Parquet files to S3 storage via direct S3 credentials (no credential vending)
 8. **Data Analytics**: Performs aggregation queries (species statistics)
 9. **Metadata Operations**: Tests Iceberg-specific functions:
    - `iceberg_metadata()` - retrieves table metadata

@@ -28,8 +28,8 @@ Workflow:
 4. INSERT data from memory to Iceberg table (via Polaris)
 5. Query and explore Iceberg metadata
 
-NOTE: All data writes go through Polaris REST API. Polaris vends S3 credentials
-and manages metadata. We do NOT use DuckDB's S3 extension directly.
+NOTE: Uses ACCESS_DELEGATION_MODE 'none' with direct S3 credentials for
+RustFS/MinIO (no STS credential vending). See docs/polaris-s3-compatible-storage.md.
 """
 
 import argparse
@@ -52,6 +52,10 @@ class PolarisExplorer:
         client_secret: Optional[str] = None,
         penguins_url: str = "https://raw.githubusercontent.com/dataprofessor/data/master/penguins_cleaned.csv",
         verbose: bool = False,
+        s3_endpoint: Optional[str] = None,
+        s3_access_key: Optional[str] = None,
+        s3_secret_key: Optional[str] = None,
+        s3_region: str = "us-east-1",
     ):
         """Initialize the Polaris explorer."""
         self.catalog_name = catalog_name
@@ -61,6 +65,10 @@ class PolarisExplorer:
         self.client_secret = client_secret
         self.penguins_url = penguins_url
         self.verbose = verbose
+        self.s3_endpoint = s3_endpoint
+        self.s3_access_key = s3_access_key
+        self.s3_secret_key = s3_secret_key
+        self.s3_region = s3_region
         self.conn: duckdb.DuckDBPyConnection | None = None
 
     def log(self, message: str, level: str = "INFO"):
@@ -156,7 +164,6 @@ class PolarisExplorer:
             if not self.conn:
                 raise RuntimeError("DuckDB connection not established")
 
-            # Create secret for OAuth2 authentication
             if self.client_id and self.client_secret:
                 self.log("Creating Polaris OAuth2 secret...", "DEBUG")
                 self.conn.execute(f"""
@@ -168,13 +175,30 @@ class PolarisExplorer:
                     )
                 """)
 
-                # Attach catalog
+                # Direct S3 access for RustFS/MinIO (credential vending disabled)
+                delegation = ""
+                if self.s3_endpoint and self.s3_access_key:
+                    s3_host = self.s3_endpoint.replace("http://", "").replace("https://", "")
+                    self.log("Creating RustFS S3 secret (no credential vending)...", "DEBUG")
+                    self.conn.execute(f"""
+                        CREATE OR REPLACE SECRET rustfs_s3 (
+                            TYPE s3,
+                            KEY_ID '{self.s3_access_key}',
+                            SECRET '{self.s3_secret_key}',
+                            ENDPOINT '{s3_host}',
+                            URL_STYLE 'path',
+                            USE_SSL false,
+                            REGION '{self.s3_region}'
+                        )
+                    """)
+                    delegation = ",\n                        ACCESS_DELEGATION_MODE 'none'"
+
                 self.log(f"Attaching catalog '{self.catalog_name}'...", "DEBUG")
                 self.conn.execute(f"""
                     ATTACH '{self.catalog_name}' AS polaris_catalog (
                         TYPE iceberg,
                         SECRET polaris_secret,
-                        ENDPOINT '{self.polaris_endpoint}'
+                        ENDPOINT '{self.polaris_endpoint}'{delegation}
                     )
                 """)
             else:
@@ -513,6 +537,10 @@ Reference:
         "--skip-cleanup", action="store_true", help="Keep test resources"
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument("--s3-endpoint", default="http://localhost:19000", help="S3-compatible endpoint (RustFS/MinIO)")
+    parser.add_argument("--s3-access-key", default="admin", help="S3 access key")
+    parser.add_argument("--s3-secret-key", default="password", help="S3 secret key")
+    parser.add_argument("--s3-region", default="us-east-1", help="S3 region")
 
     args = parser.parse_args()
 
@@ -534,7 +562,6 @@ Reference:
             print(f"Warning: Credentials not found: {creds_file}")
             print("Run 'task catalog:setup' to generate principal credentials")
 
-    # Run explorer
     explorer = PolarisExplorer(
         catalog_name=args.catalog,
         polaris_endpoint=args.endpoint,
@@ -542,6 +569,10 @@ Reference:
         client_id=client_id,
         client_secret=client_secret,
         penguins_url=args.penguins_url,
+        s3_endpoint=args.s3_endpoint,
+        s3_access_key=args.s3_access_key,
+        s3_secret_key=args.s3_secret_key,
+        s3_region=args.s3_region,
         verbose=args.verbose,
     )
 

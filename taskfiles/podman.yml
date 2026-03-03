@@ -8,6 +8,11 @@ silent: true
 tasks:
   setup:
     desc: Full Podman setup for k3d (machine + cgroup + network + verify)
+    summary: |
+      Runs all Podman setup steps: machine -> cgroup -> network -> verify.
+      
+      Example:
+        plforge podman:setup
     cmds:
       - task: setup:machine
       - task: setup:cgroup
@@ -16,6 +21,12 @@ tasks:
 
   setup:machine:
     desc: Create and start dedicated '{{.PODMAN_MACHINE}}' Podman machine (macOS, 4 CPUs / 16GB)
+    summary: |
+      Creates (or starts) a dedicated Podman machine for k3d with 4 CPUs and 16GB RAM.
+      Also configures SSH access for k3d port forwarding. macOS only.
+      
+      Example:
+        plforge podman:setup:machine
     platforms: [darwin]
     cmds:
       - |
@@ -56,6 +67,12 @@ tasks:
 
   setup:cgroup:
     desc: Configure cgroup v2 delegation for rootless k3d
+    summary: |
+      Configures cgroup v2 delegation required for rootless k3d.
+      On macOS: configures inside Podman machine. On Linux: configures on host.
+      
+      Example:
+        plforge podman:setup:cgroup
     cmds:
       - |
         if [ "$(uname)" = "Darwin" ]; then
@@ -81,6 +98,11 @@ tasks:
 
   setup:network:
     desc: Create DNS-enabled k3d network for Podman
+    summary: |
+      Creates a DNS-enabled Podman network named 'k3d'. Idempotent.
+      
+      Example:
+        plforge podman:setup:network
     cmds:
       - |
         if [ "$(uname)" = "Darwin" ]; then
@@ -98,6 +120,11 @@ tasks:
 
   check:
     desc: Verify Podman machine is ready with sufficient resources for k3d
+    summary: |
+      Shows machine state, CPUs, memory, cgroup version, and k3d network status.
+      
+      Example:
+        plforge podman:check
     cmds:
       - |
         echo "Podman Machine Check"
@@ -118,6 +145,11 @@ tasks:
 
   stop:
     desc: Stop the dedicated Podman machine and restore default connection
+    summary: |
+      Stops the Podman machine and restores default connection. macOS only.
+      
+      Example:
+        plforge podman:stop
     platforms: [darwin]
     cmds:
       - |
@@ -141,6 +173,12 @@ tasks:
 
   destroy:
     desc: Remove the dedicated Podman machine entirely
+    summary: |
+      Permanently deletes the Podman machine and all its data.
+      Prompts for confirmation. macOS only.
+      
+      Example:
+        plforge podman:destroy
     platforms: [darwin]
     prompt: "This will permanently delete the '{{.PODMAN_MACHINE}}' Podman machine and all its data. Continue?"
     cmds:

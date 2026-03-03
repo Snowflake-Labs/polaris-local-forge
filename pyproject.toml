@@ -15,11 +15,17 @@ dependencies = [
     "jinja2>=3.1.5",
     "pandas>=2.2.3",
     "pyarrow>=19.0.0",
-    "pyiceberg[s3fs]>=0.8.1",
+    # Pinned to 0.10.0 -- 0.11.0 has 'PUT is not a valid HttpMethod' with
+    # local Polaris REST catalog. Upgrade both here and user-project/pyproject.toml
+    # together when 0.11.1 ships (fix: PR #3010).
+    "pyiceberg[s3fs]==0.10.0",
     "pyjwt>=2.10.1",
     "python-dotenv>=1.0.1",
     "pyyaml>=6.0",
+    "fastavro>=1.9.0",
     "requests>=2.31.0",
+    "snow-utils",
+    "snow-utils-common",
 ]
 
 [project.scripts]
@@ -46,6 +52,11 @@ test = [
     "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
 ]
+
+[tool.uv.sources]
+# Local paths during active development -- switch to git URLs before merge
+snow-utils = { path = "/Users/ksampath/git/kameshsampath/snow-utils", editable = true }
+snow-utils-common = { path = "/Users/ksampath/git/kameshsampath/snow-utils/common", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

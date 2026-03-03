@@ -8,11 +8,21 @@ silent: true
 tasks:
   deploy:
     desc: Deploy Polaris to the cluster
+    summary: |
+      Deploys Apache Polaris to the k3d cluster via Helm chart.
+      
+      Example:
+        plforge polaris:deploy
     cmds:
       - "{{.PLF}} polaris deploy"
 
   check:
     desc: Ensure all Polaris deployments have succeeded
+    summary: |
+      Waits for Polaris deployment to be available (up to 120s).
+      
+      Example:
+        plforge polaris:check
     cmds:
       - |
         echo "Checking Polaris deployment..."
@@ -21,16 +31,33 @@ tasks:
 
   purge:
     desc: Purge Polaris data
+    summary: |
+      Runs the Polaris purge job to wipe the database.
+      
+      Example:
+        plforge polaris:purge
     cmds:
       - "{{.PLF}} polaris purge"
 
   bootstrap:
     desc: Bootstrap Polaris (run after deploy)
+    summary: |
+      Creates the initial Polaris principal and credentials.
+      Must be run after polaris:deploy.
+      
+      Example:
+        plforge polaris:bootstrap
     cmds:
       - "{{.PLF}} polaris bootstrap"
 
   reset:
     desc: Purge and re-bootstrap Polaris
+    summary: |
+      Purges Polaris database, redeploys, and re-bootstraps.
+      Runs: purge -> deploy -> check -> bootstrap.
+      
+      Example:
+        plforge polaris:reset
     cmds:
       - task: purge
       - task: deploy
@@ -39,5 +66,10 @@ tasks:
 
   status:
     desc: Show Polaris status
+    summary: |
+      Shows deployments, pods, and services in the polaris namespace.
+      
+      Example:
+        plforge polaris:status
     cmds:
       - kubectl get deployments,pods,services -n polaris

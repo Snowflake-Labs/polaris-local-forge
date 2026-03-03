@@ -47,6 +47,7 @@ def polaris_deploy(ctx, dry_run: bool):
     polaris_chart = k8s_dir / "features" / "polaris.yaml"
 
     # Step 1: Create polaris namespace (must exist before secrets)
+    # TODO: polaris Helm chart does create the namespace automatically this is redundant
     cmd_ns = ["kubectl", "create", "namespace", "polaris", "--dry-run=client", "-o", "yaml"]
     cmd_ns_apply = ["kubectl", "apply", "-f", "-"]
     if dry_run:
@@ -101,12 +102,15 @@ def polaris_purge(ctx, dry_run: bool):
             return
         subprocess.run(cmd, env=env)
 
+    # remove
+    # TODO: should bot delete the namespace for purge, purge only resets Poalris bootstrapping
+    # remove
     # Delete polaris namespace
-    cmd = ["kubectl", "delete", "namespace", "polaris", "--ignore-not-found"]
-    if dry_run:
-        click.echo(f"Would run: {' '.join(cmd)}")
-        return
-    subprocess.run(cmd, env=env)
+    # cmd = ["kubectl", "delete", "namespace", "polaris", "--ignore-not-found"]
+    # if dry_run:
+    #    click.echo(f"Would run: {' '.join(cmd)}")
+    #    return
+    # subprocess.run(cmd, env=env)
 
 
 @polaris.command("bootstrap")

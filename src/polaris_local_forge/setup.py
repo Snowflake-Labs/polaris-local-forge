@@ -120,6 +120,7 @@ def _parse_manifest(manifest_path: Path) -> dict | None:
     return {"status": status, "resources": resources, "config": config}
 
 
+#TODO: why separate run of ansible leverage run_ansible?
 def _run_manifest_ansible(work_dir: Path, tag: str, extra_vars: dict | None = None) -> int:
     """Run manifest.yml Ansible playbook with specified tag.
     

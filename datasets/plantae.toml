@@ -1,0 +1,26 @@
+# Plantae namespace - plant-related datasets
+[metadata]
+name = "plantae"
+description = "Plant kingdom datasets for botanical research and demos"
+namespace = "plantae"
+version = "1.0"
+
+[datasets.fruits.source]
+type = "inline"
+data = [
+    { id = 1, name = "mango", season = "summer" },
+    { id = 2, name = "banana", season = "all" },
+    { id = 3, name = "orange", season = "winter" },
+    { id = 4, name = "apple", season = "fall" },
+    { id = 5, name = "strawberry", season = "spring" }
+]
+
+[datasets.fruits.table]
+namespace = "plantae"
+name = "fruits"
+
+# PyIceberg Schema Types: https://py.iceberg.apache.org/api/#types
+[datasets.fruits.table.schema]
+id = "int"
+name = "string"
+season = "string"

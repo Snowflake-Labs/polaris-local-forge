@@ -64,6 +64,7 @@ from polaris_local_forge.polaris_ops import polaris
 from polaris_local_forge.catalog import catalog
 from polaris_local_forge.api import api
 from polaris_local_forge.setup import setup
+from polaris_local_forge.l2c import l2c
 
 
 # =============================================================================
@@ -100,6 +101,7 @@ cli.add_command(polaris)
 cli.add_command(catalog)
 cli.add_command(api)
 cli.add_command(setup)
+cli.add_command(l2c)
 
 
 # =============================================================================
@@ -187,6 +189,7 @@ def init_project(ctx, force: bool, cluster_name: str | None, with_manifest: bool
             env_vars_added.append(f"PLF_CONTAINER_RUNTIME={detected_runtime}")
 
     # Initialize manifest if requested
+    # TODO: manifest is always requried, we should avoid giving w/o manifest option
     if with_manifest:
         manifest_dir = work_dir / ".snow-utils"
         manifest_file = manifest_dir / "snow-utils-manifest.md"

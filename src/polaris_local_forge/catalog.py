@@ -22,6 +22,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 import click
 from dotenv import load_dotenv
@@ -77,33 +78,64 @@ def catalog_cleanup(ctx, tags: str | None, dry_run: bool, verbose: bool, yes: bo
 @catalog.command("verify-sql")
 @click.pass_context
 def catalog_verify_sql(ctx):
-    """Run DuckDB verification using generated SQL script."""
+    """Load data via PyIceberg, then verify with DuckDB read-only queries."""
     work_dir = ctx.obj["WORK_DIR"]
-    sql_file = work_dir / "scripts" / "explore_catalog.sql"
-
-    if not sql_file.exists():
-        click.echo(f"SQL script not found: {sql_file}", err=True)
-        click.echo("Run 'catalog setup' first to generate it.", err=True)
+    
+    # Phase 1: Load data via PyIceberg (safe, maintains metadata)
+    click.echo("Phase 1: Loading data via PyIceberg...")
+    
+    # Load wildlife dataset (penguins)
+    wildlife_config = work_dir / "datasets" / "wildlife.toml"
+    if wildlife_config.exists():
+        click.echo("Loading wildlife datasets...")
+        result = subprocess.run([
+            "python3", str(work_dir / "scripts" / "pyiceberg_data_loader.py"),
+            "--config-file", str(wildlife_config)
+        ], cwd=work_dir)
+        if result.returncode != 0:
+            click.echo("Failed to load wildlife datasets.", err=True)
+            sys.exit(1)
+    else:
+        click.echo(f"Wildlife config not found: {wildlife_config}", err=True)
+        click.echo("Ensure datasets/wildlife.toml exists.", err=True)
         sys.exit(1)
-
+    
+    # Note: plantae dataset (fruits) available for separate multi-namespace testing
+    # Load manually with: python scripts/pyiceberg_data_loader.py --config-file datasets/plantae.toml
+    
+    click.echo("✅ Data loading completed via PyIceberg")
+    
+    # Phase 2: Verify with DuckDB read-only queries
+    click.echo("\nPhase 2: Verifying with DuckDB read-only analysis...")
+    
     if not shutil.which("duckdb"):
         click.echo("DuckDB CLI not found. Install with: brew install duckdb", err=True)
         sys.exit(1)
-
-    click.echo(f"Running DuckDB verification from {sql_file}...")
-
-    result = subprocess.run(
-        ["duckdb", "-bail", "-init", str(sql_file), "-c", ".exit"],
-        capture_output=False
-    )
-
+    
+    # Use our read-only analysis script
+    analysis_script = work_dir / "scripts" / "analyze_catalog.sql"
+    if not analysis_script.exists():
+        click.echo(f"Analysis script not found: {analysis_script}", err=True)
+        click.echo("The script should have been created during setup.", err=True)
+        sys.exit(1)
+    
+    click.echo(f"Running DuckDB read-only analysis from {analysis_script}...")
+    
+    result = subprocess.run([
+        "duckdb", "-bail", "-init", str(analysis_script), "-c", ".exit"
+    ], capture_output=False, cwd=work_dir)
+    
     if result.returncode == 0:
-        click.echo("Verification completed successfully.")
+        click.echo("\n🎉 Hybrid verification completed successfully!")
+        click.echo("✅ Data loaded via PyIceberg (proper metadata)")
+        click.echo("✅ Analysis completed via DuckDB (read-only)")
     else:
         click.echo("Verification failed.", err=True)
+    
     sys.exit(result.returncode)
 
 
+#TODO: do we need this, for better UX shall make the user use Jupyter notebook?
 @catalog.command("explore-sql")
 @click.pass_context
 def catalog_explore_sql(ctx):
@@ -125,18 +157,24 @@ def catalog_explore_sql(ctx):
 
 @catalog.command("query")
 @click.option("--sql", "-s", required=True, help="SQL query to execute (use polaris_catalog.schema.table)")
+@click.option("--output", "-o", type=click.Choice(["text", "markdown", "table"]),
+              default="text", help="Output format (default: text)")
 @click.pass_context
-def catalog_query(ctx, sql: str):
+def catalog_query(ctx, sql: str, output: str):
     """Execute read-only SQL query against catalog.
     
     Thin wrapper that handles connection setup automatically.
     Table references should use: polaris_catalog.<schema>.<table>
     
+    Output formats:
+      text      Key=value per line (default, human-readable)
+      markdown  Markdown table (useful for skills and docs)
+      table     DuckDB box table
+    
     Examples:
     
         plf catalog query --sql "SELECT COUNT(*) FROM polaris_catalog.wildlife.penguins"
-        
-        plf catalog query --sql "SHOW ALL TABLES"
+        plf catalog query --sql "SHOW ALL TABLES" --output markdown
     """
     work_dir = ctx.obj["WORK_DIR"]
     
@@ -158,35 +196,66 @@ def catalog_query(ctx, sql: str):
         click.echo(f"Invalid principal file format: {principal_file}", err=True)
         sys.exit(1)
     
+    #TODO: the duckdb from the .venv should be used!!
     if not shutil.which("duckdb"):
         click.echo("DuckDB CLI not found. Install with: brew install duckdb", err=True)
         sys.exit(1)
     
-    # Get config from environment
     polaris_url = os.getenv("POLARIS_URL", "http://localhost:18181")
     catalog_name = os.getenv("PLF_POLARIS_CATALOG_NAME", "polardb")
-    
-    # Build connection setup SQL
+    s3_access_key = os.getenv("AWS_ACCESS_KEY_ID", "admin")
+    s3_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "password")
+    s3_endpoint = os.getenv("AWS_ENDPOINT_URL", "http://localhost:19000")
+    s3_region = os.getenv("AWS_REGION", "us-east-1")
+
+    # Strip scheme for DuckDB S3 ENDPOINT (expects host:port only)
+    s3_host = s3_endpoint.replace("http://", "").replace("https://", "")
+
     setup_sql = f"""
 INSTALL iceberg;
 LOAD iceberg;
+INSTALL httpfs;
+LOAD httpfs;
 CREATE OR REPLACE SECRET polaris_secret (
     TYPE iceberg,
     CLIENT_ID '{client_id}',
     CLIENT_SECRET '{client_secret}',
     OAUTH2_SERVER_URI '{polaris_url}/api/catalog/v1/oauth/tokens'
 );
+CREATE OR REPLACE SECRET rustfs_s3 (
+    TYPE s3,
+    KEY_ID '{s3_access_key}',
+    SECRET '{s3_secret_key}',
+    ENDPOINT '{s3_host}',
+    URL_STYLE 'path',
+    USE_SSL false,
+    REGION '{s3_region}'
+);
 ATTACH '{catalog_name}' AS polaris_catalog (
     TYPE iceberg,
     SECRET polaris_secret,
-    ENDPOINT '{polaris_url}/api/catalog'
+    ENDPOINT '{polaris_url}/api/catalog',
+    ACCESS_DELEGATION_MODE 'none'
 );
 """
-    # Combine setup + user query
-    full_sql = setup_sql + sql + ";"
-    
-    result = subprocess.run(
-        ["duckdb", "-c", full_sql],
-        capture_output=False
-    )
+    # Write setup SQL to temp init file with output suppressed so
+    # INSTALL/LOAD/SECRET/ATTACH "Success" noise doesn't leak to the user.
+    init_content = ".output /dev/null\n" + setup_sql + ".output\n"
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".sql", delete=False
+    ) as f:
+        f.write(init_content)
+        init_file = f.name
+
+    try:
+        cmd = ["duckdb"]
+        mode_flag = {"text": "-line", "markdown": "-markdown"}.get(output)
+        if mode_flag:
+            cmd.append(mode_flag)
+        cmd.extend(["-init", init_file, "-c", sql + ";"])
+
+        result = subprocess.run(cmd, capture_output=False)
+    finally:
+        os.unlink(init_file)
+
     sys.exit(result.returncode)
