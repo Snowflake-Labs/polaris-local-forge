@@ -36,7 +36,7 @@ plf l2c migrate --dry-run
 plf l2c migrate --yes
 
 # In automation
-task l2c:migrate WORK_DIR=~/polaris-dev -- --yes
+plforge l2c:migrate --yes
 
 # Cortex Code skills
 ./bin/plf l2c update --yes
@@ -238,13 +238,13 @@ plf l2c cleanup --force --yes
 ### With Go-Task
 ```bash
 # Regular migration
-task l2c:migrate WORK_DIR=~/polaris-dev -- --yes
+plforge l2c:migrate --yes
 
 # After demo reset
-task l2c:migrate WORK_DIR=~/polaris-dev -- --force --yes
+plforge l2c:migrate --force --yes
 
 # After local mutations
-task l2c:update WORK_DIR=~/polaris-dev -- --force --yes
+plforge l2c:update --force --yes
 ```
 
 ### In Cortex Code Skills

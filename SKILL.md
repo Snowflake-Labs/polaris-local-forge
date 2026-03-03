@@ -1512,23 +1512,34 @@ Offer user two verification options:
 
 **SHOW**: Preview notebook actions available:
 
-The `notebooks/l2c_workbook.ipynb` provides interactive verification with these skill actions:
+The enhanced `user-project/notebooks/l2c_workbook.ipynb` provides comprehensive interactive verification:
 
-- `l2c-inventory`: Discover local tables available for migration
-- `l2c-status`: Check current migration status
-- `l2c-verify`: Compare local vs cloud data counts
-- `l2c-query`: Query Snowflake tables with pandas DataFrames
-- `l2c-update`: Perform incremental updates
-- `l2c-reset`: Reset and reload demo data
+**Core Capabilities:**
+- **Local Inventory**: Discover tables available for migration with metadata
+- **Migration Status**: Real-time sync and registration progress tracking
+- **Data Verification**: Compare row counts between local Polaris and Snowflake
+- **Cloud Verification**: S3 object counting and metadata validation
+- **Incremental Updates**: Zero-downtime data mutation workflows
+- **Reset/Reload**: Clean slate for iterative development
+
+**Built-in Utility Functions:**
+- AWS credential isolation (mirrors CLI `scrubbed_aws_env()`)
+- DuckDB + Polaris REST connection management
+- Snowflake connection with proper role/database context
+- S3 object counting for sync verification
+- PyIceberg compatibility handling (version 0.10.0)
 
 **DO**: Guide user to open and execute the notebook:
 
 ```bash
-# Open notebook in Cursor
-cursor notebooks/l2c_workbook.ipynb
+# Open notebook in Jupyter
+jupyter notebook user-project/notebooks/l2c_workbook.ipynb
+
+# Or open in Cursor for integrated experience
+cursor user-project/notebooks/l2c_workbook.ipynb
 ```
 
-**SUMMARIZE**: Explain the notebook sections and how to use skill actions for verification.
+**SUMMARIZE**: The notebook provides a complete L2C migration experience with interactive verification, utility functions, and step-by-step guidance through the entire local-to-cloud workflow.
 
 ### L2C Maintenance Operations
 
@@ -1576,6 +1587,17 @@ Check L2C status anytime:
 | Snowflake connection failed | Connection not configured | Run `snow connection add` |
 | S3 bucket creation failed | Permissions or naming conflict | Check AWS permissions, try different bucket name |
 | Table registration failed | Snowflake permissions | Verify External Volume and database permissions |
+| Boto3 uses RustFS credentials | Local .env contaminating AWS calls | Use scrubbed environment pattern (see below) |
+| "NoCredentialsError" during L2C | AWS profile expired or not found | Re-authenticate with `aws sso login` |
+
+**AWS Credential Isolation Issues:**
+
+The most common L2C issue is credential contamination between local RustFS and real AWS. The project `.env` file sets:
+- `AWS_ACCESS_KEY_ID=admin` (for RustFS)
+- `AWS_ENDPOINT_URL=http://localhost:19000` (for RustFS)
+- `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` (pointing to local files)
+
+These variables interfere with real AWS operations. L2C commands handle this automatically, but manual `aws` CLI usage requires the scrubbed environment pattern.
 
 **Debug Commands:**
 
@@ -1604,6 +1626,19 @@ snow connection test
 # Check Polaris catalog
 ./bin/plf catalog query --sql "SHOW ALL TABLES"
 ```
+
+**Notebook-Specific Troubleshooting:**
+
+If using the L2C workbook (`user-project/notebooks/l2c_workbook.ipynb`), be aware that:
+
+1. **s3fs Cache Issues**: The notebook clears `s3fs.S3FileSystem.clear_instance_cache()` to prevent credential conflicts
+2. **Environment Isolation**: The notebook uses inline environment isolation similar to the CLI's `scrubbed_aws_env()` pattern
+3. **PyIceberg Compatibility**: Ensure PyIceberg is pinned to version 0.10.0 for Polaris compatibility
+
+**Common Notebook Errors:**
+- `"PUT is not a valid HttpMethod"` → Downgrade PyIceberg to 0.10.0
+- `NoCredentialsError` in boto3 calls → Check AWS profile authentication
+- `EndpointConnectionError` → Verify local Polaris cluster is running
 
 ## Apache Polaris API Queries
 

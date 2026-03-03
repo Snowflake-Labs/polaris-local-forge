@@ -1224,7 +1224,7 @@ flowchart TD
 | `refresh` | Already-registered tables | `register.status == done` |
 | `register` | Synced but not yet registered | `sync.status == synced` AND `register.status != done` |
 
-**Taskfile shortcut:** `task l2c:update WORK_DIR=~/polaris-dev -- --force --yes`
+**Taskfile shortcut:** `plforge l2c:update --force --yes`
 runs `sync → refresh → register` in one command. Use `--force` after local
 data mutations so sync picks up the delta.
 

@@ -134,10 +134,10 @@ After setup, services are available at:
 task status
 
 # Verify with DuckDB SQL
-task catalog:verify:sql
+plforge catalog:verify:sql
 
 # Or use interactive DuckDB
-task catalog:explore:sql
+plforge catalog:explore:sql
 
 # Or run the Jupyter notebook
 jupyter notebook notebooks/verify_polaris.ipynb
@@ -177,43 +177,119 @@ flowchart LR
 
 ```bash
 # Preview the full migration plan
-task l2c:migrate WORK_DIR=~/polaris-dev -- --dry-run
+plforge l2c:migrate --dry-run
 
 # Execute: setup AWS/Snowflake infra, sync data, register tables
-task l2c:migrate WORK_DIR=~/polaris-dev -- --yes
+plforge l2c:migrate --yes
 
 # Verify in Snowflake
 snow sql -q "SELECT * FROM <DATABASE>.L2C.<TABLE> LIMIT 10;" --role <SA_ROLE>
 ```
 
+### L2C Interactive Workbook
+
+For a guided, interactive experience, use the enhanced L2C workbook:
+
+```bash
+# Open the L2C workbook in Jupyter
+jupyter notebook user-project/notebooks/l2c_workbook.ipynb
+```
+
+The workbook provides:
+
+**Core Features:**
+- **Step-by-step migration guidance** with detailed explanations
+- **Interactive data exploration** and verification across local/cloud
+- **Built-in utility functions** for common L2C operations
+- **Visual comparisons** between local Polaris and Snowflake data
+- **AWS credential isolation** handling for seamless cloud operations
+
+**Workflow Sections:**
+1. **Local Inventory** - Discover tables available for migration
+2. **Initial Migration** - Setup AWS/Snowflake infrastructure and sync data
+3. **Migration Status** - Monitor sync and registration progress
+4. **Sync Verification** - Compare local RustFS vs AWS S3 object counts
+5. **Query from Snowflake** - Verify data accessibility in Snowflake
+6. **Incremental Update Demo** - Demonstrate zero-downtime data updates
+7. **Reset and Reload** - Clean slate for iterative development
+
+**Utility Functions:**
+- `rustfs_env()` - Context manager for AWS credential isolation
+- `setup_duckdb_polaris_connection()` - DuckDB connection with Polaris REST
+- `get_table_count_via_duckdb()` - Query table row counts
+- `create_snowflake_connection()` - Snowflake connection management
+- `scrubbed_aws_env()` - Clean AWS environment for cloud operations
+- `count_objects()` - S3 object counting for sync verification
+
 ### L2C Task Commands
 
 | Command | Description |
 |---------|-------------|
-| `task l2c:inventory` | List tables in local Polaris catalog |
-| `task l2c:setup` | Provision AWS + Snowflake infrastructure |
-| `task l2c:setup:aws` | Create S3 bucket + IAM role/policy |
-| `task l2c:setup:snowflake` | Create external volume, catalog integration, SA_ROLE, DB/Schema |
-| `task l2c:sync` | Copy Iceberg data from local RustFS to AWS S3 |
-| `task l2c:register` | Register synced tables as Snowflake External Iceberg Tables |
-| `task l2c:refresh` | Update registered tables to latest metadata (zero-downtime) |
-| `task l2c:update` | Combined: sync + refresh + register (for incremental updates) |
-| `task l2c:migrate` | Full pipeline: setup + sync + register |
-| `task l2c:status` | Show migration state (AWS, Snowflake, per-table status) |
-| `task l2c:clear` | Remove migrated data, keep infrastructure (for iteration) |
-| `task l2c:cleanup` | Full teardown of all L2C infrastructure and data |
+| `plforge l2c:inventory` | List tables in local Polaris catalog |
+| `plforge l2c:setup` | Provision AWS + Snowflake infrastructure |
+| `plforge l2c:setup:aws` | Create S3 bucket + IAM role/policy |
+| `plforge l2c:setup:snowflake` | Create external volume, catalog integration, SA_ROLE, DB/Schema |
+| `plforge l2c:sync` | Copy Iceberg data from local RustFS to AWS S3 (smart sync) |
+| `plforge l2c:register` | Register synced tables as Snowflake External Iceberg Tables |
+| `plforge l2c:refresh` | Update registered tables to latest metadata (zero-downtime) |
+| `plforge l2c:update` | Combined: sync + refresh + register (for incremental updates) |
+| `plforge l2c:migrate` | Full pipeline: setup + sync + register |
+| `plforge l2c:status` | Show migration state (AWS, Snowflake, per-table status) |
+| `plforge l2c:clear` | Remove migrated data, keep infrastructure (for iteration) |
+| `plforge l2c:cleanup` | Full teardown of all L2C infrastructure and data |
 
-> **Tip:** Use `task l2c:<name> --summary` for detailed help on any L2C task.
+> **Tip:** Use `plforge l2c:<name> --summary` for detailed help on any L2C task.
+
+### Smart Sync & Zero-Downtime Updates
+
+L2C includes advanced features for efficient data migration:
+
+**Smart Sync**: Only transfers new or changed files by comparing keys and sizes between local RustFS and AWS S3. Includes snapshot-aware fallback to detect table changes that key+size comparison might miss.
+
+**Zero-Downtime Refresh**: After local data changes, use `plforge l2c:refresh` to update Snowflake table metadata pointers without dropping tables, ensuring continuous availability for applications.
 
 ### Incremental Updates
 
 After mutating data locally (adding rows, changing schema), push changes to Snowflake with zero downtime:
 
 ```bash
-task l2c:update WORK_DIR=~/polaris-dev -- --force --yes
+plforge l2c:update --force --yes
 ```
 
 This syncs the delta to S3, refreshes the metadata pointer in Snowflake, and registers any new tables.
+
+### Common L2C Workflows
+
+**Development Iteration Loop:**
+```bash
+# 1. Make changes to local data
+plforge catalog:query SQL="INSERT INTO polaris_catalog.wildlife.penguins VALUES (...)"
+
+# 2. Sync changes to S3 and refresh Snowflake
+plforge l2c:update --force --yes
+
+# 3. Verify in Snowflake
+snow sql -q "SELECT COUNT(*) FROM <TABLE>;"
+```
+
+**Reset and Re-demo:**
+```bash
+# Clear migrated data but keep infrastructure
+plforge l2c:clear --yes
+
+# Re-run migration with fresh data
+plforge l2c:sync --yes
+plforge l2c:register --yes
+```
+
+**Status Monitoring:**
+```bash
+# Check overall migration state
+plforge l2c:status
+
+# List available tables for migration
+plforge l2c:inventory
+```
 
 For full design details, see [docs/cli-design.md](docs/cli-design.md#l2c-migration).
 
@@ -290,36 +366,36 @@ All operations are available via Task commands:
 
 | Command | Description |
 |---------|-------------|
-| `task cluster:create` | Create k3d cluster |
-| `task cluster:delete` | Delete cluster |
-| `task cluster:bootstrap-check` | Wait for bootstrap deployments |
-| `task cluster:polaris-check` | Wait for Apache Polaris deployment |
-| `task cluster:reset` | Delete and recreate cluster |
+| `plforge cluster:create` | Create k3d cluster |
+| `plforge cluster:delete` | Delete cluster |
+| `plforge cluster:bootstrap-check` | Wait for bootstrap deployments |
+| `plforge cluster:polaris-check` | Wait for Apache Polaris deployment |
+| `plforge cluster:reset` | Delete and recreate cluster |
 
 ### Apache Polaris Operations
 
 | Command | Description |
 |---------|-------------|
-| `task polaris:deploy` | Deploy Apache Polaris to cluster |
-| `task polaris:check` | Verify Apache Polaris deployment |
-| `task polaris:reset` | Purge and re-bootstrap Apache Polaris |
-| `task polaris:purge` | Purge Apache Polaris data |
-| `task polaris:bootstrap` | Bootstrap Apache Polaris |
+| `plforge polaris:deploy` | Deploy Apache Polaris to cluster |
+| `plforge polaris:check` | Verify Apache Polaris deployment |
+| `plforge polaris:reset` | Purge and re-bootstrap Apache Polaris |
+| `plforge polaris:purge` | Purge Apache Polaris data |
+| `plforge polaris:bootstrap` | Bootstrap Apache Polaris |
 
 ### Catalog Management
 
 | Command | Description |
 |---------|-------------|
-| `task catalog:setup` | Setup demo catalog |
-| `task catalog:cleanup` | Cleanup catalog resources |
-| `task catalog:reset` | Cleanup and recreate catalog |
-| `task catalog:list` | List catalogs |
-| `task catalog:verify:sql` | Verify with hybrid PyIceberg + DuckDB (fixes metadata staleness) |
-| `task catalog:query SQL="..."` | Execute read-only SQL query (no inserts) |
-| `task catalog:explore:sql` | Explore with DuckDB (interactive) |
-| `task catalog:verify:duckdb` | Verify with Python DuckDB |
-| `task catalog:generate-notebook` | Generate verification notebook |
-| `task catalog:info` | Show catalog configuration |
+| `plforge catalog:setup` | Setup demo catalog |
+| `plforge catalog:cleanup` | Cleanup catalog resources |
+| `plforge catalog:reset` | Cleanup and recreate catalog |
+| `plforge catalog:list` | List catalogs |
+| `plforge catalog:verify:sql` | Verify with hybrid PyIceberg + DuckDB (fixes metadata staleness) |
+| `plforge catalog:query SQL="..."` | Execute read-only SQL query (no inserts) |
+| `plforge catalog:explore:sql` | Explore with DuckDB (interactive) |
+| `plforge catalog:verify:duckdb` | Verify with Python DuckDB |
+| `plforge catalog:generate-notebook` | Generate verification notebook |
+| `plforge catalog:info` | Show catalog configuration |
 
 ### Version Management
 
@@ -476,7 +552,7 @@ task logs:polaris        # Stream Apache Polaris logs
 >
 > ```bash
 > kubectl get events -n polaris --sort-by='.lastTimestamp'
-> task polaris:deploy  # Re-apply deployment
+> plforge polaris:deploy  # Re-apply deployment
 > ```
 
 > [!WARNING]
@@ -492,7 +568,7 @@ task logs:polaris        # Stream Apache Polaris logs
 >
 > ```bash
 > task logs:bootstrap
-> task polaris:reset  # Reset Apache Polaris
+> plforge polaris:reset  # Reset Apache Polaris
 > ```
 
 > [!CAUTION]
@@ -525,10 +601,10 @@ kubectl describe pod -n polaris -l app=polaris
 
 ```bash
 # Cleanup catalog only (keep cluster)
-task catalog:cleanup
+plforge catalog:cleanup
 
 # Reset catalog (cleanup + setup)
-task catalog:reset
+plforge catalog:reset
 
 # Complete teardown (prompts to stop Podman machine on macOS)
 task teardown WORK_DIR=~/polaris-dev
